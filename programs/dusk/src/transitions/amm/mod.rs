@@ -114,7 +114,8 @@ impl Market {
 
     /// Reserve mutations invalidate a previously projected center/ramp cost.
     /// Keep the last evaluated target sticky and retain dynamic surcharge until
-    /// the next genuine user operation values the actual move.
+    /// the next genuine user operation values the actual move; the controller
+    /// releases retention when that valuation finds no move pending.
     /// CPMM and controller-disabled pools have no concentration impairment, so
     /// their surcharge remains immediately claimable.
     pub(crate) fn defer_amm_retention_target(&mut self) -> Result<()> {
@@ -491,14 +492,21 @@ impl Market {
         }
 
         if candidate_center == 0 {
-            if current_slot <= self.amm.last_adjustment_slot {
-                return Ok(false);
-            }
             let center = self.amm.center_price_nad;
             let target = self.amm.price_ema_nad;
             let distance = mul_div_u128(center.abs_diff(target) as u128, NAD as u128, center as u128)?;
             let step = (self.config.amm.adjustment_step_nad as u128).max(distance / 5);
+            // No move is pending. Value the target now so the dynamic
+            // surcharge is distributed instead of retained for a recenter
+            // that will not happen.
             if distance <= step {
+                self.amm
+                    .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
+                return Ok(false);
+            }
+            // A move is wanted but one was already applied this slot; leave
+            // the target stale so retention continues until it is valued.
+            if current_slot <= self.amm.last_adjustment_slot {
                 return Ok(false);
             }
             // Curve-style adaptive step toward the EMA. Existing funded-profit
@@ -510,6 +518,8 @@ impl Market {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             candidate_center = u64::try_from(candidate).map_err(|_| ErrorCode::MarketMathOverflow)?;
             if candidate_center == center {
+                self.amm
+                    .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
                 return Ok(false);
             }
         }
@@ -3061,23 +3071,15 @@ impl AmmState {
         Ok(())
     }
 
+    /// Retain while the target is stale (not yet valued against current
+    /// reserves) or names an impairing move. The recenter bucket is the only
+    /// recenter budget: retained surcharge no longer raises curve depth above
+    /// the protected floor, so the spendable buffer stays zero and a release
+    /// keyed on it could never fire. Retention ends when the controller finds
+    /// no pending move, or when the bucket funds the move and the next
+    /// valuation finds none.
     fn refresh_retention_gate(&mut self) {
-        if self.retention_target_stale {
-            self.retain_dynamic_surcharge = true;
-            return;
-        }
-        if self.retention_required_nad == 0 {
-            self.retain_dynamic_surcharge = false;
-            return;
-        }
-        let buffer = self.spendable_protected_profit_nad();
-        if self.retain_dynamic_surcharge {
-            if buffer >= self.retention_stop_nad {
-                self.retain_dynamic_surcharge = false;
-            }
-        } else if buffer < self.retention_required_nad {
-            self.retain_dynamic_surcharge = true;
-        }
+        self.retain_dynamic_surcharge = self.retention_target_stale || self.retention_required_nad > 0;
     }
 }
 

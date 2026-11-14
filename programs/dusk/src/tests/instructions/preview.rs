@@ -1093,8 +1093,9 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     assert!(preview_market.amm.curve_depth_per_share_nad > 0);
     assert!(preview_market.risk.observed_curve_depth_nad > 0);
 
-    // Retention is armed by an outward concentrated trade, then the following
-    // quote commits the surcharge as protected principal through the same path.
+    // Retention is armed by a concentrated trade while a center move is
+    // pending, then the following quote commits the surcharge as protected
+    // principal through the same path.
     let mut retained_market = preview_test_market(0, 0);
     retained_market.quote_side.reserves.live_reserve = 2_000_000;
     retained_market.quote_side.reserves.cash_reserve = 2_000_000;
@@ -1112,6 +1113,9 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
     };
     *retained_market.amm = crate::state::AmmState::default();
     retained_market.prepare_amm_for_swap(1).unwrap();
+    // The EMA is far from the center, so a move is wanted; none can be
+    // applied in the initialization slot, which keeps the target stale.
+    retained_market.amm.price_ema_nad = 2 * retained_market.amm.center_price_nad;
     let mut first = SwapRequest {
         current_slot: 1,
         current_unix_timestamp: 0,
@@ -1184,6 +1188,123 @@ fn preview_and_spot_share_the_exact_post_quote_state_lifecycle() {
         (live_before_withdraw as u128 * burn as u128 / supply_before_withdraw as u128) as u64
     );
     assert!(withdrawal.base_amount_out < protected_after.saturating_add(withdrawal.base_amount_out));
+}
+
+/// The dynamic surcharge funds the recenter bucket only while the controller
+/// has a center move pending. With no move pending it is LP fee income.
+#[test]
+fn dynamic_surcharge_is_retained_only_while_a_recenter_is_pending() {
+    // Returns the fee and whether the target was stale when quoted.
+    fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64) -> (SwapFeeBreakdown, bool) {
+        let mut prepared = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit,
+            protocol_fee_bps: 0,
+        }
+        .prepare(market)
+        .unwrap();
+        let stale = market.amm.retention_target_stale;
+        assert_eq!(
+            market.amm.retain_dynamic_surcharge,
+            stale || market.amm.deferred_controller_target.is_active()
+        );
+        let fee = prepared.quote.fee;
+        prepared
+            .finalize_state(market, slot, 0, crate::state::ProtocolAuctionSplit::default())
+            .unwrap();
+        (fee, stale)
+    }
+
+    let mut market = preview_test_market(0, 0);
+    market.quote_side.reserves.live_reserve = 2_000_000;
+    market.quote_side.reserves.cash_reserve = 2_000_000;
+    market.config.swap_fee_bps = 0;
+    market.config.divergence_fee_share_cap_bps = 5_000;
+    market.config.amm = AmmConfig {
+        peak_amplification_nad: 4 * NAD,
+        core_half_width_bps: 100,
+        fade_width_bps: 400,
+        adjustment_step_nad: NAD / 100,
+        divergence_fee_coefficient_nad: 10 * NAD,
+        ..AmmConfig::default()
+    };
+    *market.amm = crate::state::AmmState::default();
+    market.prepare_amm_for_swap(1).unwrap();
+    let center = market.amm.center_price_nad;
+
+    // Two-way flow that keeps the EMA within one step of the center: every
+    // surcharge is distributed and the bucket stays empty.
+    let (mut slot, mut surcharged) = (1_u64, 0_u64);
+    for i in 0..200_u64 {
+        slot += if i < 100 { 1 } else { 150 };
+        for (asset_in, amount) in [(MarketAsset::Base, 20_000), (MarketAsset::Quote, 40_000)] {
+            let (fee, stale) = swap(&mut market, asset_in, amount, slot);
+            if fee.dynamic_surcharge_debit > 0 {
+                surcharged += 1;
+            }
+            assert!(!stale && !market.amm.deferred_controller_target.is_active());
+            assert_eq!(fee.retained_surcharge, 0, "swap {i} {asset_in:?}");
+            assert_eq!(fee.distributed_surcharge_debit, fee.dynamic_surcharge_debit);
+        }
+    }
+    assert!(surcharged >= 300, "only {surcharged} surcharged swaps");
+    assert_eq!(market.amm.center_price_nad, center);
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, 0);
+
+    // The price moves 4% above the center and the EMA follows it. Moving the
+    // center toward the EMA lowers srLP curve depth per share and the empty
+    // bucket cannot fund that, so the controller defers the move and the
+    // surcharge is retained to fund it.
+    slot += 1;
+    swap(&mut market, MarketAsset::Quote, 100_000, slot);
+    let spot = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+    assert!(spot > center + center / 25);
+    market.amm.price_ema_nad = spot;
+    market.amm.last_trade_price_nad = spot;
+    slot += 1;
+    let (fee, stale) = swap(&mut market, MarketAsset::Quote, 10_000, slot);
+    assert!(!stale);
+    assert!(market.amm.deferred_controller_target.is_active());
+    assert!(market.amm.retention_required_nad > 0);
+    assert!(fee.dynamic_surcharge_debit > 0);
+    assert_eq!(fee.retained_surcharge, fee.dynamic_surcharge_debit);
+    assert_eq!(fee.distributed_surcharge_debit, 0);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, fee.retained_surcharge);
+    assert_eq!(market.amm.center_price_nad, center);
+
+    // Next slot the bucket funds the move: it is deployed and the center
+    // steps toward the EMA. The EMA is still more than a step away, so the
+    // surcharge keeps funding a fresh bucket for the following step.
+    slot += 1;
+    let (fee, stale) = swap(&mut market, MarketAsset::Quote, 10_000, slot);
+    assert!(stale);
+    let moved_center = market.amm.center_price_nad;
+    assert!(moved_center > center);
+    assert_eq!(market.amm.last_adjustment_slot, slot);
+    assert!(fee.dynamic_surcharge_debit > 0);
+    assert_eq!(fee.retained_surcharge, fee.dynamic_surcharge_debit);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, fee.retained_surcharge);
+    let retained = fee.retained_surcharge;
+
+    // The EMA settles within one step of the center: no move is pending and
+    // the surcharge is distributed again. The last retained atoms stay in the
+    // bucket until a later recenter deploys them.
+    market.amm.price_ema_nad = moved_center;
+    market.amm.last_trade_price_nad = moved_center;
+    slot += 1;
+    let (fee, stale) = swap(&mut market, MarketAsset::Quote, 10_000, slot);
+    assert!(!stale);
+    assert!(!market.amm.deferred_controller_target.is_active());
+    assert_eq!(market.amm.retention_required_nad, 0);
+    assert!(fee.dynamic_surcharge_debit > 0);
+    assert_eq!(fee.retained_surcharge, 0);
+    assert_eq!(fee.distributed_surcharge_debit, fee.dynamic_surcharge_debit);
+    assert_eq!(market.amm.center_price_nad, moved_center);
+    assert_eq!(market.quote_side.reserves.protected_recenter_reserve, retained);
+    assert_eq!(market.base_side.reserves.protected_recenter_reserve, 0);
 }
 
 proptest! {
