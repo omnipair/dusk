@@ -114,7 +114,8 @@ impl Market {
 
     /// Reserve mutations invalidate a previously projected center/ramp cost.
     /// Keep the last evaluated target sticky and retain dynamic surcharge until
-    /// the next genuine user operation values the actual move.
+    /// the next genuine user operation values the actual move; the controller
+    /// releases retention when that valuation finds no move pending.
     /// CPMM and controller-disabled pools have no concentration impairment, so
     /// their surcharge remains immediately claimable.
     pub(crate) fn defer_amm_retention_target(&mut self) -> Result<()> {
@@ -494,14 +495,21 @@ impl Market {
         }
 
         if candidate_center == 0 {
-            if current_slot <= self.amm.last_adjustment_slot {
-                return Ok(false);
-            }
             let center = self.amm.center_price_nad;
             let target = self.amm.price_ema_nad;
             let distance = mul_div_u128(center.abs_diff(target) as u128, NAD as u128, center as u128)?;
             let step = (self.config.amm.adjustment_step_nad as u128).max(distance / 5);
+            // No move is pending. Value the target now so the dynamic
+            // surcharge is distributed instead of retained for a recenter
+            // that will not happen.
             if distance <= step {
+                self.amm
+                    .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
+                return Ok(false);
+            }
+            // A move is wanted but one was already applied this slot; leave
+            // the target stale so retention continues until it is valued.
+            if current_slot <= self.amm.last_adjustment_slot {
                 return Ok(false);
             }
             // Curve-style adaptive step toward the EMA. Existing funded-profit
@@ -513,6 +521,8 @@ impl Market {
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             candidate_center = u64::try_from(candidate).map_err(|_| ErrorCode::MarketMathOverflow)?;
             if candidate_center == center {
+                self.amm
+                    .refresh_retention_target(self.amm.curve_depth_per_share_nad, 0)?;
                 return Ok(false);
             }
         }
@@ -888,6 +898,85 @@ impl Market {
                 self.amm.frozen_quote_vault_quote_offset_nad = 0;
             }
         }
+    }
+
+    /// A frozen vault is priced as a carve-out fixed at freeze, while its
+    /// pro-rata srLP claim keeps following reserves. The gap
+    /// `claim - carve-out` is a translation of the priced point that belongs
+    /// to ordinary srLP, like the funding pricing offsets. A pro-rata srLP
+    /// add or remove leaves the vault's claim unchanged and scales ordinary
+    /// inventory by `after / before` ordinary units, so the gap is scaled by
+    /// the same ratio; the priced point then scales as a whole and spot is
+    /// unchanged. Called after the reserve and supply mutation.
+    pub(crate) fn scale_frozen_hlp_carve_out(&mut self, supply_before: u64) -> Result<()> {
+        if self.amm.frozen_hlp_mask == 0 {
+            return Ok(());
+        }
+        let hlp = self
+            .base_hlp_vault
+            .srlp_shares
+            .checked_add(self.quote_hlp_vault.srlp_shares)
+            .ok_or(ErrorCode::SupplyOverflow)?;
+        let supply = self.base_side.shares.srlp_supply;
+        let before = supply_before.checked_sub(hlp).ok_or(ErrorCode::SupplyUnderflow)?;
+        let after = supply.checked_sub(hlp).ok_or(ErrorCode::SupplyUnderflow)?;
+        require!(before > 0 && supply > 0, ErrorCode::SupplyUnderflow);
+        if after == before {
+            return Ok(());
+        }
+        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+        // offset += gap * (after - before) / before, rounding the magnitude down.
+        let shift = |offset: i128, claim: u128, live: u128| -> Result<i128> {
+            let gap = signed(claim)?
+                .checked_add(offset)
+                .and_then(|value| value.checked_sub(signed(live).ok()?))
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            let delta = signed(mul_div_u128(
+                gap.unsigned_abs(),
+                u128::from(after.abs_diff(before)),
+                u128::from(before),
+            )?)?;
+            let delta = if (gap < 0) == (after < before) { delta } else { -delta };
+            offset
+                .checked_add(delta)
+                .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+        };
+        let reserves = self.curve_reserves_nad()?;
+        if self.hlp_frozen(MarketAsset::Base) {
+            let shares = u128::from(self.base_hlp_vault.srlp_shares);
+            let live = self.normalize_amount(
+                u128::from(self.base_hlp_vault.hlp_live_reserve(MarketAsset::Quote)),
+                self.quote_side.asset_decimals,
+            )?;
+            self.amm.frozen_base_vault_base_offset_nad = shift(
+                self.amm.frozen_base_vault_base_offset_nad,
+                mul_div_u128(reserves.base, shares, u128::from(supply))?,
+                0,
+            )?;
+            self.amm.frozen_base_vault_quote_offset_nad = shift(
+                self.amm.frozen_base_vault_quote_offset_nad,
+                mul_div_u128(reserves.quote, shares, u128::from(supply))?,
+                live,
+            )?;
+        }
+        if self.hlp_frozen(MarketAsset::Quote) {
+            let shares = u128::from(self.quote_hlp_vault.srlp_shares);
+            let live = self.normalize_amount(
+                u128::from(self.quote_hlp_vault.hlp_live_reserve(MarketAsset::Base)),
+                self.base_side.asset_decimals,
+            )?;
+            self.amm.frozen_quote_vault_base_offset_nad = shift(
+                self.amm.frozen_quote_vault_base_offset_nad,
+                mul_div_u128(reserves.base, shares, u128::from(supply))?,
+                live,
+            )?;
+            self.amm.frozen_quote_vault_quote_offset_nad = shift(
+                self.amm.frozen_quote_vault_quote_offset_nad,
+                mul_div_u128(reserves.quote, shares, u128::from(supply))?,
+                0,
+            )?;
+        }
+        Ok(())
     }
 
     pub(crate) fn hlp_frozen(&self, target: MarketAsset) -> bool {
@@ -3006,23 +3095,15 @@ impl AmmState {
         Ok(())
     }
 
+    /// Retain while the target is stale (not yet valued against current
+    /// reserves) or names an impairing move. The recenter bucket is the only
+    /// recenter budget: retained surcharge no longer raises curve depth above
+    /// the protected floor, so the spendable buffer stays zero and a release
+    /// keyed on it could never fire. Retention ends when the controller finds
+    /// no pending move, or when the bucket funds the move and the next
+    /// valuation finds none.
     fn refresh_retention_gate(&mut self) {
-        if self.retention_target_stale {
-            self.retain_dynamic_surcharge = true;
-            return;
-        }
-        if self.retention_required_nad == 0 {
-            self.retain_dynamic_surcharge = false;
-            return;
-        }
-        let buffer = self.spendable_protected_profit_nad();
-        if self.retain_dynamic_surcharge {
-            if buffer >= self.retention_stop_nad {
-                self.retain_dynamic_surcharge = false;
-            }
-        } else if buffer < self.retention_required_nad {
-            self.retain_dynamic_surcharge = true;
-        }
+        self.retain_dynamic_surcharge = self.retention_target_stale || self.retention_required_nad > 0;
     }
 }
 
