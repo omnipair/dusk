@@ -50,6 +50,9 @@ jobs:
       - name: Check repository hygiene
         run: yarn check:hygiene
 
+      - name: Check release tooling
+        run: yarn check:release
+
       - name: Check production helper shape
         run: yarn check:code-shape
 

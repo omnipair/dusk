@@ -1,329 +1,149 @@
 name: release-build
 
+# Builds an immutable, unsigned bundle. Never deploys, signs, tags or publishes.
 on:
   pull_request:
-    types: [closed]
+    paths:
+      - "programs/**"
+      - "packages/dusk-sdk/**"
+      - "scripts/release/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release-build.yaml"
+  push:
     branches: [main]
+    paths:
+      - "programs/**"
+      - "packages/dusk-sdk/**"
+      - "scripts/release/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/release-build.yaml"
   workflow_dispatch:
     inputs:
-      version:
-        description: "Version to release, without v prefix"
-        required: false
-      bump_type:
-        description: "Bump type when version is omitted"
-        type: choice
-        options:
-          - auto
-          - patch
-          - minor
-          - major
-        default: auto
-      verify_only:
-        description: "Build and verify without creating a release"
-        type: boolean
-        default: false
+      commit:
+        description: "Full reviewed commit SHA to build (no branch or tag)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   ANCHOR_VERSION: "0.31.1"
   SOLANA_VERSION: "4.1.0"
-  PROGRAM_CRATE: dusk
-  PROGRAM_LIBRARY: dusk
-  PROGRAM_SO: dusk.so
-  LEVERAGE_DELEGATE_SO: leverage_delegate.so
-  PROGRAM_IDL: dusk.json
-  PROGRAM_TYPES: dusk.ts
-  INITIAL_RELEASE_VERSION: "2.0.0"
+  SOURCE_COMMIT: ${{ github.event_name == 'workflow_dispatch' && inputs.commit || github.event.pull_request.head.sha || github.sha }}
 
 jobs:
-  prepare-release:
-    if: |
-      (github.event_name == 'pull_request' && github.event.pull_request.merged == true) ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.verify_only != 'true')
-    runs-on: ubuntu-22.04
-    outputs:
-      should_release: ${{ steps.version.outputs.should_release }}
-      version: ${{ steps.version.outputs.version }}
-      tag: ${{ steps.version.outputs.tag }}
-      bump_type: ${{ steps.version.outputs.bump_type }}
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Validate immutable source
+        run: '[[ "$SOURCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]'
+      - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Calculate release version
-        id: version
-        run: |
-          RELEASES_ENABLED="${{ vars.DUSK_RELEASES_ENABLED }}"
-          if [ "$RELEASES_ENABLED" != "true" ]; then
-            echo "Release publishing is disabled."
-            echo "Set repository variable DUSK_RELEASES_ENABLED=true only after release checklist and owner signoff are complete."
-            {
-              echo "### Release skipped"
-              echo ""
-              echo "Release publishing requires repository variable \`DUSK_RELEASES_ENABLED=true\`."
-              echo "Leave it unset or false until the Dusk release checklist and owner signoff are complete."
-            } >> "$GITHUB_STEP_SUMMARY"
-            echo "should_release=false" >> "$GITHUB_OUTPUT"
-            echo "bump_type=disabled" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          LATEST_TAG=$(git tag --list 'v*' --sort=-v:refname | awk -F'[v.]' '$2 >= 2 { print; exit }')
-          HAS_RELEASE_TAG="true"
-          if [ -z "$LATEST_TAG" ]; then
-            HAS_RELEASE_TAG="false"
-            LATEST_TAG="v$INITIAL_RELEASE_VERSION"
-          fi
-          LATEST_VERSION="${LATEST_TAG#v}"
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
-          MAJOR=${MAJOR:-0}
-          MINOR=${MINOR:-0}
-          PATCH=${PATCH:-0}
-          SHOULD_RELEASE="true"
-
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || true)
-            if ! echo "$CHANGED_FILES" | grep -Eq '^(programs/dusk/|programs/leverage_delegate/|packages/dusk-sdk/|Anchor.toml|Cargo.toml|Cargo.lock)'; then
-              SHOULD_RELEASE="false"
-            fi
-            COMMITS=$(git log --format="%s" ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} 2>/dev/null || git log --format="%s" -10)
-            if echo "$COMMITS" | grep -qiE "^(feat|fix|refactor|perf|build|ci|docs|style|test|chore)(\(.+\))?!:|BREAKING CHANGE:"; then
-              BUMP_TYPE="major"
-            elif echo "$COMMITS" | grep -qiE "^feat(\(.+\))?:"; then
-              BUMP_TYPE="minor"
-            elif echo "$COMMITS" | grep -qiE "^(fix|perf)(\(.+\))?:"; then
-              BUMP_TYPE="patch"
-            else
-              SHOULD_RELEASE="false"
-              BUMP_TYPE="none"
-            fi
-          elif [ -n "${{ github.event.inputs.version }}" ]; then
-            NEW_VERSION="${{ github.event.inputs.version }}"
-            BUMP_TYPE="manual"
-          else
-            BUMP_TYPE="${{ github.event.inputs.bump_type }}"
-            if [ "$BUMP_TYPE" = "auto" ]; then
-              BUMP_TYPE="patch"
-            fi
-          fi
-
-          if [ "$SHOULD_RELEASE" = "true" ] && [ "${BUMP_TYPE:-}" != "manual" ]; then
-            if [ "$HAS_RELEASE_TAG" = "false" ]; then
-              NEW_VERSION="$INITIAL_RELEASE_VERSION"
-            else
-              case "$BUMP_TYPE" in
-                major) NEW_VERSION="$((MAJOR + 1)).0.0" ;;
-                minor) NEW_VERSION="${MAJOR}.$((MINOR + 1)).0" ;;
-                patch) NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
-                *) SHOULD_RELEASE="false" ;;
-              esac
-            fi
-          fi
-
-          if [ "$SHOULD_RELEASE" = "true" ]; then
-            echo "version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-            echo "tag=v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          fi
-          echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
-          echo "bump_type=${BUMP_TYPE:-none}" >> "$GITHUB_OUTPUT"
-
-  build-release:
-    needs: prepare-release
-    if: needs.prepare-release.outputs.should_release == 'true'
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-    outputs:
-      tag: ${{ needs.prepare-release.outputs.tag }}
-      version: ${{ needs.prepare-release.outputs.version }}
-      sha: ${{ steps.bump.outputs.sha }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-
-      - name: Extract Dusk program ID
-        id: program
-        run: |
-          PROGRAM_ID=$(grep 'declare_id!' programs/dusk/src/lib.rs | sed 's/declare_id!("//;s/");$//')
-          echo "program_id=$PROGRAM_ID" >> "$GITHUB_OUTPUT"
-
-      - name: Bump versions
-        id: bump
-        run: |
-          VERSION="${{ needs.prepare-release.outputs.version }}"
-          export VERSION
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/dusk/Cargo.toml
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/leverage_delegate/Cargo.toml
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" programs/faucet/Cargo.toml
-          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
-          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" packages/dusk-sdk/package.json
-          cargo metadata --format-version 1 > /dev/null
-          node <<'NODE'
-          const fs = require('fs');
-          const version = process.env.VERSION;
-
-          const packageLockPath = 'package-lock.json';
-          const packageLock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8'));
-          packageLock.version = version;
-          packageLock.packages[''].version = version;
-          fs.writeFileSync(packageLockPath, `${JSON.stringify(packageLock, null, 2)}\n`);
-
-          const idlPath = 'packages/dusk-sdk/src/idl_v2.json';
-          const idl = JSON.parse(fs.readFileSync(idlPath, 'utf8'));
-          idl.metadata.version = version;
-          fs.writeFileSync(idlPath, JSON.stringify(idl, null, 2));
-
-          const typesPath = 'packages/dusk-sdk/src/types_v2.ts';
-          const types = fs.readFileSync(typesPath, 'utf8').replace(
-            /("metadata": \{\n    "name": "dusk",\n    "version": ")[^"]+"/,
-            `$1${version}"`
-          );
-          fs.writeFileSync(typesPath, types);
-          NODE
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add \
-            package.json \
-            package-lock.json \
-            programs/dusk/Cargo.toml \
-            programs/leverage_delegate/Cargo.toml \
-            programs/faucet/Cargo.toml \
-            packages/dusk-sdk/package.json \
-            packages/dusk-sdk/src/idl_v2.json \
-            packages/dusk-sdk/src/types_v2.ts \
-            Cargo.lock
-          git commit -m "chore: bump version to $VERSION [skip ci]" || true
-          git push origin HEAD:main
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Install Solana CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-
-      - name: Install Anchor CLI
-        run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: yarn
-
-      - name: Install JavaScript dependencies
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: mainnet-release-anchor-0.31.1-solana-4.1.0
+      - name: Cache Solana CLI
+        id: solana-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.local/share/solana/install
+          key: solana-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.SOLANA_VERSION }}
+      - name: Install Solana
+        if: steps.solana-cache.outputs.cache-hit != 'true'
+        run: |
+          curl --fail --silent --show-error --location --retry 3 --retry-all-errors \
+            "https://release.anza.xyz/v$SOLANA_VERSION/install" --output "$RUNNER_TEMP/solana-install.sh"
+          sh "$RUNNER_TEMP/solana-install.sh"
+      - name: Verify Solana CLI
+        run: |
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          test "$("$HOME/.local/share/solana/install/active_release/bin/solana" --version | cut -d ' ' -f 2)" = "$SOLANA_VERSION"
+      - name: Cache Anchor CLI
+        id: anchor-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/anchor
+          key: anchor-cli-${{ runner.os }}-${{ runner.arch }}-${{ env.ANCHOR_VERSION }}
+      - name: Install Anchor
+        if: steps.anchor-cache.outputs.cache-hit != 'true'
+        run: cargo install --git https://github.com/coral-xyz/anchor --tag "v$ANCHOR_VERSION" anchor-cli --locked
+      - name: Cache verifier
+        id: verifier-cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/solana-verify
+          key: solana-verify-${{ runner.os }}-${{ runner.arch }}-0.4.11
+      - name: Install verifier
+        if: steps.verifier-cache.outputs.cache-hit != 'true'
+        run: cargo install solana-verify --version 0.4.11 --locked
+      - name: Verify build tools
+        run: |
+          test "$(anchor --version)" = "anchor-cli $ANCHOR_VERSION"
+          test "$(solana-verify --version)" = "solana-verify 0.4.11"
+      - name: Install dependencies
         run: yarn install --frozen-lockfile
-
-      - name: Build verifiable Dusk artifact
-        run: |
-          cargo clean
-          anchor build --verifiable -p "${{ env.PROGRAM_CRATE }}" \
-            -e GIT_REV=${{ steps.bump.outputs.sha }} \
-            -e GIT_RELEASE=${{ needs.prepare-release.outputs.tag }} \
-            -- --features production
-          anchor build --verifiable -p leverage_delegate -- --features production
-
-      - name: Verify required artifacts
-        run: |
-          for artifact in \
-            "target/verifiable/${{ env.PROGRAM_SO }}" \
-            "target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}" \
-            "target/idl/${{ env.PROGRAM_IDL }}" \
-            "target/types/${{ env.PROGRAM_TYPES }}"
-          do
-            test -f "$artifact"
-          done
-          strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_release
-          strings "target/verifiable/${{ env.PROGRAM_SO }}" | grep -q source_revision
-
-      - name: Verify program interface matches build artifacts
-        run: npm run check-idl-current --prefix packages/dusk-sdk
-
-      - name: Create and push tag
-        run: |
-          git tag -a ${{ needs.prepare-release.outputs.tag }} -m "Release ${{ needs.prepare-release.outputs.tag }}"
-          git push origin ${{ needs.prepare-release.outputs.tag }}
-
-      - name: Upload build artifacts
+      - name: Check release tooling
+        run: node --test scripts/release/release.test.mjs
+      - name: Build smoke fixtures and interfaces
+        run: yarn build:litesvm
+      - name: Build both production programs reproducibly
+        run: node scripts/release/build.mjs
+      - name: Check build left the reviewed source unchanged
+        run: git diff --exit-code
+      - name: Upload immutable release bundle
         uses: actions/upload-artifact@v4
         with:
-          name: dusk-build-${{ needs.prepare-release.outputs.tag }}
-          path: |
-            target/verifiable/${{ env.PROGRAM_SO }}
-            target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}
-            target/idl/${{ env.PROGRAM_IDL }}
-            target/types/${{ env.PROGRAM_TYPES }}
+          name: dusk-mainnet-release-${{ env.SOURCE_COMMIT }}
+          path: target/mainnet-release/*
           if-no-files-found: error
           retention-days: 90
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload exact release binaries and smoke fixtures
+        uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ needs.prepare-release.outputs.tag }}
-          name: Omnipair Dusk ${{ needs.prepare-release.outputs.tag }}
-          body: |
-            ## Omnipair Dusk ${{ needs.prepare-release.outputs.tag }}
+          name: mainnet-release-litesvm-${{ env.SOURCE_COMMIT }}
+          path: |
+            target/deploy/*.so
+            target/idl/*.json
+          if-no-files-found: error
+          retention-days: 7
 
-            **Commit:** `${{ steps.bump.outputs.sha }}`
-            **Program ID:** `${{ steps.program.outputs.program_id }}`
-
-            ```bash
-            solana-verify verify-from-repo \
-              --remote \
-              --program-id ${{ steps.program.outputs.program_id }} \
-              https://github.com/${{ github.repository }} \
-              --commit-hash ${{ steps.bump.outputs.sha }} \
-              --library-name ${{ env.PROGRAM_LIBRARY }} \
-              -- --features production \
-                 --config "env.GIT_REV=\"${{ steps.bump.outputs.sha }}\"" \
-                 --config "env.GIT_RELEASE=\"${{ needs.prepare-release.outputs.tag }}\""
-            ```
-          files: |
-            target/verifiable/${{ env.PROGRAM_SO }}
-            target/verifiable/${{ env.LEVERAGE_DELEGATE_SO }}
-            target/idl/${{ env.PROGRAM_IDL }}
-            target/types/${{ env.PROGRAM_TYPES }}
-          generate_release_notes: true
-          make_latest: true
-
-  verify-only:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.verify_only == 'true'
-    runs-on: ubuntu-22.04
+  test-release-binaries:
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 30
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Solana CLI
-        run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/v${{ env.SOLANA_VERSION }}/install)"
-          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
-
-      - name: Install Anchor CLI
-        run: cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.SOURCE_COMMIT }}
+          persist-credentials: false
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: yarn
-
-      - name: Install JavaScript dependencies
+      - name: Install dependencies
         run: yarn install --frozen-lockfile
-
-      - name: Build Dusk
-        run: |
-          anchor build -p "${{ env.PROGRAM_CRATE }}" -- --features production
-          anchor build -p leverage_delegate -- --features production
-
-      - name: Verify program interface matches build artifacts
-        run: npm run check-idl-current --prefix packages/dusk-sdk
-
-      - name: Test Dusk
-        run: cargo test -p dusk
-
-      - name: Test leverage delegate
-        run: cargo test -p leverage_delegate
+      - uses: actions/download-artifact@v4
+        with:
+          name: mainnet-release-litesvm-${{ env.SOURCE_COMMIT }}
+          path: target
+      - name: Require ARM64 runner
+        run: test "$(uname -m)" = "arm64"
+      - name: Test the exact verifiable production binaries
+        run: DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES=1 DUSK_REQUIRE_COMPLETE_CU_BASELINE=1 yarn test-litesvm:no-build --forbid-pending

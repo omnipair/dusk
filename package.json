@@ -35,7 +35,10 @@
     "v2:build-leverage-delegate-devnet": "node scripts/prepare_build.js && anchor idl build -p leverage_delegate -o target/idl/leverage_delegate.json -t target/types/leverage_delegate.ts && rm -f target/deploy/leverage_delegate.so && anchor build -p leverage_delegate --no-idl -- --arch v0",
     "v2:deploy-leverage-delegate-devnet": "scripts/v2/deploy_program.sh target/deploy/leverage_delegate.so ${DUSK_LEVERAGE_DELEGATE_PROGRAM_KEYPAIR:-$HOME/.config/omnipair/dusk-devnet/fresh-layout16-20261114/leverage_delegate-keypair.json} target/idl/leverage_delegate.json",
     "v2:build-faucet-devnet": "node scripts/prepare_build.js && anchor idl build -p faucet -o target/idl/faucet.json -t target/types/faucet.ts && rm -f target/deploy/faucet.so && anchor build -p faucet --no-idl -- --arch v0",
-    "v2:deploy-faucet-devnet": "solana program deploy target/deploy/faucet.so --program-id ${DUSK_FAUCET_PROGRAM_KEYPAIR:-$HOME/.config/omnipair/dusk-devnet/faucet-program-keypair.json} --keypair ${ANCHOR_WALLET:-deployer-keypair.json} --upgrade-authority ${ANCHOR_WALLET:-deployer-keypair.json} --url devnet"
+    "v2:deploy-faucet-devnet": "solana program deploy target/deploy/faucet.so --program-id ${DUSK_FAUCET_PROGRAM_KEYPAIR:-$HOME/.config/omnipair/dusk-devnet/faucet-program-keypair.json} --keypair ${ANCHOR_WALLET:-deployer-keypair.json} --upgrade-authority ${ANCHOR_WALLET:-deployer-keypair.json} --url devnet",
+    "release:build": "node scripts/release/build.mjs",
+    "release:local": "node scripts/release/local.mjs",
+    "check:release": "node --test scripts/release/release.test.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.31.1",

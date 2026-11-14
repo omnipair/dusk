@@ -14,8 +14,8 @@ name: publish-sdk
 # A merge that keeps a published version publishes nothing. A merge whose IDLs
 # do not match the cluster yet publishes nothing and leaves a warning; once the
 # deployment is live, re-running that run publishes it. The check covers the
-# interface only: a program change that keeps the IDLs passes it whether or not
-# it is deployed.
+# interface for devnet. Stable releases additionally match both deployed binaries
+# and authorities against a successfully tested release bundle for this commit.
 #
 # A pull request that touches the package checks its version and build without
 # requiring a deployment. Deployment matching runs before publishing from main
@@ -64,6 +64,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 defaults:
   run:
@@ -91,7 +92,7 @@ jobs:
       version: ${{ steps.channel.outputs.version }}
       dist_tag: ${{ steps.channel.outputs.dist_tag }}
       published: ${{ steps.registry.outputs.published }}
-      deployed: ${{ steps.idl.outputs.deployed }}
+      deployed: ${{ steps.idl.outputs.deployed == 'true' && (steps.channel.outputs.dist_tag != 'latest' || steps.code.outputs.verified == 'true') }}
       tarball: ${{ steps.pack.outputs.tarball }}
     steps:
       - name: Checkout the commit
@@ -367,10 +368,46 @@ jobs:
           });
           NODE
 
+      - name: Locate tested production release bundle
+        id: release
+        if: steps.idl.outputs.deployed == 'true' && steps.channel.outputs.dist_tag == 'latest'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execFileSync } = require('node:child_process');
+            const commit = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...context.repo, workflow_id: 'release-build.yaml', head_sha: commit,
+              status: 'completed', event: 'push', per_page: 100,
+            });
+            const run = data.workflow_runs.find(run => run.head_sha === commit && run.head_branch === 'main' && run.conclusion === 'success');
+            if (!run) throw new Error('No successful release build and exact-binary smoke test for this main commit. Finish release-build, deploy its bundle, then rerun publishing.');
+            core.setOutput('run_id', String(run.id));
+            core.setOutput('commit', commit);
+
+      - name: Download tested production release bundle
+        if: steps.idl.outputs.deployed == 'true' && steps.channel.outputs.dist_tag == 'latest'
+        uses: actions/download-artifact@v4
+        with:
+          name: dusk-mainnet-release-${{ steps.release.outputs.commit }}
+          run-id: ${{ steps.release.outputs.run_id }}
+          github-token: ${{ github.token }}
+          path: target/mainnet-release
+
+      - name: Match mainnet bytecode, IDLs and authorities to the tested source
+        id: code
+        if: steps.idl.outputs.deployed == 'true' && steps.channel.outputs.dist_tag == 'latest'
+        env:
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL || 'https://api.mainnet-beta.solana.com' }}
+        run: |
+          node scripts/release/verify.mjs target/mainnet-release "$(git rev-parse HEAD)" > "$RUNNER_TEMP/mainnet-verification.json"
+          cat "$RUNNER_TEMP/mainnet-verification.json" >> "$GITHUB_STEP_SUMMARY"
+          echo "verified=true" >> "$GITHUB_OUTPUT"
+
       # A pull request stops after the checks.
       - name: Pack
         id: pack
-        if: steps.idl.outputs.deployed == 'true' && github.event_name != 'pull_request'
+        if: steps.idl.outputs.deployed == 'true' && (steps.channel.outputs.dist_tag != 'latest' || steps.code.outputs.verified == 'true') && github.event_name != 'pull_request'
         working-directory: ${{ env.PACKAGE_DIR }}
         run: |
           DESTINATION="$RUNNER_TEMP/package"
@@ -380,7 +417,7 @@ jobs:
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
 
       - name: Upload tarball
-        if: steps.idl.outputs.deployed == 'true' && github.event_name != 'pull_request'
+        if: steps.idl.outputs.deployed == 'true' && (steps.channel.outputs.dist_tag != 'latest' || steps.code.outputs.verified == 'true') && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: dusk-sdk-tarball

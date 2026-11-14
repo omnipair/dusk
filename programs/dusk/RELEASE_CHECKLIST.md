@@ -8,14 +8,12 @@ mainnet launch or upgrade.
 ## 1. Scope Freeze
 
 - Confirm Dusk remains a standalone program: `programs/dusk`.
-- Confirm repository variable `DUSK_RELEASES_ENABLED` is unset or `false`
-  until this checklist and owner signoff are complete. Set it to `true` only
-  for an approved release window, then set it back to `false` after the release
-  artifacts are published.
-- Confirm repository variable `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` is unset or
-  `false` until the approved mainnet buffer deployment window. Set it to `true`
-  only while deploying a signed-off release buffer, then set it back to `false`
-  after the buffer address and Squads authority transfer are recorded.
+- Use `scripts/release/README.md` for immutable two-program bundles, encrypted-volume
+  local signing, both IDL uploads, bytecode/source verification and stable SDK
+  publication. The release-build workflow only builds and tests; it does not
+  create commits, deploy, transfer authorities or publish.
+- Keep `DUSK_MAINNET_BUFFER_DEPLOYS_ENABLED` disabled for the initial local
+  deployment. The older buffer workflow is reserved for later Squads upgrades.
 - Confirm the emergency reduce-only authority is the intended signer and can
   reach `set_market_reduce_only` for incident response.
 - Confirm owners, dashboards, paging, and reduce-only procedures are current
@@ -41,7 +39,7 @@ mainnet launch or upgrade.
 - Re-check the per-debt-side shared 24-hour leaky/token bucket against
   pessimistic curve depth and the exact applied CPMM/Dusk Concentrated AMM risk
   shapes. Confirm checkpoint-frequency-independent refill at a fixed absolute
-  limit, conservative-depth resizing, no repayment/exit refund, and enforcement
+  limit, conservative-depth resizing, principal-repayment capacity refunds, and enforcement
   only for public lending `borrow`. Isolated leverage and direct or automatic
   hLP funding do not consume the bucket because they do not lend cash out. It
   is not an exact trailing-window sum.

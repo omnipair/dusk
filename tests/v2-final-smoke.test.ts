@@ -123,9 +123,9 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { AnchorProvider, BN, Program, Wallet } = anchor;
-const DUSK_PROGRAM_ID = new PublicKey("9gEvWS1Vqxmd9qr9w5KpEN2PGcn9DN1rE5NptD1ZcqXH");
+const DUSK_PROGRAM_ID = new PublicKey("DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj");
 const LEVERAGE_DELEGATE_PROGRAM_ID = new PublicKey(
-  "5yeZJw1bNer5jq4GVNa7ifsgnM7ivxXQLCK6ro8EJ3Ue"
+  "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ"
 );
 const OPERATOR_ADAPTER_PROGRAM_ID = new PublicKey("AJZgAHa6yfsoLbJk3jzqj6dPcnei5Pb7heRMGWrZu1fQ");
 const REFERRAL_TRANSFER_HOOK_PROGRAM_ID = new PublicKey(
@@ -532,9 +532,27 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   async function createHookedLpMint(
     authority: PublicKey,
     decimals = 6,
-    mint = Keypair.generate()
+    mint?: Keypair,
+    suffix: "srLP" | "hLP" = "hLP"
   ) {
     const mintLen = getMintLen([ExtensionType.TransferHook]);
+    if (process.env.DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES === "1" && !mint) {
+      // Allocate a unique public test account with the production suffix, then
+      // initialize it through the real Token-2022 instructions. No private key
+      // is invented and transaction signature verification stays enabled.
+      const random = Keypair.generate().publicKey.toBase58();
+      const publicKey = new PublicKey(random.slice(0, -suffix.length) + suffix);
+      svm.setAccount(publicKey, {
+        lamports: await connection.getMinimumBalanceForRentExemption(mintLen),
+        data: Buffer.alloc(mintLen), owner: TOKEN_2022_PROGRAM_ID, executable: false,
+      });
+      await connection.sendTransaction(new Transaction().add(
+        createInitializeTransferHookInstruction(publicKey, PublicKey.default, DUSK_PROGRAM_ID, TOKEN_2022_PROGRAM_ID),
+        createInitializeMintInstruction(publicKey, decimals, authority, null, TOKEN_2022_PROGRAM_ID),
+      ), [payer]);
+      return publicKey;
+    }
+    mint ??= Keypair.generate();
     await connection.sendTransaction(
       new Transaction().add(
         SystemProgram.createAccount({
@@ -991,28 +1009,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   async function initializeFinalMarket(paramsSeed: number, config = marketConfig(), oracle: OraclePolicyInput | null = null, expectedError?: string) {
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
     const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
-    if (process.env.DUSK_EXPECT_PRODUCTION_MINT_SUFFIXES === "1") {
-      const paramsHash = await creationParamsHash(config, oracle);
-      const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
-      // Public test-only keys satisfying production's exact srLP/hLP suffixes.
-      const srlp = Keypair.fromSecretKey(
-        Buffer.from("sbzYeF0Ro9E5d0PQMwcB5G0BDcL6Ih0Fsw/D3V/DbYsL8WOY8RrBv5vfLmX6TxY1oVaOyefhVi3RKqV/g5i4+A==", "base64")
-      );
-      const baseHlp = Keypair.fromSecretKey(
-        Buffer.from("mcqSo7BbkVpVF14Stzsj62CcpMdDYV30bPeHBB8XDrkJIUjEkHjWHig2YGwzxgyi/Y+Mdr/fIQR2Wzi/3SvArA==", "base64")
-      );
-      const quoteHlp = Keypair.fromSecretKey(
-        Buffer.from("W1Quna5vQMVJqK+Ah0r6NBQGKcFZnGpN+Wgjj6DCrqMH9fJyiOBna+rsbArFZY2n2Tu5tzuh065P6+95avwDDA==", "base64")
-      );
-      await createHookedLpMint(market, 6, srlp);
-      await createHookedLpMint(market, 6, baseHlp);
-      await createHookedLpMint(market, 6, quoteHlp);
-      return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config, 6, {
-        srlpMint: srlp.publicKey,
-        baseHlpMint: baseHlp.publicKey,
-        quoteHlpMint: quoteHlp.publicKey,
-      }, 6, oracle, expectedError);
-    }
     return initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint, config, 6, {}, 6, oracle, expectedError);
   }
 
@@ -1035,7 +1031,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   ) {
     const paramsHash = paramsHashOverride ?? await creationParamsHash(config, oracle, bootstrapPriceNad);
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
-    const srlpMint = lpMints.srlpMint ?? (await createHookedLpMint(market, lpDecimals));
+    const srlpMint = lpMints.srlpMint ?? (await createHookedLpMint(market, lpDecimals, undefined, "srLP"));
     const baseHlpMint = lpMints.baseHlpMint ?? (await createHookedLpMint(market, lpDecimals));
     const quoteHlpMint = lpMints.quoteHlpMint ?? (await createHookedLpMint(market, quoteLpDecimals));
     const srlpTokenMetadata = deriveTokenMetadataAddress(srlpMint)[0];
@@ -2138,7 +2134,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     const paramsHash = await creationParamsHash();
     const [market] = deriveMarketAddress(baseMint, quoteMint, paramsHash);
     const sharedHlpMint = await createHookedLpMint(market, 6);
-    const srlpMint = await createHookedLpMint(market, 6);
+    const srlpMint = await createHookedLpMint(market, 6, undefined, "srLP");
 
     const baseHlpSrlpVault = deriveHlpSrlpVaultAddress(market, sharedHlpMint, srlpMint)[0];
     const quoteHlpSrlpVault = deriveHlpSrlpVaultAddress(market, sharedHlpMint, srlpMint)[0];

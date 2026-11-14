@@ -1,0 +1,14 @@
+{
+  "cluster": "mainnet-beta",
+  "genesisHash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+  "repository": "https://github.com/omnipair/dusk",
+  "builderImage": "solanafoundation/solana-verifiable-build@sha256:6468b89ae21d87b8eb002f894ac3f3442dbd8bcf5ea93414051e96e00d03b5ab",
+  "verifierVersion": "0.4.11",
+  "programs": {
+    "dusk": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+    "leverage_delegate": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ"
+  },
+  "deployer": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+  "laterUpgradeAuthority": "4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ",
+  "idlAuthority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq"
+}
