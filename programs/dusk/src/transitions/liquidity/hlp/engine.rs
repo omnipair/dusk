@@ -1119,24 +1119,34 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
 }
 
 impl ConcentratedHlpTransition {
+    /// Price the final point at `point` (the pre-payment spot), scaled down
+    /// its price ray so it never exceeds the final inventory: paid funding is
+    /// never priced as reserve the pool still holds.
     fn with_pricing_point(
         mut self,
         market: &Market,
         point: crate::transitions::amm::ConcentratedCurvePoint,
     ) -> Result<Self> {
-        let actual = self.final_ordinary_point_nad(market)?;
-        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
-        self.final_base_pricing_offset_nad = self
-            .final_base_pricing_offset_nad
-            .checked_add(signed(point.base_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.base_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.final_quote_pricing_offset_nad = self
-            .final_quote_pricing_offset_nad
-            .checked_add(signed(point.quote_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.quote_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let priced = self.final_ordinary_point_nad(market)?;
+        let inventory = crate::transitions::amm::ConcentratedCurvePoint {
+            base_reserve: priced
+                .base_reserve
+                .checked_add_signed(-self.final_base_pricing_offset_nad)
+                .ok_or(ErrorCode::BrokenInvariant)?,
+            quote_reserve: priced
+                .quote_reserve
+                .checked_add_signed(-self.final_quote_pricing_offset_nad)
+                .ok_or(ErrorCode::BrokenInvariant)?,
+        };
+        let point = point.within_inventory(inventory)?;
+        (self.final_base_pricing_offset_nad, self.final_quote_pricing_offset_nad) =
+            crate::transitions::amm::pricing_offsets_within(point, inventory)?;
         Ok(self)
+    }
+
+    /// Whether consuming this plan pays hLP funding out of reserve cash.
+    pub(crate) fn pays_funding(&self) -> bool {
+        self.base_interest_paid > 0 || self.quote_interest_paid > 0
     }
 
     pub(crate) fn final_ordinary_point_nad(

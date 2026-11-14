@@ -291,6 +291,10 @@ impl PreparedSwap {
             }
             prepared_transition.as_ref()
         };
+        // Paid funding can scale the priced point down to the inventory. A
+        // book-hedge quote prepared its cache at that point; any other path
+        // rebuilds the curve there (same spot, lower depth).
+        let rebuild_for_funding = transition.pays_funding() && inventory.is_none() && prepared_cache.is_none();
         let (base_rebalance, quote_rebalance) = transition.consume(market)?;
         if inventory.is_some() {
             require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
@@ -307,6 +311,9 @@ impl PreparedSwap {
             market.checkpoint_amm_neutral_inventory_raw(current_slot, cache)?;
         } else {
             require_eq!(quote.fee.compounded_fee_debit, 0, ErrorCode::BrokenInvariant);
+            if rebuild_for_funding {
+                market.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
+            }
         }
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
@@ -322,7 +329,7 @@ impl PreparedSwap {
                     .current_concentrated_spot_price_nad()?
                     .ok_or(ErrorCode::BrokenInvariant)?
             }
-        } else if socialized_loss || inventory.is_some() {
+        } else if socialized_loss || inventory.is_some() || rebuild_for_funding {
             market
                 .current_concentrated_spot_price_nad()?
                 .ok_or(ErrorCode::BrokenInvariant)?

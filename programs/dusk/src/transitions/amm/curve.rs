@@ -1244,6 +1244,37 @@ impl ConcentratedCurvePoint {
             quote_reserve,
         })
     }
+
+    /// The largest point on this point's price ray that the inventory can
+    /// back on both axes. Every curve shape is homogeneous in its reserves at
+    /// a fixed center, so scaling keeps the spot price and lowers only depth.
+    /// The scaled coordinate rounds down, never above the inventory.
+    pub(crate) fn within_inventory(self, inventory: Self) -> Result<Self> {
+        if self.base_reserve <= inventory.base_reserve && self.quote_reserve <= inventory.quote_reserve {
+            return Ok(self);
+        }
+        require!(
+            self.base_reserve > 0 && self.quote_reserve > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        let quote_at_base_limit = mul_div_u128(self.quote_reserve, inventory.base_reserve, self.base_reserve)?;
+        let point = if quote_at_base_limit <= inventory.quote_reserve {
+            Self {
+                base_reserve: inventory.base_reserve,
+                quote_reserve: quote_at_base_limit,
+            }
+        } else {
+            Self {
+                base_reserve: mul_div_u128(self.base_reserve, inventory.quote_reserve, self.quote_reserve)?,
+                quote_reserve: inventory.quote_reserve,
+            }
+        };
+        require!(
+            point.base_reserve > 0 && point.quote_reserve > 0,
+            ErrorCode::InsufficientLiquidity
+        );
+        Ok(point)
+    }
 }
 
 /// Precomputed geometry for one full-range CPMM tail plus one concentrated

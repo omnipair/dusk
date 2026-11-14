@@ -728,12 +728,16 @@ fn terminal_paths_exclude_paid_funding_from_pricing() {
                 } else {
                     reserves.quote += paid;
                 }
+                // The pre-payment point, scaled down its price ray so it never
+                // exceeds the inventory that remains after the payment.
                 let expected = without_payment
                     .frozen_adjusted_ordinary(
                         &without_payment
                             .hlp_curve_basis_from_reserves_nad(reserves)
                             .unwrap(),
                     )
+                    .unwrap()
+                    .within_inventory(market.ordinary_inventory_point_nad().unwrap())
                     .unwrap();
                 assert_eq!(
                     point, expected,

@@ -1021,6 +1021,7 @@ impl Market {
     }
 
     fn rebase_concentrated_curve_at_current_ordinary_point(&mut self) -> Result<u128> {
+        self.bound_unpriced_funding_inventory()?;
         let ordinary = self.ordinary_curve_point_nad()?;
         let parameters = self.config.amm.concentrated_curve_parameters()?;
         self.amm.concentrated_curve_cache = prepare_concentrated_cache_at_point(

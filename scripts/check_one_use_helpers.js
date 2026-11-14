@@ -558,6 +558,9 @@ const acceptedOneUseHelpers = new Map([
       // Quote finalization must derive its point from the private, atom-rounded
       // ownership/debt plan rather than duplicate that accounting in the AMM.
       "debt_deltas",
+      // The swap reads whether the plan pays funding before consuming it; the
+      // paid amounts stay private to the plan.
+      "pays_funding",
       "hlp_valuation_from_values",
       "signed_value_difference",
     ]),

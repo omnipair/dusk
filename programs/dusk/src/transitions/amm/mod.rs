@@ -195,6 +195,9 @@ impl Market {
     fn checkpoint_concentrated_curve_cache(&mut self, current_slot: u64, loss: bool) -> Result<u128> {
         self.ensure_amm_initialized(current_slot)?;
         require!(self.amm.initialized, ErrorCode::BrokenInvariant);
+        if loss {
+            self.bound_unpriced_funding_inventory()?;
+        }
         let ordinary = self.ordinary_curve_point_nad()?;
         let cache = prepare_concentrated_cache_at_point(
             ordinary.base_reserve,
@@ -945,11 +948,17 @@ impl Market {
     }
 
     pub(crate) fn frozen_adjusted_ordinary(&self, basis: &HlpCurveBasis) -> Result<ConcentratedCurvePoint> {
+        self.frozen_adjusted_inventory(basis)?.shifted(
+            self.amm.hlp_funding_base_pricing_offset_nad,
+            self.amm.hlp_funding_quote_pricing_offset_nad,
+        )
+    }
+
+    /// Ordinary inventory before the funding pricing offsets. The offsets are
+    /// never positive, so the priced point never exceeds this inventory.
+    pub(crate) fn frozen_adjusted_inventory(&self, basis: &HlpCurveBasis) -> Result<ConcentratedCurvePoint> {
         if self.amm.frozen_hlp_mask == 0 {
-            return basis.ordinary.shifted(
-                self.amm.hlp_funding_base_pricing_offset_nad,
-                self.amm.hlp_funding_quote_pricing_offset_nad,
-            );
+            return Ok(basis.ordinary);
         }
         let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let (frozen_base_offset, frozen_quote_offset) = self.frozen_curve_offsets()?;
@@ -1000,14 +1009,10 @@ impl Market {
             .checked_add(quote_adjustment)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
-        ConcentratedCurvePoint {
+        Ok(ConcentratedCurvePoint {
             base_reserve: base as u128,
             quote_reserve: quote as u128,
-        }
-        .shifted(
-            self.amm.hlp_funding_base_pricing_offset_nad,
-            self.amm.hlp_funding_quote_pricing_offset_nad,
-        )
+        })
     }
 
     /// Freeze a negative-value vault's hedge without changing the current
@@ -1495,21 +1500,40 @@ impl Market {
         self.frozen_adjusted_ordinary(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
     }
 
+    pub(crate) fn ordinary_inventory_point_nad(&self) -> Result<ConcentratedCurvePoint> {
+        self.frozen_adjusted_inventory(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
+    }
+
+    /// Keep the executable spot price at `point` after paid funding left the
+    /// pool, without pricing reserve the pool no longer holds: the point is
+    /// scaled down its price ray to fit the inventory. The unpriced remainder
+    /// stays LP inventory (it is paid out on withdrawal) but provides no depth.
     pub(crate) fn preserve_hlp_pricing_point(&mut self, point: ConcentratedCurvePoint) -> Result<()> {
-        let actual = self.ordinary_curve_point_nad()?;
-        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
-        self.amm.hlp_funding_base_pricing_offset_nad = self
-            .amm
-            .hlp_funding_base_pricing_offset_nad
-            .checked_add(signed(point.base_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.base_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.amm.hlp_funding_quote_pricing_offset_nad = self
-            .amm
-            .hlp_funding_quote_pricing_offset_nad
-            .checked_add(signed(point.quote_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.quote_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let inventory = self.ordinary_inventory_point_nad()?;
+        let point = point.within_inventory(inventory)?;
+        let (base, quote) = pricing_offsets_within(point, inventory)?;
+        self.amm.hlp_funding_base_pricing_offset_nad = base;
+        self.amm.hlp_funding_quote_pricing_offset_nad = quote;
+        Ok(())
+    }
+
+    /// A loss that removes most of an axis's inventory must not leave the
+    /// unpriced remainder larger than what is left: cap the unpriced share of
+    /// each axis at half its inventory before the curve is rebuilt. The loss
+    /// already moves the price, so this only bounds how far.
+    pub(crate) fn bound_unpriced_funding_inventory(&mut self) -> Result<()> {
+        if self.amm.hlp_funding_base_pricing_offset_nad == 0 && self.amm.hlp_funding_quote_pricing_offset_nad == 0 {
+            return Ok(());
+        }
+        let inventory = self.ordinary_inventory_point_nad()?;
+        let bound = |offset: i128, reserve: u128| -> Result<i128> {
+            let floor = i128::try_from(reserve / 2).map_err(|_| ErrorCode::MarketMathOverflow)?;
+            Ok(offset.max(-floor))
+        };
+        self.amm.hlp_funding_base_pricing_offset_nad =
+            bound(self.amm.hlp_funding_base_pricing_offset_nad, inventory.base_reserve)?;
+        self.amm.hlp_funding_quote_pricing_offset_nad =
+            bound(self.amm.hlp_funding_quote_pricing_offset_nad, inventory.quote_reserve)?;
         Ok(())
     }
 
@@ -3131,3 +3155,20 @@ pub(crate) use swap::LendingSwapSettlement;
 
 #[cfg(test)]
 include!("../../tests/support/amm.rs");
+
+/// Signed offsets from `inventory` to a priced point inside it; both are at
+/// most zero.
+pub(crate) fn pricing_offsets_within(
+    point: ConcentratedCurvePoint,
+    inventory: ConcentratedCurvePoint,
+) -> Result<(i128, i128)> {
+    require!(
+        point.base_reserve <= inventory.base_reserve && point.quote_reserve <= inventory.quote_reserve,
+        ErrorCode::BrokenInvariant
+    );
+    let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
+    Ok((
+        signed(point.base_reserve)? - signed(inventory.base_reserve)?,
+        signed(point.quote_reserve)? - signed(inventory.quote_reserve)?,
+    ))
+}
