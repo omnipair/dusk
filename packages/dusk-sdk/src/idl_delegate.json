@@ -2734,6 +2734,19 @@
             }
           },
           {
+            "name": "hlp_funding_base_pricing_offset_nad",
+            "docs": [
+              "Pricing-only translations between the ordinary ownership books and",
+              "trading coordinates. Funding payments settle cash and liabilities;",
+              "these non-redeemable offsets keep them outside trading principal."
+            ],
+            "type": "i128"
+          },
+          {
+            "name": "hlp_funding_quote_pricing_offset_nad",
+            "type": "i128"
+          },
+          {
             "name": "center_price_nad",
             "type": "u64"
           },

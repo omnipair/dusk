@@ -72,7 +72,7 @@ impl Market {
     ) -> Result<(IntegratedCurveState, ConcentratedCurvePoint)> {
         let mut mark = initial_mark;
         for _ in 0..32 {
-            let mut end = cash.with_op_carry_cover(mark)?;
+            let mut end = cash.with_funding_carry_cover(mark)?;
             let endpoint = reconstruct_hlp_endpoint(end)?;
             end.base_hlp_quote_debt = endpoint.base_hlp_quote_debt;
             end.quote_hlp_base_debt = endpoint.quote_hlp_base_debt;
@@ -82,7 +82,7 @@ impl Market {
                 return Ok((end, point));
             }
             let next_mark = curve.spot_price_nad(point)?;
-            if cash.with_op_carry_cover(next_mark)?.op_carry_cover == end.op_carry_cover {
+            if cash.with_funding_carry_cover(next_mark)?.funding_carry_cover == end.funding_carry_cover {
                 return Ok((end, point));
             }
             mark = next_mark;

@@ -365,7 +365,7 @@ impl ConcentratedCurveParameters {
             .ok_or_else(|| ErrorCode::InvariantOverflow.into())
     }
 
-    fn sqrt_widths_nad(self) -> Result<(u128, u128)> {
+    pub(crate) fn sqrt_widths_nad(self) -> Result<(u128, u128)> {
         let core = Self::width_ratio_nad(u32::from(self.core_half_width_bps))?;
         let outer = Self::width_ratio_nad(
             u32::from(self.core_half_width_bps)
@@ -1226,6 +1226,24 @@ fn sqrt_floor_u512(value: U512) -> Result<U512> {
 pub struct ConcentratedCurvePoint {
     pub base_reserve: u128,
     pub quote_reserve: u128,
+}
+
+impl ConcentratedCurvePoint {
+    pub(crate) fn shifted(self, base: i128, quote: i128) -> Result<Self> {
+        let base_reserve = self
+            .base_reserve
+            .checked_add_signed(base)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        let quote_reserve = self
+            .quote_reserve
+            .checked_add_signed(quote)
+            .ok_or(ErrorCode::BrokenInvariant)?;
+        require!(base_reserve > 0 && quote_reserve > 0, ErrorCode::InsufficientLiquidity);
+        Ok(Self {
+            base_reserve,
+            quote_reserve,
+        })
+    }
 }
 
 /// Precomputed geometry for one full-range CPMM tail plus one concentrated

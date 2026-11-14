@@ -94,6 +94,39 @@ pub(crate) fn reserve_for_srlp_mint_ceil(
 }
 
 impl Market {
+    fn scale_hlp_pricing_offsets(&mut self, supply_before: u64) -> Result<()> {
+        if self.amm.hlp_funding_base_pricing_offset_nad == 0 && self.amm.hlp_funding_quote_pricing_offset_nad == 0 {
+            return Ok(());
+        }
+        // The separation belongs to ordinary ownership. Internal hedge
+        // mint/burn changes total srLP supply without changing that cohort.
+        let hlp = self
+            .base_hlp_vault
+            .srlp_shares
+            .checked_add(self.quote_hlp_vault.srlp_shares)
+            .ok_or(ErrorCode::SupplyOverflow)?;
+        let before = supply_before.checked_sub(hlp).ok_or(ErrorCode::SupplyUnderflow)?;
+        let after = self
+            .base_side
+            .shares
+            .srlp_supply
+            .checked_sub(hlp)
+            .ok_or(ErrorCode::SupplyUnderflow)?;
+        require!(before > 0, ErrorCode::SupplyUnderflow);
+        let scale = |offset: i128| -> Result<i128> {
+            let value = i128::try_from(mul_div_u128(
+                offset.unsigned_abs(),
+                u128::from(after),
+                u128::from(before),
+            )?)
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
+            Ok(if offset < 0 { -value } else { value })
+        };
+        self.amm.hlp_funding_base_pricing_offset_nad = scale(self.amm.hlp_funding_base_pricing_offset_nad)?;
+        self.amm.hlp_funding_quote_pricing_offset_nad = scale(self.amm.hlp_funding_quote_pricing_offset_nad)?;
+        Ok(())
+    }
+
     pub fn add_liquidity(
         &mut self,
         max_base_reserve_credit: u64,
@@ -129,6 +162,7 @@ impl Market {
         self.quote_side.credit_reserve(receipt.quote_reserve_credit, true)?;
         self.base_side.shares.mint(internal_mint_amount)?;
         self.quote_side.shares.mint(internal_mint_amount)?;
+        self.scale_hlp_pricing_offsets(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
@@ -254,6 +288,7 @@ impl Market {
     }
 
     pub fn remove_liquidity(&mut self, srlp_amount: u64) -> Result<RemoveLiquidityReceipt> {
+        let supply_before = self.base_side.shares.srlp_supply;
         require!(srlp_amount > 0, ErrorCode::AmountZero);
         require_eq!(
             self.base_side.shares.srlp_supply,
@@ -284,6 +319,7 @@ impl Market {
         self.quote_side.debit_reserve(quote_amount_out, true)?;
         self.base_side.shares.burn(srlp_amount)?;
         self.quote_side.shares.burn(srlp_amount)?;
+        self.scale_hlp_pricing_offsets(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 

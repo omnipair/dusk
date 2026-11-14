@@ -1276,8 +1276,11 @@ impl Market {
     }
 
     pub fn update(&mut self) -> Result<()> {
+        self.update_at_slot(Clock::get()?.slot)
+    }
+
+    pub(crate) fn update_at_slot(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
-        let current_slot = Clock::get()?.slot;
         self.accrue_interest_to_slot(current_slot)?;
         // The last external srLP burn deliberately clears the AMM. Do not
         // rebuild a concentrated curve from locked dust before a reseeding
