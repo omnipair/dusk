@@ -2,7 +2,7 @@ use super::*;
 use anchor_lang::solana_program::{program_option::COption, program_pack::Pack};
 use spl_token_2022::{
     extension::{
-        default_account_state::DefaultAccountState, group_member_pointer::GroupMemberPointer,
+        confidential_transfer::ConfidentialTransferMint, default_account_state::DefaultAccountState, group_member_pointer::GroupMemberPointer,
         group_pointer::GroupPointer, interest_bearing_mint::InterestBearingConfig,
         mint_close_authority::MintCloseAuthority, non_transferable::NonTransferable, pausable::PausableConfig,
         permanent_delegate::PermanentDelegate, scaled_ui_amount::ScaledUiAmountConfig, transfer_fee::TransferFeeConfig,
@@ -49,6 +49,9 @@ fn extended_asset_mint_data(extensions: &[ExtensionType], authority: Pubkey) -> 
             }
             ExtensionType::TransferFeeConfig => {
                 init!(TransferFeeConfig);
+            }
+            ExtensionType::ConfidentialTransferMint => {
+                init!(ConfidentialTransferMint);
             }
             ExtensionType::PermanentDelegate => {
                 init!(PermanentDelegate);
@@ -115,12 +118,8 @@ fn group_and_ui_extensions_are_assets_but_not_lp_receipts() {
 }
 
 #[test]
-fn asset_extension_support_keeps_transfer_control_restrictions() {
+fn nontransferable_assets_and_active_asset_hooks_remain_rejected() {
     for extension in [
-        ExtensionType::PermanentDelegate,
-        ExtensionType::Pausable,
-        ExtensionType::DefaultAccountState,
-        ExtensionType::MintCloseAuthority,
         ExtensionType::NonTransferable,
         ExtensionType::TransferHook,
     ] {
@@ -329,4 +328,68 @@ fn interest_asset_extension_does_not_shift_delegate_callback_accounts() {
         assert_eq!(layout.hook_accounts(&accounts)[0].key(), callback.key());
         assert_eq!(layout.prefix_len, if with_extension { 9 } else { 5 });
     }
+}
+
+
+#[test]
+fn usdv_public_balance_extensions_are_supported_without_enabling_hook_programs() {
+    let extensions = [ExtensionType::PermanentDelegate, ExtensionType::Pausable,
+        ExtensionType::DefaultAccountState, ExtensionType::MintCloseAuthority];
+    let authority = Pubkey::new_unique();
+    let mut data = extended_asset_mint_data(&extensions, authority);
+    {
+        let mut state = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
+        state.get_extension_mut::<DefaultAccountState>().unwrap().state = 1;
+    }
+    let key = Pubkey::new_unique(); let owner = spl_token_2022::ID; let mut lamports = 1;
+    let info = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+    let mint = InterfaceAccount::<Mint>::try_from(&info).unwrap();
+    require_supported_asset_mint(&mint).unwrap();
+    assert!(crate::token::is_fee_free_mint(&mint).unwrap());
+    assert!(validate_lp_mint(&mint, authority, 6).is_err());
+}
+
+#[test]
+fn unset_asset_hooks_remain_supported_until_the_issuer_sets_a_program() {
+    let authority = Pubkey::new_unique();
+    let mut data = extended_asset_mint_data(&[ExtensionType::TransferHook], authority);
+    {
+        let mut state = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
+        state.get_extension_mut::<TransferHook>().unwrap().program_id = None.try_into().unwrap();
+    }
+    let key = Pubkey::new_unique(); let owner = spl_token_2022::ID; let mut lamports = 1;
+    let info = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+    let mint = InterfaceAccount::<Mint>::try_from(&info).unwrap();
+    require_supported_asset_mint(&mint).unwrap();
+    assert!(crate::token::is_fee_free_mint(&mint).unwrap());
+}
+
+
+#[test]
+fn asset_transfer_helper_structurally_rejects_external_hooks() {
+    let mut data = extended_asset_mint_data(&[ExtensionType::TransferHook], Pubkey::new_unique());
+    {
+        let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
+        mint.get_extension_mut::<TransferHook>().unwrap().program_id = Some(Pubkey::new_unique()).try_into().unwrap();
+    }
+    let key = Pubkey::new_unique(); let owner = spl_token_2022::ID; let mut lamports = 1;
+    let mint = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+    let program_key = spl_token_2022::ID; let program_owner = Pubkey::new_unique();
+    let mut program_lamports = 1; let mut program_data = [];
+    let program = AccountInfo::new(&program_key, false, false, &mut program_lamports, &mut program_data, &program_owner, true, 0);
+    let result = crate::token::transfer_checked_with_remaining_accounts(
+        mint.clone(), mint.clone(), mint.clone(), mint.clone(), program, 1, 6, &[], &[]);
+    assert_eq!(result.unwrap_err(), error!(ErrorCode::InvalidTokenProgram));
+}
+
+#[test]
+fn a_default_frozen_state_does_not_disguise_its_issuer_control_as_an_unsupported_extension() {
+    let mut data = extended_asset_mint_data(&[ExtensionType::DefaultAccountState], Pubkey::new_unique());
+    {
+        let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
+        mint.get_extension_mut::<DefaultAccountState>().unwrap().state = 2;
+    }
+    let key = Pubkey::new_unique(); let owner = spl_token_2022::ID; let mut lamports = 1;
+    let info = AccountInfo::new(&key, false, false, &mut lamports, &mut data, &owner, false, 0);
+    require_supported_asset_mint(&InterfaceAccount::<Mint>::try_from(&info).unwrap()).unwrap();
 }

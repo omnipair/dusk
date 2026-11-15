@@ -505,3 +505,10 @@ Dusk is the standalone market program for Omnipair V2.
 Before Dusk is treated as production-ready, it should complete final security
 review, release artifact verification, and owner signoff for app, SDK, indexing,
 analytics, aggregators, and deployment.
+
+
+### Proposed USDv Token-2022 compatibility (unreleased)
+
+Asset mints may carry confidential-transfer mint configuration while Dusk uses only public token balances, permanent delegate, pause, mint-close authority and default account-state metadata. A transfer-hook extension is accepted only while its program is unset; an issuer that activates it can make the asset unavailable. Non-transferable tokens remain unsupported. LP receipt policy is separate and unchanged.
+
+Issuer freeze/pause/delegate powers are retained, including the ability to block transfers or remove vault assets outside Dusk instructions. Enabling a mint does not neutralize those powers or repair resulting custody losses. This proposal requires the separate token-policy audit and release decision before merging or upgrading either program. It does not remove extensions from third-party mints.
