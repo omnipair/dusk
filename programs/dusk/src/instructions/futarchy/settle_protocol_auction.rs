@@ -15,7 +15,7 @@ use crate::{
 };
 
 use crate::instructions::accounts::{
-    require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account,
+    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -72,6 +72,13 @@ pub struct SettleProtocolAuction<'info> {
 }
 
 impl<'info> SettleProtocolAuction<'info> {
+    /// Protocol interest paid since the last booking joins the liabilities
+    /// before any auction reads them.
+    pub fn book_pending_interest(&mut self) -> Result<()> {
+        let split = self.futarchy_authority.protocol_auction_split;
+        self.market.book_protocol_interest(split)
+    }
+
     pub fn validate(&self, args: &SettleProtocolAuctionArgs) -> Result<()> {
         self.market.assert_started()?;
         self.futarchy_authority.validate()?;
@@ -82,23 +89,16 @@ impl<'info> SettleProtocolAuction<'info> {
         let auction = self.futarchy_authority.auction_config(args.lane);
         require!(is_fee_free_mint(&self.accepted_mint)?, ErrorCode::InvalidMint);
 
-        // Match the sold liability to its physical custody vault.
+        // Both revenue sources sit in the reserve vault.
         let sold_side = self.market.asset_for_mint(self.sold_mint.key())?;
         let market_side = self.market.side(sold_side);
         market_side.fees.assert_backed()?;
         require_keys_eq!(self.sold_mint.key(), market_side.asset_mint, ErrorCode::InvalidMint);
-        let (expected_vault, tracked_custody) = match args.source {
-            ProtocolRevenueSource::Swap => (
-                market_side.reserve_vault,
-                market_side
-                    .reserves
-                    .cash_reserve
-                    .checked_add(market_side.fees.swap_fee_custody_balance)
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            ),
-            ProtocolRevenueSource::Interest => (market_side.interest_vault, market_side.fees.interest_vault_balance),
-        };
-        require_keys_eq!(self.sold_vault.key(), expected_vault, ErrorCode::InvalidVault);
+        require_keys_eq!(
+            self.sold_vault.key(),
+            market_side.reserve_vault,
+            ErrorCode::InvalidVault
+        );
         require_keys_eq!(self.sold_vault.mint, self.sold_mint.key(), ErrorCode::InvalidVault);
         require_keys_eq!(self.sold_vault.owner, self.market.key(), ErrorCode::InvalidVault);
         require_gte!(
@@ -106,7 +106,7 @@ impl<'info> SettleProtocolAuction<'info> {
             args.sold_amount,
             ErrorCode::UnbackedFeeLiability
         );
-        require_gte!(self.sold_vault.amount, tracked_custody, ErrorCode::UnbackedFeeLiability);
+        require_reserve_custody(self.sold_vault.amount, market_side)?;
 
         let curve = market_side.fees.protocol_auction(args.lane, args.source);
         require_keys_eq!(self.accepted_mint.key(), curve.accepted_mint, ErrorCode::InvalidMint);
@@ -240,19 +240,7 @@ impl<'info> SettleProtocolAuction<'info> {
             .settle_protocol_auction_liability(args.lane, args.source, args.sold_amount)?;
         *market_side.fees.protocol_auction_mut(args.lane, args.source) = quote.next_state;
         market_side.fees.assert_backed()?;
-        let required_custody = match args.source {
-            ProtocolRevenueSource::Swap => market_side
-                .reserves
-                .cash_reserve
-                .checked_add(market_side.fees.swap_fee_custody_balance)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            ProtocolRevenueSource::Interest => market_side.fees.interest_vault_balance,
-        };
-        require_gte!(
-            ctx.accounts.sold_vault.amount,
-            required_custody,
-            ErrorCode::UnbackedFeeLiability
-        );
+        require_reserve_custody(ctx.accounts.sold_vault.amount, market_side)?;
         let remaining_fee_liability = market_side
             .fees
             .protocol_auction_liability(ProtocolAuctionLane::Fee, args.source);

@@ -1,3 +1,4 @@
+use crate::constants::*;
 use super::*;
 use proptest::prelude::*;
 
@@ -6,7 +7,6 @@ use proptest::prelude::*;
 fn empty_market() -> Market {
     Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -142,7 +142,7 @@ fn dust_compounded_swaps_cannot_floor_away_junior_reserve_shares() {
             reserve_credit: 400,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market, &Default::default())
+        .prepare(&mut market)
         .unwrap();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
             &prepared.leverage_quote(),

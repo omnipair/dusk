@@ -131,10 +131,9 @@ pub fn utilization_bps(borrowed: u128, idle_cash: u128) -> Result<u64> {
 /// interest owed to suppliers, proportional to the outstanding debt.
 ///
 /// `total_debt = shares * index >= principal`, `repaid <= total_debt`. The
-/// reusable primitive for non-compounding interest routing: the interest
-/// portion is what a repay/close/liquidate path should move into the interest
-/// vault instead of leaving in the reserve. Principal is rounded **down** (so
-/// interest rounds up), ensuring the interest vault is never under-funded.
+/// interest portion is what a repay/close path settles against the interest
+/// ledger. Principal is rounded **down** (so interest rounds up), so the
+/// credited interest a repayment settles is never understated.
 pub fn realized_interest_split(repaid: u64, total_debt: u128, principal: u128) -> Result<(u64, u64)> {
     require!(total_debt >= principal, ErrorCode::MarketMathOverflow);
     let repaid_u = repaid as u128;

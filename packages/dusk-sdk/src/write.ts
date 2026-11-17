@@ -41,7 +41,6 @@ import {
   deriveLeveragePositionAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
-  deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveTokenMetadataAddress,
   TOKEN_METADATA_PROGRAM_ID,
@@ -420,8 +419,6 @@ export class DuskWrite {
     const market = address(marketAddress);
     const state = (marketSnapshot ?? await this.fetchMarketAccount(market)) as {
       srlpMint: AccountMeta["pubkey"];
-      baseSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
-      quoteSide: { interestVault: AccountMeta["pubkey"]; assetMint: AccountMeta["pubkey"]; reserveVault: AccountMeta["pubkey"] };
       baseHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
@@ -439,18 +436,13 @@ export class DuskWrite {
       BigInt(state.baseHlpVault.residualExposure.toString()) !== 0n ||
       BigInt(state.quoteHlpVault.residualExposure.toString()) !== 0n;
     if (!hlpActive && !required) return [];
+    // Exactly the program's three-account prefix (`HLP_SWAP_ACCOUNT_PREFIX_LEN`).
+    // The program reads every account after it as a callback or transfer-hook
+    // account, so anything more here would shift them.
     return [
       { pubkey: state.srlpMint, isSigner: false, isWritable: true },
       { pubkey: state.baseHlpVault.srlpVault, isSigner: false, isWritable: true },
       { pubkey: state.quoteHlpVault.srlpVault, isSigner: false, isWritable: true },
-      { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
-      { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
-      // Fresh public-interest settlements rebalance both vaults. These keys
-      // usually duplicate fixed swap accounts; repayments need them explicitly.
-      { pubkey: state.baseSide.assetMint, isSigner: false, isWritable: false },
-      { pubkey: state.quoteSide.assetMint, isSigner: false, isWritable: false },
-      { pubkey: state.baseSide.reserveVault, isSigner: false, isWritable: true },
-      { pubkey: state.quoteSide.reserveVault, isSigner: false, isWritable: true },
     ];
   }
 
@@ -470,8 +462,6 @@ export class DuskWrite {
     const market = address(options.market);
     const state = (await this.fetchMarketAccount(market)) as {
       srlpMint: AccountMeta["pubkey"];
-      baseSide: { interestVault: AccountMeta["pubkey"] };
-      quoteSide: { interestVault: AccountMeta["pubkey"] };
       baseHlpVault: {
         hlpSupply: { toString(): string };
         residualExposure: { toString(): string };
@@ -493,8 +483,6 @@ export class DuskWrite {
           { pubkey: state.srlpMint, isSigner: false, isWritable: true },
           { pubkey: state.baseHlpVault.srlpVault, isSigner: false, isWritable: true },
           { pubkey: state.quoteHlpVault.srlpVault, isSigner: false, isWritable: true },
-          { pubkey: state.baseSide.interestVault, isSigner: false, isWritable: true },
-          { pubkey: state.quoteSide.interestVault, isSigner: false, isWritable: true },
         ]
       : [];
 
@@ -1047,8 +1035,6 @@ export class DuskWrite {
           quoteReserveVault: deriveMarketReserveVaultAddress(market, quoteMint, programId)[0],
           baseCollateralVault: deriveMarketCollateralVaultAddress(market, baseMint, programId)[0],
           quoteCollateralVault: deriveMarketCollateralVaultAddress(market, quoteMint, programId)[0],
-          baseInterestVault: deriveMarketInterestVaultAddress(market, baseMint, programId)[0],
-          quoteInterestVault: deriveMarketInterestVaultAddress(market, quoteMint, programId)[0],
           teamTreasury: address(params.teamTreasury),
           teamTreasuryWsolAccount: address(params.teamTreasuryWsolAccount),
           systemProgram: SystemProgram.programId,
@@ -1428,7 +1414,7 @@ export class DuskWrite {
     authority: AddressLike;
     market: AddressLike;
     mint: AddressLike;
-    interestVault?: AddressLike;
+    reserveVault?: AddressLike;
     recipientTokenAccount: AddressLike;
     remainingAccounts?: AccountMeta[];
   }): Promise<TransactionInstruction> {
@@ -1441,8 +1427,8 @@ export class DuskWrite {
       assetMint: mintKey,
       programId: this.program.programId,
     });
-    const interestVault = address(
-      params.interestVault ?? deriveMarketInterestVaultAddress(market, mintKey, this.program.programId)[0]
+    const reserveVault = address(
+      params.reserveVault ?? deriveMarketReserveVaultAddress(market, mintKey, this.program.programId)[0]
     );
     const recipientTokenAccount = address(params.recipientTokenAccount);
     const tokenProgram = await tokenProgramForMint(
@@ -1469,7 +1455,7 @@ export class DuskWrite {
       this.program.provider.connection,
       [
         {
-          source: interestVault,
+          source: reserveVault,
           mint: mintKey,
           destination: recipientTokenAccount,
           authority: market,
@@ -1486,7 +1472,7 @@ export class DuskWrite {
         referralPartner: referral.referralPartner,
         assetMint: mintKey,
         referralAccrual: referral.referralAccrual,
-        interestVault,
+        reserveVault,
         recipientTokenAccount,
         tokenProgram: TOKEN_PROGRAM_ID,
         token2022Program: TOKEN_2022_PROGRAM_ID,
@@ -1676,10 +1662,6 @@ export class DuskWrite {
             params.reserveVault ??
               deriveMarketReserveVaultAddress(market, debtAssetMint, programId)[0]
           ),
-          interestVault: address(
-            params.interestVault ??
-              deriveMarketInterestVaultAddress(market, debtAssetMint, programId)[0]
-          ),
           ownerDebtAccount: address(params.ownerDebtAccount),
           borrowPosition: address(
             params.borrowPosition ??
@@ -1867,7 +1849,6 @@ export class DuskWrite {
           collateralMint: core.collateralMint,
           debtReserveVault: core.debtReserveVault,
           collateralReserveVault: core.collateralReserveVault,
-          debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
           leverageCollateralVault: core.leverageCollateralVault,
           referralPartner: core.referralPartner,
@@ -1920,7 +1901,6 @@ export class DuskWrite {
           debtMint: core.debtMint,
           collateralMint: core.collateralMint,
           debtReserveVault: core.debtReserveVault,
-          debtInterestVault: core.debtInterestVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
           referralPartner: core.referralPartner,
           referralAccrual: core.referralAccrual,
@@ -1973,7 +1953,6 @@ export class DuskWrite {
           collateralMint: core.collateralMint,
           debtReserveVault: core.debtReserveVault,
           collateralReserveVault: core.collateralReserveVault,
-          debtInterestVault: core.debtInterestVault,
           leverageCollateralVault: core.leverageCollateralVault,
           ownerDebtAccount: address(params.ownerDebtAccount),
           delegateFeeRecipient: params.delegateFeeRecipient
@@ -2041,10 +2020,6 @@ export class DuskWrite {
       collateralReserveVault: address(
         params.collateralReserveVault ??
           deriveMarketReserveVaultAddress(market, collateralMint, programId)[0]
-      ),
-      debtInterestVault: address(
-        params.debtInterestVault ??
-          deriveMarketInterestVaultAddress(market, debtMint, programId)[0]
       ),
       leverageCollateralVault: address(
         params.leverageCollateralVault ??
@@ -2146,7 +2121,6 @@ export interface RepayParams extends LendingPositionAccounts {
   /** Omit when the position has no referrer. */
   referralPartner?: AddressLike | null;
   reserveVault?: AddressLike;
-  interestVault?: AddressLike;
 }
 
 /** Which side of the pair carries the debt. */
@@ -2174,7 +2148,6 @@ interface LeverageAccounts {
   leveragePosition?: AddressLike;
   debtReserveVault?: AddressLike;
   collateralReserveVault?: AddressLike;
-  debtInterestVault?: AddressLike;
   leverageCollateralVault?: AddressLike;
   referralPartner?: AddressLike | null;
   remainingAccounts?: AccountMeta[];
@@ -2467,7 +2440,6 @@ const ORACLE_READ_INSTRUCTIONS = new Set<string>([
   "addLiquidity",
   "openLiquidityGates",
   "removeLiquidity",
-  "fundInterest",
   "compoundJuniorSeed",
   "harvest",
   "swap",

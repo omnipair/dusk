@@ -55,7 +55,8 @@ Allowed status values: `Pending`, `Approved`, `Blocked`, `N/A`.
   transfer checkpointing.
 - Review fee liabilities and settlement paths for srLP, hLP, protocol, and
   unallocated buckets. Verify reserve-custodied swap-fee
-  liabilities separately from interest-vault-custodied liabilities.
+  liabilities separately from the interest ledger (credited interest,
+  protocol unpaid and pending shares).
 - Review every dynamic-fee component budget, the 50% aggregate hard cap,
   Huber-capped divergence potential, split-path resistance, and exact
   odd/even raw-token rounding.

@@ -183,9 +183,6 @@ async function main() {
         quoteReserveVault: addresses.quoteReserveVault,
         baseCollateralVault: addresses.baseCollateralVault,
         quoteCollateralVault: addresses.quoteCollateralVault,
-
-        baseInterestVault: addresses.baseInterestVault,
-        quoteInterestVault: addresses.quoteInterestVault,
         teamTreasury,
         teamTreasuryWsolAccount: teamTreasuryWsolAccount.address,
         systemProgram: SystemProgram.programId,
@@ -224,9 +221,6 @@ async function main() {
     quoteReserveVault: addresses.quoteReserveVault.toBase58(),
     baseCollateralVault: addresses.baseCollateralVault.toBase58(),
     quoteCollateralVault: addresses.quoteCollateralVault.toBase58(),
-
-    baseInterestVault: addresses.baseInterestVault.toBase58(),
-    quoteInterestVault: addresses.quoteInterestVault.toBase58(),
     baseHlpSrlpVault: baseHlpSrlpVault.toBase58(),
     quoteHlpSrlpVault: quoteHlpSrlpVault.toBase58(),
     eventAuthority: addresses.eventAuthority.toBase58(),

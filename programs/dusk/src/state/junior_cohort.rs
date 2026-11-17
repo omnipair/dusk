@@ -7,7 +7,6 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace, Default)]
 pub struct JuniorCohort {
-    pub income_end: [crate::state::IncomeExposureEnd; 4],
     pub market: Pubkey,
     pub mint: Pubkey,
     pub generation: u64,

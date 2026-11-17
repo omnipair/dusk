@@ -132,19 +132,6 @@ impl Fees {
             swap_liability,
             ErrorCode::UnbackedFeeLiability
         );
-        let interest_liability = self
-            .interest_liability
-            .checked_add(self.unallocated_interest_liability)
-            .and_then(|value| value.checked_add(self.referral_interest_liability))
-            .and_then(|value| value.checked_add(self.revenue_interest_liability))
-            .and_then(|value| value.checked_add(self.interest_protocol_fee_liability))
-            .and_then(|value| value.checked_add(self.interest_buyback_fee_liability))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(
-            self.interest_vault_balance,
-            interest_liability,
-            ErrorCode::UnbackedFeeLiability
-        );
         Ok(())
     }
 
@@ -171,19 +158,11 @@ impl Fees {
             (ProtocolAuctionLane::Buyback, ProtocolRevenueSource::Interest) => &mut self.interest_buyback_fee_liability,
         };
         *liability = liability.checked_sub(amount).ok_or(ErrorCode::MarketMathOverflow)?;
-        match source {
-            ProtocolRevenueSource::Swap => {
-                self.swap_fee_custody_balance = self
-                    .swap_fee_custody_balance
-                    .checked_sub(amount)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
-            ProtocolRevenueSource::Interest => {
-                self.interest_vault_balance = self
-                    .interest_vault_balance
-                    .checked_sub(amount)
-                    .ok_or(ErrorCode::MarketMathOverflow)?;
-            }
+        if source == ProtocolRevenueSource::Swap {
+            self.swap_fee_custody_balance = self
+                .swap_fee_custody_balance
+                .checked_sub(amount)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
         }
         Ok(())
     }
@@ -201,28 +180,15 @@ impl Fees {
     }
 }
 
-pub(crate) fn split_revenue(amount: u64, protocol_bps: u16) -> Result<(u64, u64)> {
-    require_gte!(BPS_DENOMINATOR, protocol_bps, ErrorCode::InvalidMarketConfig);
-    let protocol_fee = proportional_bps(amount, protocol_bps)?;
-    let lp_amount = amount.checked_sub(protocol_fee).ok_or(ErrorCode::MarketMathOverflow)?;
-    Ok((protocol_fee, lp_amount))
-}
-
 pub(crate) fn split_protocol_auction_fee(protocol_fee: u64, split: &ProtocolAuctionSplit) -> Result<(u64, u64)> {
     require!(split.is_valid(), ErrorCode::InvalidDistribution);
-    let buyback_amount = proportional_bps(protocol_fee, split.buyback_auction_bps)?;
+    let buyback_amount =
+        u64::try_from(u128::from(protocol_fee) * u128::from(split.buyback_auction_bps) / u128::from(BPS_DENOMINATOR))
+            .map_err(|_| ErrorCode::MarketMathOverflow)?;
     let fee_amount = protocol_fee
         .checked_sub(buyback_amount)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok((fee_amount, buyback_amount))
-}
-
-fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
-    let value = (amount as u128)
-        .checked_mul(bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    u64::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow.into())
 }
 
 #[cfg(test)]

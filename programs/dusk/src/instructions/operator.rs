@@ -236,7 +236,7 @@ impl ExecuteOperatorChange<'_> {
             market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         if !proposal.updates.is_empty() {
             market.execute_parameter_updates_authenticated(&proposal.updates, &clock, ctx.remaining_accounts)?;
@@ -277,8 +277,12 @@ impl ExecuteOperatorChange<'_> {
                 market.operator.revenue_recipient,
                 ErrorCode::InvalidRecipient
             );
-            for i in 0..4 {
-                archive.claimable[i] = market.income.get_mut()?.revenue[i].take_operator_cash()?;
+            // Credited, unclaimed operator interest is sealed to the outgoing
+            // recipient; it stays in `credited` until claimed.
+            for asset in [MarketAsset::Base, MarketAsset::Quote] {
+                let ledger = &mut market.side_mut(asset).fees.ledger;
+                archive.claimable[asset.code() as usize] = ledger.operator_claimable;
+                ledger.operator_claimable = 0;
             }
             archive.sealed = true;
             market.operator.revenue_epoch = market

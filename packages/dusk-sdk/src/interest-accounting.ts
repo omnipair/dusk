@@ -1,5 +1,4 @@
-import { transferFeeCredit, transferInverseFee, type TransferFeeNotice } from "./transfer-fees.js";
-import type { BorrowPosition, Market } from "./type-aliases.js";
+import type { BorrowPosition, HlpCohort, HlpVault, JuniorCohort, Market, YieldAccount } from "./type-aliases.js";
 
 const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
@@ -32,9 +31,10 @@ function amount(value: bigint, max = U64_MAX): void {
 }
 
 /** Funding interest the opposite-side hLP vault owes in `asset`: its indexed
- * funding debt less principal, floored at zero. `fund_interest` does not
- * advance the reserve cash that backs it. Read from a market whose interest
- * is accrued to the funding slot. */
+ * funding debt less principal, floored at zero. It is credited to ordinary
+ * srLP and junior holders as it accrues and recorded as the ledger's
+ * `fundingRecognized`. Read from a market whose interest is accrued to the
+ * funding slot. */
 export function hlpFundingInterest(
   market: Pick<Market, "debt" | "baseHlpVault" | "quoteHlpVault">,
   asset: "base" | "quote",
@@ -52,87 +52,151 @@ export function hlpFundingInterest(
   return debt > principal ? debt - principal : 0n;
 }
 
-/** Fund LP income from reserve cash, as `fund_interest` does for one side.
- * Once the side's junior income is initialized, the frozen protocol and
- * operator share is the historical unpaid fee book's share of the advance; no
- * current fee rate is used. Before that, the program splits the advance at the
- * current protocol interest rate. Reserve cash owed as hLP funding interest,
- * and the transfer fee reserve cash pays on top of it when that funding is
- * settled, is not advanced. Protocol and operator fees remain unpaid until borrower cash
- * arrives. Inputs must describe the same checkpointed market state.
- *
- * Reserve cash also pays the effective Token-2022 fee on the LP transfer, so
- * interest custody receives the whole LP amount (`lpVaultCredit`). The
- * reserve-vault debit `lpVaultDebit` adds that `transferFee`, and the advance
- * leaves room for the fee inside the advanceable cash. */
-export function quoteInterestAdvanceAmounts(input: {
-  unpaidPublicInterest: bigint;
-  /** The side's unpaid fee book after synchronization. Required once junior
-   * income is initialized; unused before. */
-  unpaidFeeInterest?: bigint;
-  outstandingGrossAdvance: bigint;
-  outstandingRevenueEscrow: bigint;
-  reserveCash: bigint;
-  maxGross: bigint;
-  transferFee: TransferFeeNotice;
-  /** `side.fees.junior.initialized`; defaults to true. */
-  juniorInitialized?: boolean;
-  /** `FutarchyAuthority.revenueShare.interestBps`; required while junior
-   * income is uninitialized. */
-  protocolInterestBps?: number;
-  /** See `hlpFundingInterest`; defaults to zero. */
-  hlpFundingInterest?: bigint;
-}) {
-  const { unpaidPublicInterest: unpaid, outstandingGrossAdvance: advanced,
-    outstandingRevenueEscrow: escrow, reserveCash, maxGross } = input;
-  const fundingInterest = input.hlpFundingInterest ?? 0n;
-  amount(unpaid, U128_MAX);
-  for (const value of [advanced, escrow, reserveCash, maxGross, fundingInterest]) amount(value);
-  if (advanced > unpaid || escrow > advanced) throw new RangeError("Inconsistent unpaid interest/advance");
-  const available = unpaid - advanced;
-  const owed = fundingInterest + transferInverseFee(fundingInterest, input.transferFee);
-  const spendableCash = reserveCash > owed ? reserveCash - owed : 0n;
-  // Keep the fee inside spendable cash: anything up to what that cash would
-  // deliver through one transfer can be grossed up within it.
-  const advanceableCash = transferFeeCredit(spendableCash, input.transferFee, "effective");
-  const grossAdvance = [available, advanceableCash, maxGross].reduce((a, b) => a < b ? a : b);
-  let revenueEscrow: bigint;
-  if (input.juniorInitialized ?? true) {
-    const fees = input.unpaidFeeInterest;
-    if (fees === undefined) throw new TypeError("unpaidFeeInterest is required once junior income is initialized");
-    amount(fees);
-    if (escrow > fees || fees > unpaid || fees - escrow > available) {
-      throw new RangeError("Inconsistent unpaid interest/advance");
-    }
-    revenueEscrow = available === 0n ? 0n : grossAdvance * (fees - escrow) / available;
-  } else {
-    const bps = input.protocolInterestBps;
-    if (bps === undefined || !Number.isInteger(bps) || bps < 0 || bps > 10_000) {
-      throw new RangeError("protocolInterestBps must be an integer from 0 to 10000 before junior income is initialized");
-    }
-    revenueEscrow = grossAdvance * BigInt(bps) / 10_000n;
-  }
-  const lpVaultCredit = grossAdvance - revenueEscrow;
-  const transferFee = transferInverseFee(lpVaultCredit, input.transferFee);
-  return { grossAdvance, revenueEscrow, lpVaultDebit: lpVaultCredit + transferFee, lpVaultCredit, transferFee };
+/** One asset's accrued-interest ledger as bigints, read from `fees.ledger`.
+ * Interest is credited to holders when it accrues, so `credited` can exceed
+ * reserve cash; claims are paid from cash as it allows. `deficit` is the
+ * part of a loss LP capital could not absorb; while either asset has one,
+ * the market refuses new liquidity (`InterestDeficit`). */
+export interface MarketInterestLedger {
+  /** Fixed and isolated borrower interest outstanding, as last recognized. */
+  publicRecognized: bigint;
+  /** hLP funding interest outstanding in this asset, as last recognized. */
+  fundingRecognized: bigint;
+  /** Credited, unclaimed interest of every holder lane, the junior seed and the operator. */
+  credited: bigint;
+  /** Protocol share of outstanding interest, paid only when borrowers pay. */
+  protocolUnpaid: bigint;
+  /** The current operator recipient's credited, unclaimed share (part of `credited`). */
+  operatorClaimable: bigint;
+  /** Protocol interest paid but not yet booked into its revenue liabilities. */
+  protocolPending: bigint;
+  /** Pool loss beyond LP capital. Never decreases. */
+  deficit: bigint;
 }
 
-/** Allocate measured custody credit against the frozen settlement budget.
- * grossTransfer excludes LP yield already funded by an advance. pendingFeeGross
- * includes both protocol and operator receivables. Recipient claims are settled
- * by the on-chain fee book, including fractional cash from earlier payments.
- * Interest transfers are grossed up by the Token-2022 fee. A measured credit
- * above the budget is capped at it, as on chain; the excess stays in the
- * vault uncredited. */
-export function allocateRepaidInterest(input: {
-  grossTransfer: bigint;
-  pendingFeeGross: bigint;
-  measuredVaultCredit: bigint;
-}) {
-  const { grossTransfer, pendingFeeGross: fees, measuredVaultCredit: measured } = input;
-  for (const value of [grossTransfer, fees, measured]) amount(value);
-  if (fees > grossTransfer) throw new RangeError("Fees exceed settlement");
-  const credit = measured > grossTransfer ? grossTransfer : measured;
-  const revenueCredit = grossTransfer === 0n ? 0n : credit * fees / grossTransfer;
-  return { grossTransfer, revenueCredit, lpCredit: credit - revenueCredit };
+export function marketInterestLedger(market: Pick<Market, "baseSide" | "quoteSide">, asset: "base" | "quote"): MarketInterestLedger {
+  const ledger = (asset === "base" ? market.baseSide : market.quoteSide).fees.ledger;
+  const read = (value: { toString(): string }) => BigInt(value.toString());
+  return {
+    publicRecognized: read(ledger.publicRecognized),
+    fundingRecognized: read(ledger.fundingRecognized),
+    credited: read(ledger.credited),
+    protocolUnpaid: read(ledger.protocolUnpaid),
+    operatorClaimable: read(ledger.operatorClaimable),
+    protocolPending: read(ledger.protocolPending),
+    deficit: read(ledger.deficit),
+  };
+}
+
+/** Protocol share of an interest payment of `interestPaid` atoms, as the
+ * program takes it: `floor(paid · protocolUnpaid / interest)` where
+ * `interest = publicRecognized + fundingRecognized`, both read from the same
+ * accrued market state. The protocol is paid only from interest borrowers
+ * actually pay; the rest of the payment stays in reserve cash for holders. */
+export function quoteProtocolInterestShare(input: {
+  interestPaid: bigint;
+  ledger: Pick<MarketInterestLedger, "publicRecognized" | "fundingRecognized" | "protocolUnpaid">;
+}): bigint {
+  const { interestPaid: paid, ledger } = input;
+  amount(paid);
+  const interest = ledger.publicRecognized + ledger.fundingRecognized;
+  if (ledger.protocolUnpaid < 0n || ledger.protocolUnpaid > interest) throw new RangeError("Inconsistent interest ledger");
+  if (paid > interest) throw new RangeError("Payment exceeds outstanding interest");
+  return interest === 0n ? 0n : paid * ledger.protocolUnpaid / interest;
+}
+
+/** Holder interest lane a yield account checkpoints against. */
+export type InterestLaneKind = "srlp" | "junior" | "baseHlp" | "quoteHlp";
+
+/** The Q64 interest growth index a holder of `kind` checkpoints against for
+ * revenue `asset`, as harvest reads it: ordinary srLP
+ * `fees.interestGrowthIndexQ64`, junior `fees.junior.interestGrowthQ64`, each
+ * hLP vault's per-asset index. A retired junior generation or hLP cohort
+ * reads its frozen final index instead; pass the decoded cohort. */
+export function interestGrowthIndexQ64(input: {
+  market: Pick<Market, "baseSide" | "quoteSide" | "baseHlpVault" | "quoteHlpVault">;
+  kind: InterestLaneKind;
+  asset: "base" | "quote";
+  retiredJuniorCohort?: Pick<JuniorCohort, "finalIncome">;
+  retiredHlpCohort?: Pick<HlpCohort, "finalVault">;
+}): bigint {
+  const { market, kind, asset } = input;
+  const side = asset === "base" ? market.baseSide : market.quoteSide;
+  const hlpIndex = (vault: Pick<HlpVault, "baseInterestGrowthIndexQ64" | "quoteInterestGrowthIndexQ64">) =>
+    BigInt((asset === "base" ? vault.baseInterestGrowthIndexQ64 : vault.quoteInterestGrowthIndexQ64).toString());
+  if (kind === "srlp") {
+    if (input.retiredJuniorCohort || input.retiredHlpCohort) throw new Error("srLP has no retired cohorts");
+    return BigInt(side.fees.interestGrowthIndexQ64.toString());
+  }
+  if (kind === "junior") {
+    if (input.retiredHlpCohort) throw new Error("Junior cannot use an hLP cohort");
+    const income = input.retiredJuniorCohort ? input.retiredJuniorCohort.finalIncome[asset === "base" ? 0 : 1]! : side.fees.junior;
+    return BigInt(income.interestGrowthQ64.toString());
+  }
+  if (kind !== "baseHlp" && kind !== "quoteHlp") throw new Error("Invalid yield token kind");
+  if (input.retiredJuniorCohort) throw new Error("hLP cannot use a junior cohort");
+  if (input.retiredHlpCohort) return hlpIndex(input.retiredHlpCohort.finalVault);
+  return hlpIndex(kind === "baseHlp" ? market.baseHlpVault : market.quoteHlpVault);
+}
+
+/** Mirror of `accrue_fee_liability_with_remainder`: whole atoms a balance
+ * earns as a Q64 growth index moves past its checkpoint, carrying the
+ * sub-atom remainder. */
+export function accrueGrowthQ64(input: {
+  balance: bigint;
+  growthIndexQ64: bigint;
+  checkpointQ64: bigint;
+  remainderQ64: bigint;
+}): { amount: bigint; remainderQ64: bigint } {
+  const { balance, growthIndexQ64: index, checkpointQ64: checkpoint, remainderQ64: remainder } = input;
+  amount(balance);
+  amount(index, U128_MAX);
+  amount(checkpoint, U128_MAX);
+  amount(remainder);
+  if (balance === 0n || index <= checkpoint) return { amount: 0n, remainderQ64: remainder };
+  const delta = index - checkpoint;
+  const fractional = balance * (delta & U64_MAX) + remainder;
+  const accrued = balance * (delta >> 64n) + (fractional >> 64n);
+  amount(accrued);
+  return { amount: accrued, remainderQ64: fractional & U64_MAX };
+}
+
+/** Interest a yield account can claim at `growthIndexQ64`, computed as
+ * `YieldAccount::accrue` checkpoints it: the stored `accruedInterestAmount`
+ * plus the balance's share of the index change since the holder's
+ * checkpoint. Junior escrow receipts earn alongside the wallet balance. Pass
+ * the LP balance the program reads (the owner's LP token account) and an
+ * index from `interestGrowthIndexQ64` read with the account. The index
+ * includes interest up to the market's last accrual.
+ *
+ * A harvest pays `min(claimable, cashReserve)` of the asset's reserve side;
+ * the rest stays claimable (`harvestableInterest`). */
+export function claimableInterest(input: {
+  yieldAccount: Pick<YieldAccount, "tokenKind" | "escrowBalance" | "accruedInterestAmount" | "interestCheckpointQ64" | "interestRemainderQ64">;
+  lpBalance: bigint;
+  growthIndexQ64: bigint;
+}): bigint {
+  const holder = input.yieldAccount;
+  const escrow = holder.tokenKind === 2 ? BigInt(holder.escrowBalance.toString()) : 0n;
+  const balance = input.lpBalance + escrow;
+  const accrued = accrueGrowthQ64({
+    balance,
+    growthIndexQ64: input.growthIndexQ64,
+    checkpointQ64: BigInt(holder.interestCheckpointQ64.toString()),
+    remainderQ64: BigInt(holder.interestRemainderQ64.toString()),
+  }).amount;
+  const claimable = BigInt(holder.accruedInterestAmount.toString()) + accrued;
+  amount(claimable);
+  return claimable;
+}
+
+/** Interest a harvest pays now: claimable interest limited by the asset's
+ * reserve cash. Unpaid interest stays claimable and is not lost. */
+export function harvestableInterest(input: {
+  claimable: bigint;
+  market: Pick<Market, "baseSide" | "quoteSide">;
+  asset: "base" | "quote";
+}): bigint {
+  const cash = BigInt((input.asset === "base" ? input.market.baseSide : input.market.quoteSide).reserves.cashReserve.toString());
+  return input.claimable < cash ? input.claimable : cash;
 }

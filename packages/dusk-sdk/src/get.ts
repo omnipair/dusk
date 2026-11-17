@@ -31,7 +31,6 @@ import {
   deriveLeveragePositionAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
-  deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveReferralAccrualAddress,
   deriveReferralPartnerAddress,
@@ -90,8 +89,6 @@ export function duskPdas(programId: PublicKey = DUSK_PROGRAM_ID) {
       deriveMarketReserveVaultAddress(market, reserveMint, id),
     marketCollateralVault: (market: PublicKey, collateralMint: PublicKey, id: PublicKey = programId) =>
       deriveMarketCollateralVaultAddress(market, collateralMint, id),
-    marketInterestVault: (market: PublicKey, interestMint: PublicKey, id: PublicKey = programId) =>
-      deriveMarketInterestVaultAddress(market, interestMint, id),
     borrowPosition: (market: PublicKey, owner: PublicKey, positionId: PublicKey, id: PublicKey = programId) =>
       deriveBorrowPositionAddress(market, owner, positionId, id),
     leveragePosition: (market: PublicKey, positionOwner: PublicKey, positionId: PublicKey,

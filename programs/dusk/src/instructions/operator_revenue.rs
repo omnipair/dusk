@@ -4,7 +4,8 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::accounts::{
-        require_supported_asset_mint, token_account_credit, token_program_for_mint, validate_interest_accounts,
+        require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
+        validate_swap_fee_custody_accounts,
     },
     state::*,
     token::transfer_checked_with_remaining_accounts,
@@ -34,7 +35,7 @@ impl InitializeOperatorRevenue<'_> {
         revenue.market = ctx.accounts.market.key();
         revenue.recipient = ctx.accounts.market.operator.revenue_recipient;
         revenue.revenue_epoch = ctx.accounts.market.operator.revenue_epoch;
-        revenue.claimable = [0; 4];
+        revenue.claimable = [0; 2];
         revenue.sealed = false;
         revenue.bump = ctx.bumps.revenue;
         Ok(())
@@ -67,7 +68,7 @@ pub struct ClaimOperatorRevenue<'info> {
     pub recipient: UncheckedAccount<'info>,
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
-    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub recipient_asset_account: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
@@ -83,8 +84,10 @@ impl ClaimOperatorRevenue<'_> {
         require!(args.max_debit > 0, ErrorCode::AmountZero);
         let asset = a.market.asset_for_mint(a.asset_mint.key())?;
         require_supported_asset_mint(&a.asset_mint)?;
-        validate_interest_accounts(&a.market, &a.asset_mint, &a.interest_vault)?;
-        require_keys_eq!(a.interest_vault.owner, a.market.key(), ErrorCode::InvalidVault);
+        require!(
+            validate_swap_fee_custody_accounts(&a.market, &a.asset_mint, &a.reserve_vault)? == asset,
+            ErrorCode::InvalidVault
+        );
         let current = args.revenue_epoch == a.market.operator.revenue_epoch;
         let recipient = if current {
             require!(a.revenue.is_none(), ErrorCode::InvalidArgument);
@@ -113,41 +116,27 @@ impl ClaimOperatorRevenue<'_> {
             *token_program.key,
             ErrorCode::InvalidTokenProgram
         );
-        let mut total = 0_u64;
-        for i in [asset.code() as usize, asset.code() as usize + 2] {
-            let amount = if current {
-                let revenue = a.market.income.get_mut()?.revenue[i].as_mut();
-                let amount = revenue.operator_claimable.min(args.max_debit - total);
-                revenue.operator_claimable -= amount;
-                amount
-            } else {
-                let claim = &mut a.revenue.as_mut().ok_or(ErrorCode::InvalidArgument)?.claimable[i];
-                let amount = (*claim).min(args.max_debit - total);
-                *claim -= amount;
-                amount
-            };
-            total = total.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
+        // Credited operator interest is paid from reserve cash as it allows;
+        // the rest stays claimable.
+        let request = if current {
+            a.market.side(asset).fees.ledger.operator_claimable
+        } else {
+            a.revenue.as_ref().ok_or(ErrorCode::InvalidArgument)?.claimable[asset.code() as usize]
         }
+        .min(u128::from(args.max_debit)) as u64;
+        let total = a.market.side_mut(asset).pay_interest(request)?;
         require!(total > 0, ErrorCode::AmountZero);
-        let fees = &mut a.market.side_mut(asset).fees;
-        require_gte!(
-            a.interest_vault.amount,
-            fees.interest_vault_balance,
-            ErrorCode::UnbackedFeeLiability
-        );
-        fees.revenue_interest_liability = fees
-            .revenue_interest_liability
-            .checked_sub(total)
-            .ok_or(ErrorCode::UnbackedFeeLiability)?;
-        fees.interest_vault_balance = fees
-            .interest_vault_balance
-            .checked_sub(total)
-            .ok_or(ErrorCode::UnbackedFeeLiability)?;
-        fees.assert_backed()?;
+        if current {
+            let ledger = &mut a.market.side_mut(asset).fees.ledger;
+            ledger.operator_claimable -= u128::from(total);
+        } else {
+            let claim = &mut a.revenue.as_mut().ok_or(ErrorCode::InvalidArgument)?.claimable[asset.code() as usize];
+            *claim -= u128::from(total);
+        }
         let before = a.recipient_asset_account.amount;
         transfer_checked_with_remaining_accounts(
             a.market.to_account_info(),
-            a.interest_vault.to_account_info(),
+            a.reserve_vault.to_account_info(),
             a.recipient_asset_account.to_account_info(),
             a.asset_mint.to_account_info(),
             token_program,
@@ -157,6 +146,8 @@ impl ClaimOperatorRevenue<'_> {
             ctx.remaining_accounts,
         )?;
         a.recipient_asset_account.reload()?;
+        a.reserve_vault.reload()?;
+        require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
         let credit = token_account_credit(before, &a.recipient_asset_account)?;
         require_gte!(credit, args.minimum_credit, ErrorCode::InsufficientOutputAmount);
         let event = OperatorRevenueClaimed {

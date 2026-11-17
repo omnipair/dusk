@@ -56,7 +56,6 @@ pub(super) fn withdraw_hlp_order_position<'info>(
                 target_hlp_mint: accounts.target_hlp_mint.to_account_info(),
                 base_reserve_vault: accounts.base_reserve_vault.to_account_info(),
                 quote_reserve_vault: accounts.quote_reserve_vault.to_account_info(),
-                borrowed_interest_vault: accounts.borrowed_interest_vault.to_account_info(),
                 owner_target_account: accounts.custody_target_account.to_account_info(),
                 owner_hlp_account: accounts.custody_hlp_account.to_account_info(),
                 hlp_srlp_account: accounts.hlp_srlp_account.to_account_info(),
@@ -120,10 +119,15 @@ pub(super) fn set_hlp_yield_recipient<'info>(
     )
 }
 
+/// Harvest pays swap fees in full and credited interest as far as reserve
+/// cash allows, refusing a claim that would pay nothing. With no swap fees
+/// and no cash the harvest is skipped: the interest stays on the yield
+/// account for its recipient, the order owner, to harvest from Dusk later.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn claim_hlp_yield_if_available<'info>(
     accrued_swap_fee_amount: u64,
     accrued_interest_amount: u64,
+    reserve_cash: u64,
     dusk_program: AccountInfo<'info>,
     event_authority: AccountInfo<'info>,
     market: AccountInfo<'info>,
@@ -133,7 +137,6 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
     lp_mint: AccountInfo<'info>,
     owner_lp_account: AccountInfo<'info>,
     reserve_vault: AccountInfo<'info>,
-    interest_vault: AccountInfo<'info>,
     recipient_asset_account: AccountInfo<'info>,
     yield_account: AccountInfo<'info>,
     token_program: AccountInfo<'info>,
@@ -141,7 +144,7 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
     signer: &[&[&[u8]]],
     remaining_accounts: &[AccountInfo<'info>],
 ) -> Result<()> {
-    if accrued_swap_fee_amount == 0 && accrued_interest_amount == 0 {
+    if accrued_swap_fee_amount == 0 && (accrued_interest_amount == 0 || reserve_cash == 0) {
         return Ok(());
     }
     dusk::cpi::harvest(
@@ -156,7 +159,6 @@ pub(super) fn claim_hlp_yield_if_available<'info>(
                 lp_mint,
                 owner_lp_account,
                 reserve_vault,
-                interest_vault,
                 recipient_asset_account,
                 yield_account,
                 token_program,

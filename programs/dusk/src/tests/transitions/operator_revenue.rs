@@ -1,259 +1,127 @@
 use super::*;
 
-fn pay(book: &mut InterestRevenueBook, remaining: u64, paid: u64, markup: u16, share: u16) -> (u64, u64) {
-    book.synchronize(remaining, paid, markup, share).unwrap();
-    let (fee, protocol) = book.quote_cash(paid, paid).unwrap();
-    assert_eq!(book.collect(fee).unwrap(), protocol);
-    (fee, protocol)
-}
-
-#[test]
-fn base_interest_operator_share_and_added_protocol_markup_conserve_cash() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    assert_eq!(book.unpaid_fees().unwrap(), 50);
-    let (fee, protocol) = pay(&mut book, 0, 120, 2_000, 3_000);
-    assert_eq!((120 - fee, book.operator_claimable, protocol), (70, 30, 20));
-}
-
-#[test]
-fn a_full_operator_share_takes_all_interest_left_after_the_markup() {
-    let share = crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS;
-    assert_eq!(share, BPS_DENOMINATOR);
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, share).unwrap();
-    assert_eq!((book.protocol_unpaid, book.operator_unpaid), (20, 100));
-    assert_eq!(book.unpaid_fees().unwrap(), book.gross_unpaid);
-    assert_eq!(pay(&mut book, 60, 60, 2_000, share), (60, 10));
-    assert_eq!(book.operator_claimable, 50);
-    assert_eq!(pay(&mut book, 0, 60, 2_000, share), (60, 10));
-    assert_eq!(book.operator_claimable, 100);
-    let before = book;
-    assert!(book.synchronize(120, 0, 2_000, share + 1).is_err());
-    assert_eq!(book, before);
-}
-
-#[test]
-fn recipient_handoff_preserves_collected_cash_and_transfers_future_collections() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    assert_eq!(pay(&mut book, 60, 60, 2_000, 3_000), (25, 10));
-    let alice = book.take_operator_cash().unwrap();
-    assert_eq!(alice, 15);
-    assert_eq!(book.operator_claimable, 0);
-    assert_eq!(pay(&mut book, 0, 60, 2_000, 3_000), (25, 10));
-    assert_eq!(book.operator_claimable, 15);
-    assert_eq!(alice + book.operator_claimable, 30);
-}
-
-#[test]
-fn rate_changes_do_not_reprice_already_issued_interest() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    book.synchronize(260, 0, 4_000, 3_000).unwrap();
-    let (fee, protocol) = pay(&mut book, 0, 260, 4_000, 3_000);
-    assert_eq!((260 - fee, book.operator_claimable, protocol), (140, 60, 60));
-
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    book.synchronize(240, 0, 2_000, 5_000).unwrap();
-    let (fee, protocol) = pay(&mut book, 0, 240, 2_000, 5_000);
-    assert_eq!((240 - fee, book.operator_claimable, protocol), (120, 80, 40));
-}
-
-#[test]
-fn default_creates_no_cash_and_preserves_collected_operator_entitlement() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    assert_eq!(pay(&mut book, 60, 60, 2_000, 3_000), (25, 10));
-    book.synchronize(0, 0, 2_000, 3_000).unwrap();
-    assert_eq!(book.pending_gross, 0);
-    assert_eq!(book.collect(0).unwrap(), 0);
-    assert_eq!(book.operator_claimable, 15);
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    assert_eq!(pay(&mut book, 0, 120, 2_000, 3_000), (50, 20));
-    assert_eq!(book.operator_claimable, 45);
-}
-
-#[test]
-fn transfer_fee_cash_is_measured_and_never_creates_unbacked_revenue() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(1_200, 0, 2_000, 3_000).unwrap();
-    book.synchronize(0, 1_200, 2_000, 3_000).unwrap();
-    let (fee, protocol) = book.quote_cash(1_188, 1_200).unwrap();
-    assert_eq!((fee, protocol), (495, 198));
-    assert_eq!(book.collect(fee).unwrap(), 198);
-    assert_eq!(book.operator_claimable, 297);
-    assert_eq!(1_188 - fee, 693);
-    assert_eq!(fee, protocol + book.operator_claimable);
-}
-
-proptest::proptest! {
-    #[test]
-    fn all_collected_fee_claims_are_cash_backed(
-        steps in proptest::collection::vec((0_u8..3, 1_u16..10_000, 0_u16..10_001, 0_u16..=crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS), 1..80)
-    ) {
-        let mut book=InterestRevenueBook::default();
-        let mut collected=0_u64;
-        let mut protocol_claimed=0_u64;
-        let mut archived_cash=0_u64;
-        for (kind,amount,markup,share) in steps {
-            if kind==0 || book.gross_unpaid==0 {
-                let gross=book.gross_unpaid+amount as u64;
-                book.synchronize(gross,0,markup,share).unwrap();
-            } else {
-                let removed=(amount as u64).min(book.gross_unpaid);
-                let paid=if kind==1 {removed} else {0};
-                let remaining=book.gross_unpaid-removed;
-                let (fee,protocol)=pay(&mut book,remaining,paid,markup,share);
-                collected+=fee;protocol_claimed+=protocol;
-            }
-            if amount%7==0 {archived_cash+=book.take_operator_cash().unwrap();}
-            proptest::prop_assert!(book.unpaid_fees().unwrap()<=book.gross_unpaid);
-            proptest::prop_assert_eq!(protocol_claimed+archived_cash+book.operator_claimable,collected);
-        }
+/// A market lending `principal` of each asset from 1,000,000 of liquidity,
+/// with the given markup and operator share.
+fn operator_market(markup: u16, operator_share: u16, principal: u64) -> Market {
+    let mut market = Market::current_layout();
+    market.debt.base_borrow_index_nad = NAD as u128;
+    market.debt.quote_borrow_index_nad = NAD as u128;
+    market.protocol_interest_markup_bps = markup;
+    market.operator.interest_share_bps = operator_share;
+    market.debt.fixed_base_shares = u128::from(principal);
+    market.debt.fixed_base_principal = principal;
+    market.debt.fixed_quote_shares = u128::from(principal);
+    market.debt.fixed_quote_principal = principal;
+    for side in [&mut market.base_side, &mut market.quote_side] {
+        side.shares.srlp_supply = 1_000_000;
+        side.reserves.live_reserve = 1_000_000;
+        side.reserves.cash_reserve = 1_000_000 - principal;
     }
+    market
 }
 
-proptest::proptest! {
-    #[test]
-    fn mixed_advances_repayments_defaults_and_fee_changes_preserve_lp_budgets(
-        steps in proptest::collection::vec((0_u8..5, 1_u16..10_000, 0_u16..10_001, 0_u16..=crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS), 1..100)
-    ) {
-        let mut fees=InterestRevenueBook::default();
-        let mut advance=crate::state::PublicInterestAdvance::default();
-        for (kind,amount,markup,share) in steps {
-            if kind==0 || fees.gross_unpaid==0 {
-                fees.synchronize(fees.gross_unpaid+amount as u64,0,markup,share).unwrap();
-            } else if kind==1 {
-                let available=fees.gross_unpaid-advance.outstanding_gross;
-                let gross=(amount as u64).min(available);
-                let unpaid=fees.unpaid_fees().unwrap()-advance.revenue_escrow;
-                let escrow=if available==0 {0} else {unpaid*gross/available};
-                advance.fund(fees.gross_unpaid as u128,gross,escrow).unwrap();
-            } else {
-                let old=fees.gross_unpaid;
-                let removed=(amount as u64).min(old);
-                let paid=match kind {2=>removed,4=>removed/2,_=>0};
-                let remaining=old-removed;
-                let old_lp=old-fees.unpaid_fees().unwrap()-(advance.outstanding_gross-advance.revenue_escrow);
-                advance.clear(old as u128,remaining as u128,paid).unwrap();
-                let fee_paid=fees.synchronize(remaining,paid,markup,share).unwrap();
-                let transferred=paid-advance.repayment_credit_pending+advance.revenue_release_pending;
-                proptest::prop_assert!(transferred>=fee_paid,"cash budget {} below fees {}",transferred,fee_paid);
-                let new_lp=remaining-fees.unpaid_fees().unwrap()-(advance.outstanding_gross-advance.revenue_escrow);
-                proptest::prop_assert!(transferred-fee_paid<=old_lp-new_lp);
-                let (fee_cash,_)=fees.quote_cash(transferred,transferred).unwrap();
-                fees.collect(fee_cash).unwrap();
-                advance.take_payment(paid).unwrap();
-            }
-            proptest::prop_assert!(fees.unpaid_fees().unwrap()+advance.outstanding_gross-advance.revenue_escrow<=fees.gross_unpaid);
-            proptest::prop_assert!(advance.revenue_escrow<=fees.unpaid_fees().unwrap());
-        }
+/// Advance the base borrow index by `bps` and recognize the accrual.
+fn accrue_base(market: &mut Market, bps: u128) -> InterestCredit {
+    let before = market.debt.fixed_base_debt().unwrap();
+    market.debt.base_borrow_index_nad += market.debt.base_borrow_index_nad * bps / 10_000;
+    let accrued = market.debt.fixed_base_debt().unwrap() - before;
+    market.base_side.reserves.live_reserve += accrued;
+    market.recognize_accrued_interest(MarketAsset::Base).unwrap()
+}
+
+#[test]
+fn operator_and_protocol_split_carries_conserve_each_accrual() {
+    let mut market = operator_market(2_000, 3_000, 100_000);
+    let (mut gross, mut protocol, mut operator) = (0_u64, 0_u64, 0_u64);
+    for bps in [1, 3, 7, 11, 13, 101, 997] {
+        let credit = accrue_base(&mut market, bps);
+        assert_eq!(credit.netted, 0);
+        gross += credit.protocol + credit.operator + credit.lp;
+        protocol += credit.protocol;
+        operator += credit.operator;
     }
+    let ledger = market.base_side.fees.ledger;
+    // The markup is added on top of the base rate: protocol = gross × m/(1+m).
+    let exact_protocol = u128::from(gross) * 2_000 / 12_000;
+    assert!(u128::from(protocol) <= exact_protocol && u128::from(protocol) + 1 >= exact_protocol);
+    let exact_operator = u128::from(gross - protocol) * 3 / 10;
+    assert!(u128::from(operator).abs_diff(exact_operator) <= 1);
+    assert_eq!(ledger.protocol_unpaid, u128::from(protocol));
+    assert_eq!(ledger.operator_claimable, u128::from(operator));
+    assert_eq!(ledger.credited, u128::from(gross - protocol));
+    assert_eq!(ledger.public_recognized, u128::from(gross));
+    market.assert_interest_ledger(MarketAsset::Base).unwrap();
 }
 
 #[test]
-fn partial_advance_clearance_keeps_fee_cash_and_remaining_lp_claims_backed() {
-    for paid in 0..=3 {
-        let mut fees = InterestRevenueBook::default();
-        fees.synchronize(5, 0, 0, 4_000).unwrap();
-        let mut advance = crate::state::PublicInterestAdvance::default();
-        advance.fund(5, 4, 1).unwrap();
-        let cleared = advance.clear(5, 2, paid).unwrap();
-        let fee_paid = fees.synchronize(2, paid, 0, 4_000).unwrap();
-        let (fresh, escrow) = advance.take_payment(paid).unwrap();
-        let cash = fresh + escrow;
-        assert!(cash >= fee_paid);
-        assert_eq!(cash - fee_paid, 0);
-        assert_eq!(cleared.repaid + cleared.canceled + advance.outstanding_gross, 4);
-        assert_eq!(cleared.revenue_returned + escrow + advance.revenue_escrow, 1);
-        assert_eq!(fees.quote_cash(cash, cash).unwrap().0, fee_paid);
-        fees.collect(fee_paid).unwrap();
-        assert_eq!(fees.gross_unpaid - fees.unpaid_fees().unwrap(), 1);
-        assert_eq!(advance.outstanding_gross - advance.revenue_escrow, 1);
-        advance.clear(2, 0, 2).unwrap();
-        let fee_paid = fees.synchronize(0, 2, 0, 4_000).unwrap();
-        let (fresh, escrow) = advance.take_payment(2).unwrap();
-        assert_eq!(fresh + escrow, fee_paid);
-        assert_eq!(advance, crate::state::PublicInterestAdvance::default());
+fn recipient_handoff_archives_the_credited_share_and_new_credit_follows_the_new_recipient() {
+    let mut market = operator_market(0, 5_000, 100_000);
+    accrue_base(&mut market, 1_000);
+    let outgoing = market.base_side.fees.ledger.operator_claimable;
+    assert_eq!(outgoing, 5_000);
+    // The handoff seals the outgoing recipient's credited share in its
+    // archive; it stays inside `credited` until claimed.
+    let mut archive = [0_u128; 2];
+    for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        let ledger = &mut market.side_mut(asset).fees.ledger;
+        archive[asset.code() as usize] = ledger.operator_claimable;
+        ledger.operator_claimable = 0;
     }
-}
-
-proptest::proptest! {
-    #[test]
-    fn partial_paid_defaults_partition_cash_within_the_removed_lp_claim(
-        gross in 1_u64..1_000_000,
-        fee_seed in 0_u64..1_000_000,
-        escrow_seed in 0_u64..1_000_000,
-        lp_seed in 0_u64..1_000_000,
-        removal_seed in 0_u64..1_000_000,
-        payment_seed in 0_u64..1_000_000,
-    ) {
-        let fee = fee_seed % (gross + 1);
-        let escrow = escrow_seed % (fee + 1);
-        let advanced_lp = lp_seed % (gross - fee + 1);
-        let removed = removal_seed % (gross + 1);
-        let paid = payment_seed % (removed + 1);
-        let mut book = InterestRevenueBook {
-            gross_unpaid: gross, protocol_unpaid: fee, ..InterestRevenueBook::default()
-        };
-        let mut advance = crate::state::PublicInterestAdvance {
-            outstanding_gross: advanced_lp + escrow, revenue_escrow: escrow,
-            ..crate::state::PublicInterestAdvance::default()
-        };
-        let clearance = advance.clear(gross as u128, (gross - removed) as u128, paid).unwrap();
-        let paid_fee = book.synchronize(gross - removed, paid, 0, 0).unwrap();
-        let (fresh, released) = advance.take_payment(paid).unwrap();
-        let remaining_lp = gross - removed - book.unpaid_fees().unwrap();
-        let remaining_advance = advance.outstanding_gross - advance.revenue_escrow;
-        proptest::prop_assert!(remaining_advance <= remaining_lp);
-        proptest::prop_assert!(advance.revenue_escrow <= book.unpaid_fees().unwrap());
-        let cash = fresh + released;
-        proptest::prop_assert!(paid_fee <= cash);
-        let cleared_lp = gross - fee - advanced_lp - (remaining_lp - remaining_advance);
-        proptest::prop_assert!(cash - paid_fee <= cleared_lp);
-        proptest::prop_assert_eq!(advance.outstanding_gross + clearance.repaid + clearance.canceled, advanced_lp + escrow);
-        proptest::prop_assert_eq!(advance.revenue_escrow + released + clearance.revenue_returned, escrow);
-    }
+    let credited = market.base_side.fees.ledger.credited;
+    accrue_base(&mut market, 500);
+    let incoming = market.base_side.fees.ledger.operator_claimable;
+    assert_eq!(incoming, 2_750);
+    assert_eq!(archive[0], outgoing);
+    assert_eq!(market.base_side.fees.ledger.credited, credited + 5_500);
+    // Both recipients claim from reserve cash; neither touches the other.
+    let curve = market.curve_reserve(MarketAsset::Base).unwrap();
+    let paid = market.base_side.pay_interest(archive[0] as u64).unwrap();
+    archive[0] -= u128::from(paid);
+    assert_eq!((paid, archive[0]), (5_000, 0));
+    let paid = market.base_side.pay_interest(incoming as u64).unwrap();
+    market.base_side.fees.ledger.operator_claimable -= u128::from(paid);
+    assert_eq!(paid, 2_750);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), curve);
+    market.assert_interest_ledger(MarketAsset::Base).unwrap();
 }
 
 #[test]
-fn rejected_fee_updates_leave_the_entire_book_unchanged() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    let before = book;
-    assert!(book.synchronize(60, 61, 2_000, 3_000).is_err());
-    assert_eq!(book, before);
-    assert!(book.synchronize(240, 0, 10_001, 3_000).is_err());
-    assert_eq!(book, before);
-    assert!(book.collect(1).is_err());
-    assert_eq!(book, before);
+fn operator_claim_pays_what_cash_allows_and_keeps_the_rest_claimable() {
+    let mut market = operator_market(0, 10_000, 990_000);
+    accrue_base(&mut market, 2_000);
+    let ledger = market.base_side.fees.ledger;
+    assert_eq!(ledger.operator_claimable, 198_000);
+    assert_eq!(market.base_side.reserves.cash_reserve, 10_000);
+    let curve = market.curve_reserve(MarketAsset::Base).unwrap();
+    let paid = market.base_side.pay_interest(198_000).unwrap();
+    market.base_side.fees.ledger.operator_claimable -= u128::from(paid);
+    assert_eq!(paid, 10_000);
+    assert_eq!(market.base_side.reserves.cash_reserve, 0);
+    assert_eq!(market.base_side.fees.ledger.operator_claimable, 188_000);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), curve);
+    assert_eq!(market.base_side.pay_interest(1).unwrap(), 0);
+    market.assert_interest_ledger(MarketAsset::Base).unwrap();
 }
 
 #[test]
-fn a_payment_consumed_by_external_fees_clears_its_budget_without_earnings() {
-    let mut book = InterestRevenueBook::default();
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    book.synchronize(0, 120, 2_000, 3_000).unwrap();
-    assert_eq!(book.quote_cash(0, 120).unwrap(), (0, 0));
-    assert_eq!(book.collect(0).unwrap(), 0);
-    assert_eq!(book.pending_gross, 0);
-    assert_eq!(book.pending_protocol_gross, 0);
-    assert_eq!(book.operator_claimable, 0);
-    book.synchronize(120, 0, 2_000, 3_000).unwrap();
-    assert_eq!(pay(&mut book, 0, 120, 2_000, 3_000), (50, 20));
-    assert_eq!(book.operator_claimable, 30);
-}
-
-
-#[test]
-fn unpaid_fee_total_keeps_checked_addition() {
-    let mut book = InterestRevenueBook { protocol_unpaid: 7, operator_unpaid: 9, ..Default::default() };
-    assert_eq!(book.unpaid_fees().unwrap(), 16);
-    book.protocol_unpaid = u64::MAX;
-    book.operator_unpaid = 0;
-    assert_eq!(book.unpaid_fees().unwrap(), u64::MAX);
-    book.operator_unpaid = 1;
-    assert!(book.unpaid_fees().is_err());
+fn a_default_keeps_the_operator_credit_and_the_pool_absorbs_it() {
+    let mut market = operator_market(1_000, 3_000, 100_000);
+    accrue_base(&mut market, 1_000);
+    let ledger = market.base_side.fees.ledger;
+    let curve = market.curve_reserve(MarketAsset::Base).unwrap();
+    let debt = u64::try_from(market.debt.fixed_base_debt().unwrap()).unwrap();
+    market.debt.fixed_base_shares = 0;
+    market.debt.fixed_base_principal = 0;
+    // Nothing recovered: principal and every unpaid atom are written off.
+    let (protocol_paid, loss) = market.settle_public_debt(MarketAsset::Base, 0, 0, debt).unwrap();
+    let after = market.base_side.fees.ledger;
+    assert_eq!(protocol_paid, 0);
+    assert_eq!(after.operator_claimable, ledger.operator_claimable);
+    assert_eq!(after.credited, ledger.credited);
+    assert_eq!(after.protocol_unpaid, 0);
+    // The pool covers principal and the LP and operator credit; the
+    // protocol's unpaid share is dropped.
+    assert_eq!(u128::from(loss), u128::from(debt) - ledger.protocol_unpaid);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), curve - loss);
+    market.assert_interest_ledger(MarketAsset::Base).unwrap();
 }

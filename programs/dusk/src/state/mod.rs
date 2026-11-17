@@ -25,9 +25,7 @@ pub use junior_cohort::*;
 mod junior_exit_account;
 pub use junior_exit_account::*;
 
-mod income_epoch;
 pub use crate::oracle::*;
-pub use income_epoch::*;
 
 mod operator;
 pub use operator::*;

@@ -53,7 +53,7 @@ fn funded_public_loss_burns_only_junior_common_units_before_senior() {
     let mut market = market();
     market.debt.fixed_base_shares -= 8_000;
     market.debt.fixed_base_principal -= 8_000;
-    market.settle_public_debt_reserves(MarketAsset::Base, 0, 0, 8_000, 0).unwrap();
+    market.settle_public_debt(MarketAsset::Base, 0, 0, 8_000).unwrap();
     assert_eq!(market.tranches.junior_reserve_shares, 16_000);
     assert_eq!(market.base_side.shares.srlp_supply, 96_000);
     assert_eq!(market.tranches.senior_reserve_shares(96_000).unwrap(), 80_000);
@@ -64,22 +64,31 @@ fn funded_public_loss_burns_only_junior_common_units_before_senior() {
     // A quote loss consumes the remaining shared budget, not another copy.
     market.debt.fixed_quote_shares -= 40_000;
     market.debt.fixed_quote_principal -= 40_000;
-    market.settle_public_debt_reserves(MarketAsset::Quote, 0, 0, 40_000, 0).unwrap();
+    market.settle_public_debt(MarketAsset::Quote, 0, 0, 40_000).unwrap();
     assert_eq!(market.tranches.junior_reserve_shares, 0);
     assert_eq!(market.base_side.shares.srlp_supply, 80_000);
     assert_eq!(market.funded_reserve_value().unwrap(), market.normalize_amount(152_000, 0).unwrap());
 }
 
 #[test]
-fn writing_off_unadvanced_interest_does_not_consume_funded_junior() {
+fn writing_off_credited_interest_is_a_pool_loss_absorbed_junior_first() {
     let mut market = market();
     market.debt.fixed_base_shares += 10_000;
     market.base_side.reserves.live_reserve += 10_000;
+    market.recognize_accrued_interest(MarketAsset::Base).unwrap();
     assert_eq!(market.public_unpaid_interest(MarketAsset::Base).unwrap(), 10_000);
-    let before = market.tranches;
+    let credited = market.base_side.fees.ledger.credited;
+    assert_eq!(credited, 10_000);
+    let senior_before = market.tranches.senior_reserve_shares(100_000).unwrap();
     market.debt.fixed_base_shares -= 10_000;
-    market.settle_public_debt_reserves(MarketAsset::Base, 10_000, 0, 10_000, 0).unwrap();
-    assert_eq!(market.tranches, before);
+    market.settle_public_debt(MarketAsset::Base, 0, 0, 10_000).unwrap();
+    // The defaulted interest burns junior units (two value units per share);
+    // claims already credited to holders stay credited.
+    assert_eq!(market.tranches.junior_reserve_shares, 15_000);
+    assert_eq!(market.base_side.shares.srlp_supply, 95_000);
+    assert_eq!(market.tranches.senior_reserve_shares(95_000).unwrap(), senior_before);
+    assert_eq!(market.base_side.fees.ledger.credited, credited);
+    assert_eq!(market.base_side.fees.ledger.public_recognized, 0);
 }
 
 #[test]
@@ -101,7 +110,7 @@ fn collected_revenue_is_split_and_seed_keeps_its_own_earnings() {
     let old_seed = market.tranches.permanent_receipts;
     market.base_side.record_interest_credit_with_supply(10_000, 0, Default::default(), 0, senior + junior).unwrap();
     let fees = &market.base_side.fees;
-    assert_eq!(fees.interest_liability, 10_000);
+    assert_eq!(fees.ledger.credited, 10_000);
     assert_eq!(fees.interest_growth_index_q64 * senior as u128 >> 64, 5_000);
     assert_eq!(fees.junior.interest_growth_q64 * junior as u128 >> 64, 5_000);
     market.checkpoint_junior_seed().unwrap();
@@ -120,18 +129,25 @@ fn permanent_seed_reinvestment_does_not_mint_senior_claims() {
     let senior_before = market.tranches.senior_reserve_shares(market.base_side.shares.srlp_supply).unwrap();
     let seed_before = market.tranches.permanent_receipts;
     for asset in [MarketAsset::Base, MarketAsset::Quote] {
+        // The seed's credited interest is paid from reserve cash into
+        // swap-fee custody; no token moves and the curve does not change.
+        // Interest already repaid: cash and live hold it beside the credit.
         let side = market.side_mut(asset);
         side.fees.junior.seed_interest_amount = 1_000;
-        side.fees.interest_liability = 1_000;
-        side.fees.interest_vault_balance = 1_000;
-        market.fund_junior_seed(asset, 1_000, 990).unwrap();
+        side.fees.ledger.credited = 1_000;
+        side.reserves.cash_reserve += 1_000;
+        side.reserves.live_reserve += 1_000;
+        let curve = market.curve_reserve(asset).unwrap();
+        assert_eq!(market.fund_junior_seed(asset).unwrap(), 1_000);
+        assert_eq!(market.curve_reserve(asset).unwrap(), curve);
+        assert_eq!(market.side(asset).reserves.cash_reserve, 20_000);
     }
     let funded = market.compound_junior_seed().unwrap();
-    assert_eq!(funded.srlp_amount, 990);
+    assert_eq!(funded.srlp_amount, 1_000);
     assert_eq!(market.tranches.senior_reserve_shares(funded.srlp_supply).unwrap(), senior_before);
-    assert_eq!(market.tranches.permanent_receipts, seed_before + 990);
+    assert_eq!(market.tranches.permanent_receipts, seed_before + 1_000);
     assert_eq!(market.base_side.fees.swap_fee_custody_balance, 0);
-    assert_eq!(market.base_side.reserves.cash_reserve, 20_990);
+    assert_eq!(market.base_side.reserves.cash_reserve, 21_000);
     market.assert_market_invariants().unwrap();
 }
 
@@ -167,7 +183,7 @@ fn permissionless_seed_compound_rejects_a_same_slot_price_sandwich() {
         reserve_credit: 500_000 * UNIT,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut attacked, &Default::default())
+    .prepare(&mut attacked)
     .unwrap();
     let quote_received = first.quote.amount_out;
     first
@@ -199,52 +215,47 @@ fn seed_reinvestment_requires_archival_after_a_complete_wipe() {
 #[test]
 fn senior_exit_keeps_earned_income_without_withdrawing_it_twice() {
     let mut market = market();
-    market.base_side.asset_mint = Pubkey::new_unique();
-    market.quote_side.asset_mint = Pubkey::new_unique();
+    let index = |m: &Market| (m.base_side.fees.swap_fee_growth_index_q64, m.base_side.fees.interest_growth_index_q64);
     let mut departing = crate::state::YieldAccount {
-        asset_mint: market.base_side.asset_mint,
         token_kind: crate::state::YieldTokenKind::Srlp.code(),
         ..Default::default()
     };
-    market.checkpoint_holder_income(&mut departing, 0, None).unwrap();
+    let (swap, interest) = index(&market);
+    departing.accrue(10_000, swap, interest).unwrap();
     market.debt.fixed_base_shares += 10_000;
     market.base_side.reserves.live_reserve += 10_000;
-    market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
-    market.checkpoint_holder_income(&mut departing, 10_000, None).unwrap();
+    market.recognize_accrued_interest(MarketAsset::Base).unwrap();
+    let (swap, interest) = index(&market);
+    departing.accrue(10_000, swap, interest).unwrap();
     let redeemed = market.remove_liquidity(10_000).unwrap();
     assert_eq!((redeemed.base_amount_out, redeemed.quote_amount_out), (10_000, 10_000));
-    // The depositor buys funded capital, not this owner's historical coupon.
+    // The depositor buys funded capital, not this owner's credited interest.
     let entry = market.add_liquidity(10_000, 10_000).unwrap();
     assert_eq!(entry.srlp_amount, 10_000);
+    // Repayment pays the interest in cash; nobody is credited twice.
     market.debt.fixed_base_shares -= 10_000;
-    market.settle_public_debt_reserves(MarketAsset::Base, 10_000, 10_000, 10_000, 0).unwrap();
-    market.record_receivable_income_credit(MarketAsset::Base, false, 10_000, 0, Default::default(), 0).unwrap();
-    market.checkpoint_holder_income(&mut departing, 0, None).unwrap();
+    market.settle_public_debt(MarketAsset::Base, 10_000, 10_000, 10_000).unwrap();
+    let (swap, interest) = index(&market);
+    departing.accrue(0, swap, interest).unwrap();
+    // Half to junior; the senior half over 80,000 ordinary shares.
     assert_eq!(departing.accrued_interest_amount, 625);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
-fn newly_created_retired_holder_never_inherits_new_generation_income() {
+fn junior_lane_interest_after_a_wipe_goes_to_the_seed() {
     let mut market = market();
-    market.base_side.asset_mint = Pubkey::new_unique();
-    market.quote_side.asset_mint = Pubkey::new_unique();
-    market.issue_income_receivable(MarketAsset::Base, false, 1_000).unwrap();
-    let mut ended = [crate::state::IncomeExposureEnd::default(); 4];
-    for (i, end) in ended.iter_mut().enumerate() {
-        *end = crate::state::IncomeExposureEnd { ended: true, epoch: market.income.get().unwrap().books[i].epoch, growth: market.income.get().unwrap().books[i].growth[1] };
-    }
-    market.issue_income_receivable(MarketAsset::Base, false, 1_000).unwrap();
-    let mut recipient = crate::state::YieldAccount {
-        asset_mint: market.base_side.asset_mint,
-        token_kind: crate::state::YieldTokenKind::Junior.code(),
-        ..Default::default()
-    };
-    market.checkpoint_holder_income(&mut recipient, 0, Some(ended)).unwrap();
-    market.clear_income_receivable(MarketAsset::Base, false, 2_000, 2_000).unwrap();
-    market.record_receivable_income_credit(MarketAsset::Base, false, 2_000, 0, Default::default(), 0).unwrap();
-    market.checkpoint_holder_income(&mut recipient, 20_000, Some(ended)).unwrap();
-    assert_eq!(recipient.accrued_interest_amount, 0);
-    assert_eq!(recipient.income[0].units_q64, 0);
+    market.tranches.junior_reserve_shares = 0;
+    market.synchronize_tranche_income();
+    let index_before = market.base_side.fees.junior.interest_growth_q64;
+    let seed_before = market.base_side.fees.junior.seed_interest_amount;
+    market.debt.fixed_base_shares += 10_000;
+    market.base_side.reserves.live_reserve += 10_000;
+    market.recognize_accrued_interest(MarketAsset::Base).unwrap();
+    // The wiped generation's index stops on its own; the seed earns instead.
+    assert_eq!(market.base_side.fees.junior.interest_growth_q64, index_before);
+    assert_eq!(market.base_side.fees.junior.seed_interest_amount, seed_before + 5_000);
+    assert_eq!(market.base_side.fees.ledger.credited, 10_000);
 }
 
 #[test]
@@ -284,8 +295,8 @@ fn native_compounding_allocates_half_to_each_tranche_including_empty_seed() {
                     compounded.config.amm.compounding_fee_bps = 10_000;
                     let request = SwapRequest { current_slot: 1, current_unix_timestamp: 0,
                         asset_in: asset, reserve_credit: 10_000 * UNIT, protocol_fee_bps: 0 };
-                    let mut plain = request.prepare(&mut baseline, &Default::default()).unwrap();
-                    let mut compound = request.prepare(&mut compounded, &Default::default()).unwrap();
+                    let mut plain = request.prepare(&mut baseline).unwrap();
+                    let mut compound = request.prepare(&mut compounded).unwrap();
                     let fee = compound.quote.fee.compounded_fee_debit;
                     let mark = compound.quote.end_price_nad;
                     assert_eq!(plain.quote.amount_out, compound.quote.amount_out);

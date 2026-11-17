@@ -157,7 +157,6 @@ export class DuskHlpLiquidations {
     }, { accounts: {
       market: r.market, futarchyAuthority: r.futarchyAuthority, caller,
       borrowedMint: r.debt.assetMint, borrowedReserveVault: r.debt.reserveVault,
-      borrowedInterestVault: r.debt.interestVault,
       callerBountyAccount, srlpMint: r.state.srlpMint, targetHlpSrlpVault: targetVault.srlpVault,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
     }, remainingAccounts: params.closeRemainingAccounts ? [...params.closeRemainingAccounts] : undefined });

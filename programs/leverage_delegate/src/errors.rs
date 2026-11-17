@@ -20,6 +20,6 @@ pub enum LeverageDelegateError {
     HlpCohortRetired,
     #[msg("Opened margin is below the owner's minimum")]
     MinimumMarginNotMet,
-    #[msg("Harvest the order's earned yield before closing it")]
+    #[msg("Harvest the order's swap fees before closing it")]
     UnclaimedYield,
 }

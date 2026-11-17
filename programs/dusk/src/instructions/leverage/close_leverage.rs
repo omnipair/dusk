@@ -6,10 +6,9 @@ use anchor_spl::{
 };
 
 use super::settlement::{
-    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee,
-    leverage_interest_transfer_fees, leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest,
-    settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
-    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
+    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee, leverage_swap_fee_credit,
+    prepare_leverage_swap, record_interest_paid, settle_inline_leverage_hlp, split_delegated_accounts,
+    validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, DelegatedCallbackBuffers, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
     LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
@@ -158,8 +157,6 @@ pub struct CloseLeverage<'info> {
     pub debt_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub collateral_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -227,7 +224,6 @@ impl<'info> CloseLeverage<'info> {
             &self.debt_reserve_vault,
             &self.collateral_reserve_vault,
         )?;
-        validate_leverage_interest_account(&self.market, &self.debt_mint, &self.debt_interest_vault, debt_asset)?;
         require_keys_eq!(
             self.owner_debt_account.mint,
             self.debt_mint.key(),
@@ -427,7 +423,7 @@ impl<'info> CloseLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         let close_slice = ctx
             .accounts
@@ -463,19 +459,12 @@ impl<'info> CloseLeverage<'info> {
             debt_principal: ctx.accounts.leverage_position.debt_principal,
             shares_to_burn: close_slice.debt_shares,
         };
-        let transfer_fees = leverage_interest_transfer_fees(
-            &ctx.accounts.market,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            current_epoch,
-        )?;
         let mut approved_swap = None;
         // A delegate needs a payout quote before its approval callback. An
         // owner close validates debt coverage and the net minimum against the
         // measured-input settlement below, so a second curve quote is redundant.
         let (expected_residual, expected_payout) = if matches!(mode, CloseMode::Delegate) {
-            let prepared = prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?;
+            let prepared = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
             let close_quote = prepared.leverage_quote();
             require!(
                 ctx.accounts.leverage_position.close_approval == Default::default(),
@@ -552,7 +541,6 @@ impl<'info> CloseLeverage<'info> {
                 delegation.key(),
                 ctx.accounts.debt_reserve_vault.key(),
                 ctx.accounts.collateral_reserve_vault.key(),
-                ctx.accounts.debt_interest_vault.key(),
                 ctx.accounts.leverage_collateral_vault.key(),
                 ctx.accounts.owner_debt_account.key(),
                 ctx.accounts.position_owner.key(),
@@ -661,11 +649,10 @@ impl<'info> CloseLeverage<'info> {
         // read-only across approval; no callback can change this price basis.
         let prepared_swap = match approved_swap {
             Some(prepared) => prepared,
-            None => prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?,
+            None => prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?,
         };
 
         let swap = prepared_swap.leverage_quote();
-        let interest_eligibility = prepared_swap.interest_eligibility;
         let swap_fee_credit = leverage_swap_fee_credit(&swap)?;
 
         // Commit the close and settle the resulting hLP exposure.
@@ -697,25 +684,16 @@ impl<'info> CloseLeverage<'info> {
 
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            &ctx.accounts.debt_reserve_vault,
-            &ctx.accounts.collateral_reserve_vault,
-            &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             remaining_accounts,
             h_lp_accounts,
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
-            interest_eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
         // Inline hLP funding settlement may have credited this same vault.
         // Refresh before measuring the position-interest transfer so the
         // referral split cannot count the earlier hLP credit a second time.
-        ctx.accounts.debt_interest_vault.reload()?;
 
         // Pay bounded order fees from the realized residual, then transfer the
         // remainder directly to an account controlled by the position owner.
@@ -795,25 +773,17 @@ impl<'info> CloseLeverage<'info> {
         }
         require_gte!(residual_credit, args.min_amount_out, ErrorCode::SlippageExceeded);
 
-        let referral_receipt = record_leverage_interest(
+        let referral_receipt = record_interest_paid(
             &mut ctx.accounts.market,
             debt_asset,
             &ctx.accounts.debt_mint,
-            &mut ctx.accounts.debt_reserve_vault,
-            &mut ctx.accounts.debt_interest_vault,
-            &ctx.accounts.token_program,
-            &ctx.accounts.token_2022_program,
             &ctx.accounts.futarchy_authority,
             expected_referral_partner,
             ctx.accounts.leverage_position.referral_interest_share_bps,
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
-            None,
-            interest_eligibility,
-            remaining_accounts,
-            ctx.accounts.event_authority.to_account_info(),
-            Some(&mut transfer_instruction),
+            receipt.protocol_paid,
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;

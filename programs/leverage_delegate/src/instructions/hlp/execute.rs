@@ -33,8 +33,6 @@ pub struct ExecuteHlpOrder<'info> {
     pub base_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub quote_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(
         mut,
         constraint = custody_target_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,

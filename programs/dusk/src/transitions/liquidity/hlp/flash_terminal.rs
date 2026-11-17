@@ -1,23 +1,23 @@
 use super::*;
-use crate::{state::LiquidationLossAllocation, transitions::LeverageCollateralFee};
+use crate::state::LiquidationLossAllocation;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct HlpFlashTerminalSettlement {
     pub base: HlpRebalanceReceipt,
     pub quote: HlpRebalanceReceipt,
     pub loss: LiquidationLossAllocation,
-    pub surplus_debit: u64,
-    pub surplus_credit: u64,
+    /// Recovery above the debt, credited to the retired cohort's holders.
+    pub surplus: u64,
 }
 
 impl Market {
-    /// Price and apply the terminal ledger atomically. The instruction must
-    /// transfer exactly the returned interest and surplus amounts.
-    /// Caller slippage caps bound the resulting loss and actual token credits.
+    /// Price and apply the terminal ledger atomically. Recovery pays
+    /// principal first, then funding interest; canceled interest is a pool
+    /// loss. Interest and surplus stay in reserve cash. Caller slippage caps
+    /// bound the resulting loss and actual token credits.
     pub(crate) fn settle_terminal_hlp_flash(
         &mut self,
         quote: HlpFlashQuote,
-        debt_fee: LeverageCollateralFee,
         max_socialized_loss: u64,
         slot: u64,
     ) -> Result<HlpFlashTerminalSettlement> {
@@ -39,14 +39,23 @@ impl Market {
             self.debt.borrow_index(borrowed),
         )?)
         .map_err(|_| ErrorCode::DebtMathOverflow)?;
+        // With an interest deficit any vault may be wound down; otherwise
+        // only an insolvent one closes.
+        let wind_down = self.curve_wiped();
         let collateral_value =
             self.hlp_ema_collateral_value_in_borrowed(target, quote.collateral_debit, quote.borrowed_claim, slot)?;
-        require!(collateral_value <= debt, ErrorCode::HlpNotLiquidatable);
-        let recovery = quote
+        require!(wind_down || collateral_value <= debt, ErrorCode::HlpNotLiquidatable);
+        // Interest the frozen vault held for its creditors covers what the
+        // payment leaves unrecovered; the rest goes to its holders.
+        let paid_recovery = quote
             .borrowed_claim
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let mut loss = LiquidationLossAllocation::quote(vault.debt_principal.min(debt), debt, recovery)?;
+        let held_use = self.plan_held_hlp_interest(target, debt.saturating_sub(paid_recovery), slot)?;
+        let recovery = paid_recovery
+            .checked_add(held_use.value)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let loss = LiquidationLossAllocation::quote(vault.debt_principal.min(debt), debt, recovery)?;
         require_gte!(
             max_socialized_loss,
             loss.principal_written_off,
@@ -59,16 +68,6 @@ impl Market {
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::ReserveOverflow)?;
         require_gte!(cash, loss.surplus, ErrorCode::InsufficientLiquidity);
-        // Funding interest is paid from available cash, together with the
-        // transfer fee reserve cash pays on top of it when the instruction
-        // moves it into income custody. Cancel the unpaid remainder; its
-        // corresponding backing stays with the pool on close.
-        let cash_interest = loss.interest_paid.min(debt_fee.unwind_credit(cash - loss.surplus)?);
-        loss.interest_canceled = loss
-            .interest_canceled
-            .checked_add(loss.interest_paid - cash_interest)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        loss.interest_paid = cash_interest;
         self.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
         self.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
         let initial_supply = self.base_side.shares.srlp_supply;
@@ -93,22 +92,23 @@ impl Market {
                 .checked_sub(u128::from(vault.hlp_live_reserve(asset)))
                 .ok_or(ErrorCode::ReserveUnderflow)?;
         }
-        let payout = loss
-            .interest_paid
-            .checked_add(loss.surplus)
+        // Funding interest and the surplus stay in reserve cash: the protocol
+        // share of the interest leaves it inside the settlement as far as
+        // cash allows (the rest stays LP principal, so a small buyer credit
+        // into drained cash still settles), and the surplus is credited to
+        // the retired cohort's holders.
+        let settlement = self.settle_funding_interest(
+            borrowed,
+            loss.interest_paid,
+            loss.interest_canceled,
+            crate::transitions::ProtocolCash::IfCashAllows,
+        )?;
+        let fees = &mut self.side_mut(borrowed).fees;
+        fees.ledger.credited = fees
+            .ledger
+            .credited
+            .checked_add(u128::from(loss.surplus))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.side_mut(borrowed).reserves.cash_reserve = self
-            .side(borrowed)
-            .reserves
-            .cash_reserve
-            .checked_sub(payout)
-            .ok_or(ErrorCode::InsufficientLiquidity)?;
-        self.side_mut(borrowed).reserves.live_reserve = self
-            .side(borrowed)
-            .reserves
-            .live_reserve
-            .checked_sub(u128::from(payout))
-            .ok_or(ErrorCode::ReserveUnderflow)?;
         self.base_side.shares.burn(vault.srlp_shares)?;
         self.quote_side.shares.burn(vault.srlp_shares)?;
         let v = match target {
@@ -126,22 +126,16 @@ impl Market {
         v.cached_settlement_price_nad = 0;
         v.funding_apr_ema_nad = 0;
         v.funding_apr_ema_last_slot = 0;
-        let surplus_credit = debt_fee.unwind_credit(loss.surplus)?;
-        v.publish_new_interest(borrowed, surplus_credit)?;
-        let fees = &mut self.side_mut(borrowed).fees;
-        fees.interest_vault_balance = fees
-            .interest_vault_balance
-            .checked_add(surplus_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        fees.interest_liability = fees
-            .interest_liability
-            .checked_add(surplus_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.retire_hlp_receivables(target)?;
-        self.sync_income_receivable(borrowed, true, loss.interest_paid)?;
-        self.absorb_funded_credit_loss(borrowed, loss.principal_written_off)?;
-        require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
-        self.clear_frozen_hlp(target);
+        v.publish_new_interest(borrowed, loss.surplus)?;
+        self.absorb_funded_credit_loss(
+            borrowed,
+            loss.principal_written_off
+                .checked_add(settlement.lp_loss)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
+        )?;
+        require!(wind_down || self.hlp_frozen(target), ErrorCode::BrokenInvariant);
+        self.settle_held_hlp_interest(target, held_use)?;
+        self.clear_frozen_hlp(target)?;
         self.exclude_hlp_funding_payment_from_pricing(borrowed, loss.interest_paid)?;
         self.rebase_concentrated_curve_after_terminal_hlp_loss(inventory_before)?;
         // A second vault may also be insolvent. Closing this cohort must not
@@ -157,6 +151,7 @@ impl Market {
             srlp_burn_amount: vault.srlp_shares,
             debt_delta: -i128::from(debt),
             interest_paid: loss.interest_paid,
+            protocol_paid: settlement.protocol_paid,
             current_swap_fee_eligible_srlp_shares: vault.srlp_shares,
             tracking_start_srlp_shares: vault.srlp_shares,
             tracking_start_srlp_supply: initial_supply,
@@ -173,8 +168,7 @@ impl Market {
             base,
             quote: other_quote,
             loss,
-            surplus_debit: loss.surplus,
-            surplus_credit,
+            surplus: loss.surplus,
         })
     }
 }

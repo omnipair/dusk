@@ -30,7 +30,6 @@ impl Market {
                 amm,
                 debt,
                 tranches,
-                income,
                 junior_exit_config,
                 tranche_policy,
                 junior_mint,
@@ -58,7 +57,6 @@ impl Market {
             copy.amm.clone_from(amm);
             copy.debt.clone_from(debt);
             copy.tranches.clone_from(tranches);
-            copy.income.clone_from(income);
             copy.junior_exit_config.clone_from(junior_exit_config);
             copy.tranche_policy.clone_from(tranche_policy);
             copy.junior_mint.clone_from(junior_mint);
@@ -435,7 +433,7 @@ impl Market {
                     let budget = output
                         .checked_sub(debt_fee.effective_gross_for_credit(reward)?)
                         .ok_or(ErrorCode::InsufficientAmount)?;
-                    let (allocation, _) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
+                    let (allocation, _) = self.quote_emergency_partial_repayment(position, asset, budget)?;
                     Ok(LiquidationHealth {
                         collateral_value: self.liquidation_value_at(
                             asset,

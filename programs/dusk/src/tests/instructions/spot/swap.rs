@@ -1,12 +1,4 @@
 use super::*;
-use anchor_lang::solana_program::program_option::COption;
-use spl_token_2022::{
-    extension::{
-        transfer_fee::{TransferFee, TransferFeeAmount},
-        BaseStateWithExtensionsMut, ExtensionType, StateWithExtensionsMut,
-    },
-    state::{Account as SplToken2022Account, AccountState},
-};
 
 struct TestAccount {
     key: Pubkey,
@@ -47,8 +39,6 @@ fn market_requiring_hlp_swap_accounts() -> Market {
     };
     market.base_hlp_vault.srlp_vault = Pubkey::new_unique();
     market.quote_hlp_vault.srlp_vault = Pubkey::new_unique();
-    market.base_side.interest_vault = Pubkey::new_unique();
-    market.quote_side.interest_vault = Pubkey::new_unique();
     market.base_hlp_vault.hlp_supply = 1;
     market
 }
@@ -58,8 +48,6 @@ fn canonical_hlp_swap_accounts(market: &Market) -> Vec<TestAccount> {
         TestAccount::new(market.srlp_mint, Token2022::id(), true),
         TestAccount::new(market.base_hlp_vault.srlp_vault, Token2022::id(), true),
         TestAccount::new(market.quote_hlp_vault.srlp_vault, Token2022::id(), true),
-        TestAccount::new(market.base_side.interest_vault, Token::id(), true),
-        TestAccount::new(market.quote_side.interest_vault, Token2022::id(), true),
     ]
 }
 
@@ -136,7 +124,7 @@ fn inactive_hlp_side_accepts_its_uninitialized_derived_vault_but_active_side_doe
 fn canonical_hlp_prefix_rejects_readonly_settlement_accounts() {
     let market = market_requiring_hlp_swap_accounts();
     let mut accounts = canonical_hlp_swap_accounts(&market);
-    accounts[BASE_INTEREST_VAULT_INDEX].writable = false;
+    accounts[BASE_HLP_SRLP_VAULT_INDEX].writable = false;
     let infos: Vec<_> = accounts.iter_mut().map(TestAccount::account_info).collect();
 
     assert_eq!(
@@ -147,7 +135,7 @@ fn canonical_hlp_prefix_rejects_readonly_settlement_accounts() {
 
 #[test]
 fn legacy_spl_custody_projection_uses_the_full_input_credit() {
-    let projected = projected_reserve_vault_balance(1_000_000, 100_000, 25_000, 5_000).unwrap();
+    let projected = projected_reserve_vault_balance(1_000_000, 100_000, 30_000).unwrap();
     let mut side = crate::state::MarketSide::default();
     side.reserves.cash_reserve = 1_050_000;
     side.fees.swap_fee_custody_balance = 20_000;
@@ -160,7 +148,7 @@ fn legacy_spl_custody_projection_uses_the_full_input_credit() {
 fn token_2022_custody_projection_uses_net_input_and_gross_debits() {
     let gross_input = 100_000;
     let transfer_fee = 3_000;
-    let projected = projected_reserve_vault_balance(1_000_000, gross_input - transfer_fee, 25_000, 5_000).unwrap();
+    let projected = projected_reserve_vault_balance(1_000_000, gross_input - transfer_fee, 30_000).unwrap();
     let mut side = crate::state::MarketSide::default();
     side.reserves.cash_reserve = 1_047_000;
     side.fees.swap_fee_custody_balance = 20_000;
@@ -174,54 +162,16 @@ fn token_2022_custody_projection_uses_net_input_and_gross_debits() {
 }
 
 #[test]
-fn token_2022_hlp_interest_reads_net_credit_from_remaining_vault_data() {
-    let transfer_fee = TransferFee {
-        epoch: 0_u64.into(),
-        maximum_fee: u64::MAX.into(),
-        transfer_fee_basis_points: 300_u16.into(),
-    };
-    let gross_interest_paid = 10_000;
-    let balance_before = 40_000;
-    let actual_credit = transfer_fee.calculate_post_fee_amount(gross_interest_paid).unwrap();
-    let balance_after = balance_before + actual_credit;
-    let account_len =
-        ExtensionType::try_calculate_account_len::<SplToken2022Account>(&[ExtensionType::TransferFeeAmount]).unwrap();
-    let mut account_data = vec![0_u8; account_len];
-    {
-        let mut account =
-            StateWithExtensionsMut::<SplToken2022Account>::unpack_uninitialized(&mut account_data).unwrap();
-        account.init_extension::<TransferFeeAmount>(true).unwrap();
-        account.base = SplToken2022Account {
-            mint: Pubkey::new_unique(),
-            owner: Pubkey::new_unique(),
-            amount: balance_after,
-            delegate: COption::None,
-            state: AccountState::Initialized,
-            is_native: COption::None,
-            delegated_amount: 0,
-            close_authority: COption::None,
-        };
-        account.pack_base();
-        account.init_account_type().unwrap();
-    }
-    let account_key = Pubkey::new_unique();
-    let token_program = spl_token_2022::ID;
-    let mut lamports = 1;
-    let account_info = AccountInfo::new(
-        &account_key,
-        false,
-        true,
-        &mut lamports,
-        &mut account_data,
-        &token_program,
-        false,
-        0,
-    );
-
+fn reserve_custody_covers_booked_and_pending_protocol_interest() {
+    let mut side = crate::state::MarketSide::default();
+    side.reserves.cash_reserve = 1_000;
+    side.fees.interest_protocol_fee_liability = 30;
+    side.fees.interest_buyback_fee_liability = 20;
+    side.fees.referral_interest_liability = 10;
+    side.fees.ledger.protocol_pending = 5;
+    require_reserve_custody(1_065, &side).unwrap();
     assert_eq!(
-        token_account_info_credit(balance_before, &account_info).unwrap(),
-        actual_credit
+        require_reserve_custody(1_064, &side).unwrap_err(),
+        error!(ErrorCode::UnbackedFeeLiability)
     );
-    assert_eq!(actual_credit, 9_700);
-    assert!(actual_credit < gross_interest_paid);
 }

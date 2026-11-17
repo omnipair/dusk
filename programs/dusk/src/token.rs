@@ -284,23 +284,6 @@ pub fn get_transfer_inverse_fee_for_epoch(mint_info: &AccountInfo, post_fee_amou
     Ok(fee)
 }
 
-/// The transfer fee schedule a mint charges at `epoch`, if any. Reads the
-/// extension directly, without listing the mint's extension types, so it
-/// leaves nothing on the bump heap. Kept out of line so the mint decode does
-/// not join large instruction frames.
-#[inline(never)]
-pub fn get_epoch_transfer_fee(mint_info: &AccountInfo, epoch: u64) -> Result<Option<TransferFee>> {
-    if *mint_info.owner == Token::id() {
-        return Ok(None);
-    }
-    let mint_data = mint_info.try_borrow_data()?;
-    let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    Ok(mint
-        .get_extension::<TransferFeeConfig>()
-        .ok()
-        .map(|config| *config.get_epoch_fee(epoch)))
-}
-
 /// Fee to add to `post_fee_amount` so the recipient of a transfer charged
 /// `transfer_fee` receives at least `post_fee_amount`.
 pub fn transfer_inverse_fee(transfer_fee: &TransferFee, post_fee_amount: u64) -> Result<u64> {

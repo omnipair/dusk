@@ -7,7 +7,10 @@ fn custody_resources(m: &Market) -> [u128; 2] {
         let s = m.side(a);
         u128::from(s.reserves.cash_reserve)
             + u128::from(s.fees.swap_fee_custody_balance)
-            + u128::from(s.fees.interest_vault_balance)
+            + u128::from(s.fees.interest_protocol_fee_liability)
+            + u128::from(s.fees.interest_buyback_fee_liability)
+            + u128::from(s.fees.referral_interest_liability)
+            + u128::from(s.fees.ledger.protocol_pending)
             + u128::from(s.reserves.total_hlp_backing_inventory().unwrap())
             + u128::from(s.reserves.protected_recenter_reserve)
     })
@@ -26,7 +29,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
-    .prepare(&mut t, &Default::default())?;
+    .prepare(&mut t)?;
     let out = f.unwind_credit(s.quote.amount_out)?;
     s.finalize_state(&mut t, audit_slot(), 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;

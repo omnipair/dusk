@@ -38,7 +38,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
-                self.futarchy_authority.revenue_share.interest_bps,
+                &self.futarchy_authority,
             )?;
             self.market.update_for_debt_reduction()?;
             self.validate(args)
@@ -50,7 +50,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
-                self.futarchy_authority.revenue_share.interest_bps,
+                &self.futarchy_authority,
             )?;
             self.market.update_for_liquidity_change()?;
             self.validate(args)
@@ -62,7 +62,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
-                self.futarchy_authority.revenue_share.interest_bps,
+                &self.futarchy_authority,
             )?;
             self.market.update()?;
             self.validate(args)
@@ -74,7 +74,7 @@ macro_rules! market_update_and_validate {
                 &mut self.market,
                 Clock::get()?.slot,
                 self.event_authority.to_account_info(),
-                self.futarchy_authority.revenue_share.interest_bps,
+                &self.futarchy_authority,
             )?;
             self.market.update()?;
             self.validate()
@@ -83,12 +83,10 @@ macro_rules! market_update_and_validate {
 }
 pub(crate) use market_update_and_validate;
 
-pub(crate) const HLP_SWAP_ACCOUNT_PREFIX_LEN: usize = 5;
+pub(crate) const HLP_SWAP_ACCOUNT_PREFIX_LEN: usize = 3;
 pub(crate) const HLP_SRLP_MINT_INDEX: usize = 0;
 pub(crate) const BASE_HLP_SRLP_VAULT_INDEX: usize = 1;
 pub(crate) const QUOTE_HLP_SRLP_VAULT_INDEX: usize = 2;
-pub(crate) const BASE_INTEREST_VAULT_INDEX: usize = 3;
-pub(crate) const QUOTE_INTEREST_VAULT_INDEX: usize = 4;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct HlpSwapAccountLayout {
@@ -117,8 +115,6 @@ impl HlpSwapAccountLayout {
             (market.srlp_mint, ErrorCode::InvalidMint),
             (market.base_hlp_vault.srlp_vault, ErrorCode::InvalidVault),
             (market.quote_hlp_vault.srlp_vault, ErrorCode::InvalidVault),
-            (market.base_side.interest_vault, ErrorCode::InvalidVault),
-            (market.quote_side.interest_vault, ErrorCode::InvalidVault),
         ];
         for (account, (expected_key, error)) in accounts[..HLP_SWAP_ACCOUNT_PREFIX_LEN].iter().zip(expected) {
             require_keys_eq!(account.key(), expected_key, error);
@@ -145,28 +141,8 @@ impl HlpSwapAccountLayout {
                 ErrorCode::InvalidTokenProgram
             );
         }
-        for index in [BASE_INTEREST_VAULT_INDEX, QUOTE_INTEREST_VAULT_INDEX] {
-            let owner = *accounts[index].owner;
-            require!(
-                owner == Token::id() || owner == Token2022::id(),
-                ErrorCode::InvalidTokenProgram
-            );
-        }
-        // Fresh public-interest settlement also needs both mints/reserves.
-        // Recognize this canonical extension before exposing the callback/hook
-        // suffix. Older callers may supply these keys later in their suffix;
-        // settlement locates them by identity, while callback ordering stays intact.
-        let assets = [
-            market.base_side.asset_mint,
-            market.quote_side.asset_mint,
-            market.base_side.reserve_vault,
-            market.quote_side.reserve_vault,
-        ];
-        let extended = accounts
-            .get(HLP_SWAP_ACCOUNT_PREFIX_LEN..HLP_SWAP_ACCOUNT_PREFIX_LEN + 4)
-            .is_some_and(|tail| tail.iter().zip(assets).all(|(account, key)| account.key() == key));
         Ok(Self {
-            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN + if extended { 4 } else { 0 },
+            prefix_len: HLP_SWAP_ACCOUNT_PREFIX_LEN,
         })
     }
 }
@@ -297,21 +273,26 @@ pub fn token_account_debit(balance_before: u64, token_account: &InterfaceAccount
 }
 
 /// Proves that the reserve vault still backs executable cash and every
-/// deliberately excluded fee or hLP-backing atom. Callers must pass a balance
-/// read after their final reserve-vault token movement (or a deterministically
-/// projected post-CPI balance on the optimized swap path). The lower bound
-/// tolerates unsolicited token donations, which remain non-executable.
+/// deliberately excluded fee, protocol interest or hLP-backing atom. Callers
+/// must pass a balance read after their final reserve-vault token movement
+/// (or a deterministically projected post-CPI balance on the optimized swap
+/// path). The lower bound tolerates unsolicited token donations, which remain
+/// non-executable. Credited interest is not backed separately: claims are
+/// limited by cash, which this bound covers.
 #[inline(always)]
 pub(crate) fn require_reserve_custody(vault_balance: u64, market_side: &MarketSide) -> Result<()> {
     let hlp_backing_inventory = market_side.reserves.total_hlp_backing_inventory()?;
+    let fees = &market_side.fees;
     let required = market_side
         .reserves
         .cash_reserve
-        .checked_add(market_side.fees.swap_fee_custody_balance)
-        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.revenue_escrow))
-        .and_then(|value| value.checked_add(market_side.fees.public_interest_advance.revenue_release_pending))
+        .checked_add(fees.swap_fee_custody_balance)
         .and_then(|value| value.checked_add(hlp_backing_inventory))
         .and_then(|value| value.checked_add(market_side.reserves.protected_recenter_reserve))
+        .and_then(|value| value.checked_add(fees.referral_interest_liability))
+        .and_then(|value| value.checked_add(fees.interest_protocol_fee_liability))
+        .and_then(|value| value.checked_add(fees.interest_buyback_fee_liability))
+        .and_then(|value| value.checked_add(fees.ledger.protocol_pending))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     require_gte!(vault_balance, required, ErrorCode::UnbackedFeeLiability);
     Ok(())
@@ -330,12 +311,6 @@ pub fn token_account_info_amount(token_account: &AccountInfo) -> Result<u64> {
     let data = token_account.try_borrow_data()?;
     let mut data_slice: &[u8] = &data;
     Ok(TokenAccount::try_deserialize_unchecked(&mut data_slice)?.amount)
-}
-
-pub fn token_account_info_credit(balance_before: u64, token_account: &AccountInfo) -> Result<u64> {
-    token_account_info_amount(token_account)?
-        .checked_sub(balance_before)
-        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
 pub fn validate_side_vault_accounts<'info>(
@@ -403,23 +378,6 @@ pub fn validate_swap_fee_custody_accounts<'info>(
     require_keys_eq!(market_side.reserve_vault, reserve_vault.key(), ErrorCode::InvalidVault);
     require_keys_eq!(reserve_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
     require_keys_eq!(reserve_vault.owner, market.key(), ErrorCode::InvalidVault);
-    Ok(market_asset)
-}
-
-pub fn validate_interest_accounts<'info>(
-    market: &Account<'info, Market>,
-    asset_mint: &InterfaceAccount<'info, Mint>,
-    interest_vault: &InterfaceAccount<'info, TokenAccount>,
-) -> Result<MarketAsset> {
-    let market_asset = market.asset_for_mint(asset_mint.key())?;
-    let market_side = market.side(market_asset);
-    require_keys_eq!(
-        market_side.interest_vault,
-        interest_vault.key(),
-        ErrorCode::InvalidVault
-    );
-    require_keys_eq!(interest_vault.mint, asset_mint.key(), ErrorCode::InvalidVault);
-    require_keys_eq!(interest_vault.owner, market.key(), ErrorCode::InvalidVault);
     Ok(market_asset)
 }
 

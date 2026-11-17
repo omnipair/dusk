@@ -10,7 +10,7 @@ fn native_spot_sale(market: &mut Market, asset: MarketAsset, amount: u64, slot: 
         reserve_credit: amount,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(market, SwapCashPolicy::Spot, &Default::default())?;
+    .prepare_with_cash_policy(market, SwapCashPolicy::Spot)?;
     let quote = prepared.leverage_quote();
     prepared.apply(
         market,

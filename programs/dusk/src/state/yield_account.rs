@@ -1,19 +1,6 @@
 use anchor_lang::prelude::*;
 
-use crate::{
-    constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode, math::accrue_fee_liability_with_remainder,
-    state::ReceivableGrowth,
-};
-
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct IncomeReceivableClaim {
-    pub epoch: u64,
-    pub units_q64: u128,
-    pub paid_checkpoint_q64: u128,
-    pub growth_checkpoint: ReceivableGrowth,
-    pub paid_fraction_q128: u128,
-    pub claimable: u64,
-}
+use crate::{constants::YIELD_GROWTH_FRACTION_MASK_Q64, errors::ErrorCode, math::accrue_fee_liability_with_remainder};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum YieldTokenKind {
@@ -56,10 +43,8 @@ pub struct YieldAccount {
     /// Optional caller allowed to harvest to the recipient without controlling
     /// the LP or changing either yield permission. Only the owner may set it.
     pub harvest_authority: Option<Pubkey>,
-    pub income_initialized: bool,
-    pub income: [crate::state::IncomeReceivableClaim; 2],
-    /// Owner's junior exit escrow receipts. Historical unpaid-income ownership
-    /// is checkpointed here alongside the liquid balance.
+    /// Owner's junior exit escrow receipts. They keep earning junior interest
+    /// and are checkpointed alongside the liquid balance.
     pub escrow_balance: u64,
 }
 
@@ -74,8 +59,6 @@ impl YieldAccount {
         recipient: Pubkey,
         bump: u8,
     ) {
-        self.income_initialized = false;
-        self.income = Default::default();
         self.escrow_balance = 0;
         self.owner = owner;
         self.market = market;
@@ -123,7 +106,17 @@ impl YieldAccount {
             self.swap_fee_checkpoint_q64,
             self.swap_fee_remainder_q64,
         )?;
-        self.credit_interest_growth(balance, interest_growth_index_q64, self.interest_checkpoint_q64)?;
+        let (interest_amount, interest_remainder_q64) = accrue_fee_liability_with_remainder(
+            balance,
+            interest_growth_index_q64,
+            self.interest_checkpoint_q64,
+            self.interest_remainder_q64,
+        )?;
+        self.accrued_interest_amount = self
+            .accrued_interest_amount
+            .checked_add(interest_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        self.interest_remainder_q64 = interest_remainder_q64;
         self.accrued_swap_fee_amount = self
             .accrued_swap_fee_amount
             .checked_add(swap_fee_amount)
@@ -134,38 +127,14 @@ impl YieldAccount {
         Ok(())
     }
 
-    /// Credit an interest-growth interval without changing this account's LP
-    /// checkpoint namespace. hLP exits use this for the exiting vault-owned
-    /// srLP shares while preserving sub-atom entitlement across split exits.
-    pub fn credit_interest_growth(
-        &mut self,
-        balance: u64,
-        growth_index_q64: u128,
-        growth_checkpoint_q64: u128,
-    ) -> Result<()> {
-        let (interest_amount, interest_remainder_q64) = accrue_fee_liability_with_remainder(
-            balance,
-            growth_index_q64,
-            growth_checkpoint_q64,
-            self.interest_remainder_q64,
-        )?;
+    /// Swap fees are paid in full; interest by the cash-limited amount paid.
+    pub fn clear_claimed(&mut self, interest_paid: u64) -> Result<()> {
+        self.accrued_swap_fee_amount = 0;
         self.accrued_interest_amount = self
             .accrued_interest_amount
-            .checked_add(interest_amount)
+            .checked_sub(interest_paid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.interest_remainder_q64 = interest_remainder_q64;
         Ok(())
-    }
-
-    pub fn claimable_amount(&self) -> Result<u64> {
-        self.accrued_swap_fee_amount
-            .checked_add(self.accrued_interest_amount)
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-    }
-
-    pub fn clear_claimed(&mut self) {
-        self.accrued_swap_fee_amount = 0;
-        self.accrued_interest_amount = 0;
     }
 
     /// Move whole-atom and scaled hLP cohort remainder into the final holder

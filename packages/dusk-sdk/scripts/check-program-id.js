@@ -10,7 +10,6 @@ import {
   deriveEventAuthorityAddress,
   deriveFutarchyAuthorityAddress,
   deriveHlpCohortAddress,
-  deriveIncomeEpochAddress,
   deriveJuniorCohortAddress,
   deriveJuniorMintAddress,
   deriveLeverageCollateralVaultAddress,
@@ -18,7 +17,6 @@ import {
   deriveLeveragePositionAddress,
   deriveMarketAddress,
   deriveMarketCollateralVaultAddress,
-  deriveMarketInterestVaultAddress,
   deriveMarketReserveVaultAddress,
   deriveReferralAccrualAddress,
   deriveReferralPartnerAddress,
@@ -53,19 +51,14 @@ const provider = {
   wallet: { publicKey: owner },
 };
 const inactiveHlp = (srlpVault) => ({ srlpVault, hlpSupply: new BN(0), residualExposure: new BN(0) });
-const book = {
-  epoch: new BN(4), unitsQ64: new BN(10).shln(64), unpaid: new BN(0), paidPerUnitQ64: new BN(0), paidRemainderQ64: new BN(0), impaired: true, runLength: 0,
-  growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
-};
 const marketState = {
   version: MARKET_LAYOUT_VERSION,
   srlpMint,
   juniorMint: PublicKey.default,
-  baseSide: { assetMint: baseMint, hlpMint: baseHlpMint, reserveVault: key(20), interestVault: key(21) },
-  quoteSide: { assetMint: quoteMint, hlpMint: quoteHlpMint, reserveVault: key(22), interestVault: key(23) },
+  baseSide: { assetMint: baseMint, hlpMint: baseHlpMint, reserveVault: key(20) },
+  quoteSide: { assetMint: quoteMint, hlpMint: quoteHlpMint, reserveVault: key(22) },
   baseHlpVault: inactiveHlp(key(24)),
   quoteHlpVault: inactiveHlp(key(25)),
-  income: { books: [book, book, book, book], pending: [new BN(0), new BN(0), new BN(0), new BN(0)] },
   tranches: { generation: new BN(0), juniorReserveShares: new BN(0) },
 };
 
@@ -192,7 +185,6 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
         },
       },
     );
-    built.rollIncome = await tranches.rollIncome({ market, payer: owner, bookIndex: 1 });
     built.junior = await tranches.initialize({
       market, payer: owner, metadata: { name: "Omnipair jrLP", symbol: "jrLP", uri: "https://omnipair.fi/jr.json" },
     });
@@ -215,7 +207,7 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
   for (const [side, mint] of [["base", baseMint], ["quote", quoteMint]]) {
     assert.equal(init[`${side}ReserveVault`], at(deriveMarketReserveVaultAddress(created, mint, programId)));
     assert.equal(init[`${side}CollateralVault`], at(deriveMarketCollateralVaultAddress(created, mint, programId)));
-    assert.equal(init[`${side}InterestVault`], at(deriveMarketInterestVaultAddress(created, mint, programId)));
+    assert.equal(init[`${side}InterestVault`], undefined);
   }
 
   const borrow = accountsOf(program, built.borrow);
@@ -233,13 +225,13 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
     at(deriveLeverageDelegationAddress(leveragePosition, programId)));
   const close = accountsOf(program, built.closeLeverage);
   assert.equal(close.leveragePosition, leveragePosition.toBase58());
-  assert.equal(close.debtInterestVault, at(deriveMarketInterestVaultAddress(market, quoteMint, programId)));
+  assert.equal(close.debtReserveVault, at(deriveMarketReserveVaultAddress(market, quoteMint, programId)));
   assert.equal(close.referralAccrual, at(deriveReferralAccrualAddress(key(35), market, quoteMint, programId)));
 
   assert.equal(accountsOf(program, built.deposit).collateralVault,
     at(deriveMarketCollateralVaultAddress(market, baseMint, programId)));
   const repay = accountsOf(program, built.repay);
-  assert.equal(repay.interestVault, at(deriveMarketInterestVaultAddress(market, quoteMint, programId)));
+  assert.equal(repay.reserveVault, at(deriveMarketReserveVaultAddress(market, quoteMint, programId)));
   assert.equal(repay.referralAccrual, at(deriveReferralAccrualAddress(key(35), market, quoteMint, programId)));
   assert.equal(accountsOf(program, built.withdrawAll).quoteCollateralVault,
     at(deriveMarketCollateralVaultAddress(market, quoteMint, programId)));
@@ -273,12 +265,10 @@ test("builders and readers derive every Dusk PDA under their program's ID", asyn
   assert.equal(accountsOf(program, built.referralRecipient).referralPartner, partner);
   const claim = accountsOf(program, built.claimReferral);
   assert.equal(claim.referralAccrual, accrual.referralAccrual);
-  assert.equal(claim.interestVault, at(deriveMarketInterestVaultAddress(market, quoteMint, programId)));
+  assert.equal(claim.reserveVault, at(deriveMarketReserveVaultAddress(market, quoteMint, programId)));
   assert.equal(built.referredBorrow.referralPartner.toBase58(), partner);
   assert.equal(accountsOf(program, built.referredBorrow.actionInstruction).referralAccrual, accrual.referralAccrual);
 
-  assert.equal(built.rollIncome.incomeEpoch.toBase58(), at(deriveIncomeEpochAddress(market, 1, 4n, programId)));
-  assert.equal(accountsOf(program, built.rollIncome.instruction).incomeEpoch, built.rollIncome.incomeEpoch.toBase58());
   const juniorMint = deriveJuniorMintAddress(market, 0n, programId)[0];
   assert.ok(built.junior.juniorMint.equals(juniorMint));
   assert.equal(built.junior.cohort.toBase58(), at(deriveJuniorCohortAddress(market, juniorMint, programId)));
@@ -324,5 +314,5 @@ test("readers, delegate clients and the Dusk client follow the program ID", asyn
   const dusk = new Dusk({ provider, programId });
   assert.ok(dusk.program.programId.equals(programId));
   assert.ok(dusk.orders.duskProgramId.equals(programId));
-  assert.equal(at(dusk.get.pda.marketInterestVault(market, quoteMint)), at(deriveMarketInterestVaultAddress(market, quoteMint, programId)));
+  assert.equal(at(dusk.get.pda.marketReserveVault(market, quoteMint)), at(deriveMarketReserveVaultAddress(market, quoteMint, programId)));
 });

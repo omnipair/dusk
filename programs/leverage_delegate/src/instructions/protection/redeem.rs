@@ -55,20 +55,14 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 self.market.asset_for_hlp_mint(self.lp_mint.key())? == payment_asset,
                 LeverageDelegateError::InvalidOrder
             );
-            // Repayment uses this market-settlement prefix, but the single-
-            // sided exit binds its vaults as fixed accounts. Do not duplicate
-            // all nine AccountInfos through a second CPI on SBF's bump heap.
-            // Preserve any trailing asset-hook accounts unchanged.
+            // Repayment carries Dusk's hLP prefix, but the single-sided exit
+            // binds those accounts as fixed accounts. Do not duplicate them
+            // through a second CPI on SBF's bump heap. Preserve any trailing
+            // asset-hook accounts unchanged.
             let prefix = [
                 self.market.srlp_mint,
                 self.market.base_hlp_vault.srlp_vault,
                 self.market.quote_hlp_vault.srlp_vault,
-                self.market.base_side.interest_vault,
-                self.market.quote_side.interest_vault,
-                self.market.base_side.asset_mint,
-                self.market.quote_side.asset_mint,
-                self.market.base_side.reserve_vault,
-                self.market.quote_side.reserve_vault,
             ];
             let remaining = if remaining.len() >= prefix.len()
                 && remaining
@@ -90,11 +84,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 target_hlp_mint: self.lp_mint.to_account_info(),
                 base_reserve_vault: self.base_reserve_vault.to_account_info(),
                 quote_reserve_vault: self.quote_reserve_vault.to_account_info(),
-                borrowed_interest_vault: self
-                    .borrowed_interest_vault
-                    .as_ref()
-                    .ok_or(LeverageDelegateError::InvalidOrder)?
-                    .to_account_info(),
                 owner_target_account: if payment_asset == MarketAsset::Base {
                     self.custody_base_account.to_account_info()
                 } else {
@@ -125,7 +114,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
                 accounts.target_hlp_mint.clone(),
                 accounts.base_reserve_vault.clone(),
                 accounts.quote_reserve_vault.clone(),
-                accounts.borrowed_interest_vault.clone(),
                 accounts.owner_target_account.clone(),
                 accounts.owner_hlp_account.clone(),
                 accounts.hlp_srlp_account.clone(),

@@ -19,14 +19,11 @@ use crate::{
 };
 
 use crate::instructions::accounts::{
-    require_reserve_custody, require_supported_asset_mint, token_account_info_amount, token_account_info_credit,
-    token_program_for_mint, validate_owner_asset_account, HlpSwapAccountLayout, BASE_HLP_SRLP_VAULT_INDEX,
-    BASE_INTEREST_VAULT_INDEX, HLP_SRLP_MINT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN, QUOTE_HLP_SRLP_VAULT_INDEX,
-    QUOTE_INTEREST_VAULT_INDEX,
+    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_owner_asset_account,
+    HlpSwapAccountLayout, BASE_HLP_SRLP_VAULT_INDEX, HLP_SRLP_MINT_INDEX, HLP_SWAP_ACCOUNT_PREFIX_LEN,
+    QUOTE_HLP_SRLP_VAULT_INDEX,
 };
 use crate::instructions::enforce_launch_same_transaction_guard;
-use crate::instructions::leverage::settlement::interest_transfer_fees;
-use crate::instructions::liquidity::record_inline_hlp_interest_credit;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SwapArgs {
@@ -187,19 +184,7 @@ impl<'info> Swap<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-        )?;
-        // Reserve cash pays the transfer fee on hLP funding the swap moves
-        // into income custody; the carry decision includes it.
-        let (base_mint, quote_mint) = match asset_in {
-            MarketAsset::Base => (&ctx.accounts.asset_in_mint, &ctx.accounts.asset_out_mint),
-            MarketAsset::Quote => (&ctx.accounts.asset_out_mint, &ctx.accounts.asset_in_mint),
-        };
-        let transfer_fees = interest_transfer_fees(
-            &ctx.accounts.market,
-            &base_mint.to_account_info(),
-            &quote_mint.to_account_info(),
-            current_epoch,
+            &ctx.accounts.futarchy_authority,
         )?;
         let mut prepared = SwapRequest {
             current_slot,
@@ -208,21 +193,23 @@ impl<'info> Swap<'info> {
             reserve_credit,
             protocol_fee_bps,
         }
-        .prepare(&mut ctx.accounts.market, &transfer_fees)?;
+        .prepare(&mut ctx.accounts.market)?;
         let finalized = prepared.finalize_state(
             &mut ctx.accounts.market,
             current_slot,
             protocol_fee_bps,
             protocol_auction_split,
         )?;
+        // hLP funding paid by the swap stays in reserve cash; its protocol
+        // share already left cash and is booked here.
+        ctx.accounts.market.book_protocol_interest(protocol_auction_split)?;
         let quote = prepared.quote;
-        let interest_eligibility = prepared.interest_eligibility;
         let base_rebalance = finalized.base_rebalance;
         let quote_rebalance = finalized.quote_rebalance;
 
         // Final commit validation uses cached vault balances plus the known
-        // net input, gross output, and gross hLP-interest deltas. This catches
-        // unbacked executable cash or fee liabilities before any token CPI.
+        // net input and gross output. This catches unbacked executable cash or
+        // fee liabilities before any token CPI.
         let (base_vault_before, quote_vault_before) = match asset_in {
             MarketAsset::Base => (
                 ctx.accounts.reserve_in_vault.amount,
@@ -245,10 +232,6 @@ impl<'info> Swap<'info> {
             } else {
                 0
             },
-            quote_rebalance
-                .interest_paid
-                .checked_add(quote_rebalance.interest_transfer_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
         )?;
         let quote_projected = projected_reserve_vault_balance(
             quote_vault_before,
@@ -262,10 +245,6 @@ impl<'info> Swap<'info> {
             } else {
                 0
             },
-            base_rebalance
-                .interest_paid
-                .checked_add(base_rebalance.interest_transfer_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
         )?;
         require_reserve_custody(base_projected, &ctx.accounts.market.base_side)?;
         require_reserve_custody(quote_projected, &ctx.accounts.market.quote_side)?;
@@ -295,23 +274,19 @@ impl<'info> Swap<'info> {
         )?;
 
         // One call per side and one net token settlement per receipt. A side
-        // can mint or burn srLP, never both, and can transfer interest once.
+        // can mint or burn srLP, never both.
         apply_single_hlp_rebalance_token_changes(
             &mut ctx,
             &base_rebalance,
             BASE_HLP_SRLP_VAULT_INDEX,
-            QUOTE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
-            interest_eligibility,
             &mut event_instruction,
         )?;
         apply_single_hlp_rebalance_token_changes(
             &mut ctx,
             &quote_rebalance,
             QUOTE_HLP_SRLP_VAULT_INDEX,
-            BASE_INTEREST_VAULT_INDEX,
             h_lp_accounts,
-            interest_eligibility,
             &mut event_instruction,
         )?;
 
@@ -380,12 +355,28 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
     ctx: &mut anchor_lang::context::Context<'_, '_, '_, 'info, Swap<'info>>,
     receipt: &HlpRebalanceReceipt,
     srlp_vault_index: usize,
-    interest_vault_index: usize,
     accounts: HlpSwapAccountLayout,
-    interest_eligibility: crate::transitions::HlpYieldEligibility,
     event_instruction: &mut anchor_lang::solana_program::instruction::Instruction,
 ) -> Result<()> {
-    if receipt.srlp_mint_amount == 0 && receipt.srlp_burn_amount == 0 && receipt.interest_paid == 0 {
+    if receipt.interest_paid > 0 {
+        // The funding payment stays in reserve cash; only its protocol share
+        // left cash. Report it before any token CPI reuses the buffer.
+        crate::instructions::accounting::emit_interest_paid_with_instruction(
+            &ctx.accounts.market,
+            receipt.target_asset.opposite(),
+            crate::events::DebtSource::Hlp,
+            None,
+            crate::state::ReferralInterestQuote::with_protocol_revenue(
+                receipt.interest_paid,
+                receipt.protocol_paid,
+                None,
+            )?,
+            0,
+            ctx.accounts.event_authority.to_account_info(),
+            event_instruction,
+        )?;
+    }
+    if receipt.srlp_mint_amount == 0 && receipt.srlp_burn_amount == 0 {
         return Ok(());
     }
     require_gte!(
@@ -432,96 +423,14 @@ fn apply_single_hlp_rebalance_token_changes<'info>(
             &signer_seeds,
         )?;
     }
-    if receipt.interest_paid > 0 {
-        let borrowed_asset = receipt.target_asset.opposite();
-        let interest_vault = &ctx.remaining_accounts[interest_vault_index];
-        let interest_vault_balance_before = token_account_info_amount(interest_vault)?;
-        let asset_in = ctx.accounts.market.asset_for_mint(ctx.accounts.asset_in_mint.key())?;
-        let (reserve_vault, mint, token_program, decimals) = if asset_in == borrowed_asset {
-            (
-                ctx.accounts.reserve_in_vault.to_account_info(),
-                ctx.accounts.asset_in_mint.to_account_info(),
-                token_program_for_mint(
-                    &ctx.accounts.asset_in_mint,
-                    &ctx.accounts.token_program,
-                    &ctx.accounts.token_2022_program,
-                )?,
-                ctx.accounts.asset_in_mint.decimals,
-            )
-        } else {
-            (
-                ctx.accounts.reserve_out_vault.to_account_info(),
-                ctx.accounts.asset_out_mint.to_account_info(),
-                token_program_for_mint(
-                    &ctx.accounts.asset_out_mint,
-                    &ctx.accounts.token_program,
-                    &ctx.accounts.token_2022_program,
-                )?,
-                ctx.accounts.asset_out_mint.decimals,
-            )
-        };
-        // The finalized swap already debited reserve cash for the transfer
-        // fee (its carry decision counted it), so custody receives the full
-        // funding payment.
-        transfer_checked_with_remaining_accounts_and_instruction(
-            event_instruction,
-            ctx.accounts.market.to_account_info(),
-            reserve_vault,
-            interest_vault.clone(),
-            mint,
-            token_program,
-            receipt
-                .interest_paid
-                .checked_add(receipt.interest_transfer_fee)
-                .ok_or(ErrorCode::MarketMathOverflow)?,
-            decimals,
-            &signer_seeds,
-            accounts.hook_accounts(ctx.remaining_accounts),
-        )?;
-        let measured_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
-        let credit = ctx
-            .accounts
-            .market
-            .quote_interest_revenue_credit(borrowed_asset, true, measured_credit)?;
-        let interest_vault_credit = credit.credited();
-        crate::instructions::accounting::emit_interest_paid_with_instruction(
-            &ctx.accounts.market,
-            borrowed_asset,
-            crate::events::DebtSource::Hlp,
-            None,
-            crate::state::ReferralInterestQuote::with_protocol_revenue(
-                receipt.interest_paid,
-                interest_vault_credit,
-                credit.protocol,
-                None,
-            )?,
-            0,
-            ctx.accounts.event_authority.to_account_info(),
-            event_instruction,
-        )?;
-        record_inline_hlp_interest_credit(
-            &mut ctx.accounts.market,
-            borrowed_asset,
-            interest_vault_credit,
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
-            interest_eligibility,
-        )?;
-    }
     Ok(())
 }
 
 #[inline(always)]
-fn projected_reserve_vault_balance(
-    balance_before: u64,
-    net_input_credit: u64,
-    gross_swap_output: u64,
-    gross_interest_debit: u64,
-) -> Result<u64> {
+fn projected_reserve_vault_balance(balance_before: u64, net_input_credit: u64, gross_swap_output: u64) -> Result<u64> {
     balance_before
         .checked_add(net_input_credit)
         .and_then(|value| value.checked_sub(gross_swap_output))
-        .and_then(|value| value.checked_sub(gross_interest_debit))
         .ok_or_else(|| ErrorCode::UnbackedFeeLiability.into())
 }
 

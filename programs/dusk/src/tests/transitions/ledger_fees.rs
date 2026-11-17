@@ -59,7 +59,6 @@ fn fragmented_balances_preserve_double_floor_dust_for_later_growth() {
 fn total_liability_includes_lp_protocol_and_referral_buckets() {
     let fees = Fees {
         swap_fee_custody_balance: 700,
-        interest_vault_balance: 300,
         referral_interest_liability: 50,
         swap_protocol_fee_liability: 250,
         swap_buyback_fee_liability: 50,
@@ -73,7 +72,6 @@ fn total_liability_includes_lp_protocol_and_referral_buckets() {
 fn auction_liabilities_settle_by_lane() {
     let mut fees = Fees {
         swap_fee_custody_balance: 700,
-        interest_vault_balance: 300,
         swap_protocol_fee_liability: 500,
         swap_buyback_fee_liability: 200,
         interest_protocol_fee_liability: 200,
@@ -95,7 +93,6 @@ fn auction_liabilities_settle_by_lane() {
     assert_eq!(fees.interest_protocol_fee_liability, 200);
     assert_eq!(fees.interest_buyback_fee_liability, 50);
     assert_eq!(fees.swap_fee_custody_balance, 575);
-    assert_eq!(fees.interest_vault_balance, 250);
     fees.assert_backed().unwrap();
 }
 
@@ -113,7 +110,6 @@ fn auction_curves_are_isolated_and_inventory_changes_do_not_restart_the_clock() 
         for source in [ProtocolRevenueSource::Swap, ProtocolRevenueSource::Interest] {
             let mut fees = Fees {
                 swap_fee_custody_balance: 1,
-                interest_vault_balance: 1,
                 swap_protocol_fee_liability: 1,
                 interest_protocol_fee_liability: 1,
                 ..Fees::default()
@@ -130,7 +126,6 @@ fn auction_curves_are_isolated_and_inventory_changes_do_not_restart_the_clock() 
             // Emptying custody and subsequent new fees preserve virtual state.
             fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Swap, 1).unwrap();
             fees.settle_protocol_auction_liability(ProtocolAuctionLane::Fee, ProtocolRevenueSource::Interest, 1).unwrap();
-            fees.interest_vault_balance = 100;
             fees.credit_protocol_interest_revenue(100, ProtocolAuctionSplit::default(), 0).unwrap();
             assert_eq!(fees.protocol_auction(lane, source), curve);
             fees.assert_backed().unwrap();

@@ -23,7 +23,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
                         self.base_mint.to_account_info()
                     },
                     reserve_vault: self.payment_vault.to_account_info(),
-                    interest_vault: self.debt_interest_vault.to_account_info(),
                     owner_debt_account: self.keeper_payment_account.to_account_info(),
                     borrow_position: self
                         .borrow_position
@@ -47,7 +46,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
                     accounts.debt_asset_mint.clone(),
                     accounts.collateral_asset_mint.clone(),
                     accounts.reserve_vault.clone(),
-                    accounts.interest_vault.clone(),
                     accounts.owner_debt_account.clone(),
                     accounts.borrow_position.clone(),
                     accounts
@@ -121,7 +119,6 @@ impl<'info> ExecuteProtectionOrder<'info> {
                             self.base_mint.to_account_info()
                         },
                         debt_reserve_vault: self.payment_vault.to_account_info(),
-                        debt_interest_vault: self.debt_interest_vault.to_account_info(),
                         owner_debt_account: self.keeper_payment_account.to_account_info(),
                         referral_partner,
                         referral_accrual,

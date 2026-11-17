@@ -1,4 +1,4 @@
-use super::swap::{InterestTransferFee, InventorySettlement};
+use super::swap::InventorySettlement;
 use crate::{
     constants::NAD,
     errors::ErrorCode,
@@ -7,7 +7,7 @@ use crate::{
         amm::{ConcentratedCurveGeometry, PreparedSwap, SwapRequest},
         flash_liquidation::LiquidationReads,
         liquidity::{prepare_concentrated_hlp_transition_at_current_state, IntegratedCurveState, SwapCashPolicy},
-        AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility, LeverageCollateralFee,
+        AmmSwapQuote, HlpRebalanceReceipt, HlpYieldEligibility,
     },
 };
 use anchor_lang::prelude::*;
@@ -101,21 +101,12 @@ impl SwapRequest {
 
     // This is an inventory settlement. Its virtual hLP endpoint/cache must
     // never be applied to the real pool. PreparedSwap enforces that distinction.
-    // `interest_transfer_fees` (base, quote) are paid by reserve cash on any
-    // hLP funding the settlement moves into income custody; binding the
-    // settlement checks they fit the funding cash floor.
     pub(crate) fn prepare_ema_liquidation(
         self,
         market: &mut Market,
         scratch: &mut Option<Box<Market>>,
         reads: &mut LiquidationReads,
-        interest_transfer_fees: &[LeverageCollateralFee; 2],
     ) -> Result<Box<PreparedSwap>> {
-        // A kept reference must not share the income books while the market
-        // accrues: copy-on-write would allocate a second set on the SBF heap.
-        if let Some(reference) = scratch.as_mut() {
-            reference.income = LazyIncomeBooks::default();
-        }
         market.accrue_interest_to_slot(self.current_slot)?;
         market.prepare_amm_for_swap(self.current_slot)?;
         reads.market_changed();
@@ -142,7 +133,6 @@ impl SwapRequest {
             post_fee_curve_cache: None,
             // Real funding cash floors only; apply reconstructs after settlement.
             concentrated_transition: Some(Box::new(prepare_concentrated_hlp_transition_at_current_state(market)?)),
-            interest_transfer_fees: interest_transfer_fees.map(InterestTransferFee::effective),
             inventory_settlement: Some(InventorySettlement {
                 curve_revision: market.curve_revision,
                 actual_start_price_nad: market
