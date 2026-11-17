@@ -3828,10 +3828,24 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       transaction.sign([payer]); expect(transaction.serialize().length).to.be.at.most(1232);
       return connection.sendTransaction(transaction);
     };
-    await connection.sendTransaction(new Transaction().add(createPauseInstruction(f.quoteMint, payer.publicKey)), [payer]);
     const guarded = [f.market, f.baseReserveVault, f.quoteReserveVault, f.ownerBaseAccount, f.ownerQuoteAccount];
-    const beforePause = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
     const prefunded = svm.getAccount(built.repaymentVault)!;
+    await connection.sendTransaction(new Transaction().add(createUpdateDefaultAccountStateInstruction(f.quoteMint,
+      AccountState.Frozen, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)), [payer]);
+    const beforeFrozen = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
+    let frozen: unknown;
+    try { await send(built.instructions); } catch (error) { frozen = error; }
+    expect(String(frozen)).to.include("Account is frozen");
+    expect(String(frozen)).to.include("InstructionErrorCustom { code: 17 }");
+    guarded.forEach((key, i) => expect(Buffer.from(svm.getAccount(key)!.data).equals(beforeFrozen[i])).to.equal(true));
+    expect(svm.getAccount(built.session)).to.equal(null);
+    expect(svm.getAccount(built.repaymentVault)!.owner.equals(SystemProgram.programId)).to.equal(true);
+    expect(svm.getAccount(built.repaymentVault)!.lamports).to.equal(prefunded.lamports);
+    expect(svm.getAccount(built.repaymentVault)!.data.length).to.equal(0);
+    await connection.sendTransaction(new Transaction().add(createUpdateDefaultAccountStateInstruction(f.quoteMint,
+      AccountState.Initialized, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)), [payer]);
+    await connection.sendTransaction(new Transaction().add(createPauseInstruction(f.quoteMint, payer.publicKey)), [payer]);
+    const beforePause = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
     let paused: unknown;
     try { await send(built.instructions); } catch (error) { paused = error; }
     expect(paused).to.not.equal(undefined);
@@ -3877,7 +3891,6 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     await send(next.instructions);
     expect(svm.getAccount(next.session)).to.equal(null);
     expect((await getAccount(connection as any,next.repaymentVault,undefined,TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
-
   });
 
   it("rolls back first-use USDv liquidation after a default-frozen flip while an existing vault remains usable", async function () {
