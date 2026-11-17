@@ -97,7 +97,7 @@ Each market records three Token-2022 LP mints:
 - `hLP_base`: one-sided hedged LP shares targeting base exposure.
 - `hLP_quote`: one-sided hedged LP shares targeting quote exposure.
 
-srLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `srLP` for srLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or Token-2022 mints without a freeze authority or Transfer Hook extension.
+srLP and hLP mints must be fee-free Token-2022 mints with an immutable transfer hook configured to the Dusk program (`TransferHook.authority = None`), mint authority set to the market PDA, and no freeze authority. `initialize_market` creates all three Metaplex records atomically, with the market PDA as update authority. Production builds additionally enforce vanity suffixes: `srLP` for srLP and `hLP` for each hLP mint. Underlying asset mints may be SPL Token or supported Token-2022 mints, including mints with an issuer freeze authority. The accepted issuer-freeze risk is described below; asset Transfer Hook extensions remain rejected.
 
 ### LP mint addresses, names and metadata
 
@@ -435,7 +435,15 @@ even above 18 decimals.
 Asset mints may use `TransferFeeConfig`, `MetadataPointer`, `TokenMetadata`,
 `GroupPointer`, `TokenGroup`, `GroupMemberPointer`,
 `TokenGroupMember`, `InterestBearingConfig`, and `ScaledUiAmount`. Other mint
-extensions remain rejected, as do mints with a freeze authority. A Transfer Hook
+extensions remain rejected. An issuer freeze authority is permitted, matching
+v1's policy for underlying assets (including USDC). The issuer can freeze a
+protocol reserve, collateral, or interest vault after market creation, blocking
+transfers, withdrawals, repayments, or liquidations that touch it. Market
+creation does not certify that an issuer will keep its assets transferable.
+SPL Token/Token-2022 transfer checks continue to enforce an actual freeze;
+Dusk cannot override it. This is accepted issuer counterparty risk, not a
+remediated protocol guarantee. LP receipt mints still require no freeze authority.
+A Transfer Hook
 extension is rejected even when its program is currently unset, because its
 authority could configure a hook after market creation. Group metadata describes
 membership; Dusk does not use it as an authorization or collateral-value signal.

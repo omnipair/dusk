@@ -30,6 +30,8 @@ import {
   createInitializeTransferFeeConfigInstruction,
   createSetTransferFeeInstruction,
   createMint,
+  freezeAccount,
+  thawAccount,
   createTransferCheckedWithTransferHookInstruction,
   createTransferCheckedInstruction,
   ExtensionType,
@@ -3575,25 +3577,46 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
   });
 
   for (const assetProgram of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
-    it(`rejects freezable asset mints at market creation (${assetProgram.equals(TOKEN_PROGRAM_ID) ? "legacy" : "Token-2022"})`, async function () {
+    it(`supports issuer-freezable assets while enforcing frozen-vault transfers (${assetProgram.equals(TOKEN_PROGRAM_ID) ? "legacy" : "Token-2022"})`, async function () {
       const baseMint = await createMint(
         connection as any, payer, payer.publicKey, payer.publicKey, 6,
         undefined, undefined, assetProgram
       );
-      const quoteMint = await createMint(connection as any, payer, payer.publicKey, null, 6);
+      const quoteMint = await createMint(
+        connection as any, payer, payer.publicKey, payer.publicKey, 6,
+        undefined, undefined, assetProgram
+      );
       const paramsSeed = assetProgram.equals(TOKEN_PROGRAM_ID) ? 73 : 74;
-      const [market] = deriveMarketAddress(baseMint, quoteMint, await creationParamsHash());
-
-      let rejection: unknown;
-      try {
-        await initializeFinalMarketWithMints(paramsSeed, baseMint, quoteMint);
-      } catch (error) {
-        rejection = error;
+      const fixture = await addBalancedLiquidity(
+        paramsSeed, marketConfig(), undefined, 6, assetProgram,
+        { base: baseMint, quote: quoteMint }
+      );
+      expect(svm.getAccount(fixture.market)).to.not.equal(null);
+      for (const lpMint of [fixture.srlpMint, fixture.baseHlpMint, fixture.quoteHlpMint]) {
+        expect((await getMint(connection as any, lpMint, undefined, TOKEN_2022_PROGRAM_ID)).freezeAuthority).to.equal(null);
       }
+      let swapAmount = 100;
+      await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), swapAmount++, 1);
 
-      expect(rejection).to.not.equal(undefined);
-      expect(String(rejection)).to.include("FreezableAssetMint");
-      expect(svm.getAccount(market)).to.equal(null);
+      // Admission does not defeat issuer freezes. Failed custody transfers
+      // must revert Dusk's ledger and token movements, for either vault.
+      for (const [vault, mint] of [
+        [fixture.baseReserveVault, baseMint],
+        [fixture.quoteReserveVault, quoteMint],
+      ]) {
+        await freezeAccount(connection as any, payer, vault, mint, payer, [], undefined, assetProgram);
+        const accounts = [fixture.market, fixture.baseReserveVault, fixture.quoteReserveVault,
+          fixture.ownerBaseAccount, fixture.ownerQuoteAccount, fixture.srlpMint];
+        const before = accounts.map((key) => Buffer.from(svm.getAccount(key)!.data));
+        let rejection: unknown;
+        try { await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), swapAmount++, 1); }
+        catch (error) { rejection = error; }
+        expect(rejection).to.not.equal(undefined);
+        expect(String(rejection)).to.match(/frozen/i);
+        accounts.forEach((key, index) => expect(Buffer.from(svm.getAccount(key)!.data).equals(before[index])).to.equal(true));
+        await thawAccount(connection as any, payer, vault, mint, payer, [], undefined, assetProgram);
+        await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), swapAmount++, 1);
+      }
     });
   }
 
