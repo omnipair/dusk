@@ -73,12 +73,15 @@ impl CheckpointIncome<'_> {
             require_keys_eq!(*info.owner, crate::ID, ErrorCode::InvalidArgument);
             let data = info.try_borrow_data()?;
             let archive = IncomeEpoch::try_deserialize(&mut data.as_ref())?;
+            // Epochs advanced in place have no archive; the claim catches up
+            // across them inside the next archived epoch's run.
+            require_gte!(archive.book.epoch, claim.epoch, ErrorCode::InvalidArgument);
             let expected = Pubkey::find_program_address(
                 &[
                     b"income_epoch",
                     a.market.key().as_ref(),
                     &[index as u8],
-                    &claim.epoch.to_le_bytes(),
+                    &archive.book.epoch.to_le_bytes(),
                 ],
                 &crate::ID,
             )

@@ -255,14 +255,70 @@ denominations retain the existing permissionless archive/roll path after
 settlement. The index resets only when every public and hLP debt share on that
 asset has been extinguished; historical income claims are retained.
 
+A book whose receivable is fully repaid without a shortfall advances to its
+next epoch in place when it next issues. Repaying all due interest is
+routine: every swap that pays hLP funding, and a `fund_interest` that funds the
+whole public coupon, drain their book. The shared borrow index therefore keeps
+accruing, and no archive or keeper is involved. Book units carry 64 fractional
+bits, so issuance never lets a unit's paid-plus-unpaid value fall below one
+atom of face value. Each cash credit carries its rounding remainder into the
+next, so a fully repaid epoch's paid index ends within a few 2^-64 of face.
+Lane growth stays cumulative across such a drain run, and the book records
+each ordinary lane's units when the current epoch began. A holder that last
+checkpointed anywhere in the run is valued in one step: units issued before
+the current epoch at face value less 2^-56, units issued since at the live
+paid index. The margin costs holders under 256 atoms per epoch even at the
+2^64 unit limit, however cheaply units were issued. A holder is never paid
+more than custody received. A new holder starts at the lane's current point.
+
+`fund_interest` never leaves the public book a dust remainder: a cap that
+would leave the book's unpaid value below 2^-16 atom per unit is lowered so
+that at least that much stays unfunded. Units issued into a nearly repaid book are nearly free, so
+repeated near-full fundings would otherwise multiply the unit count until
+issuance no longer fits and accrual stalls until a roll.
+
+Every interest transfer into income custody is grossed up by the asset's
+Token-2022 transfer fee, so custody receives the full interest and a routine
+epoch drains at face value. A borrower's direct repayment (`repay`,
+`add_leverage_margin`) pays that fee on top of the repayment; its debt
+reduction is unchanged. Internal moves (hLP funding paid during swaps, entries,
+exits, flash and terminal settlement; `fund_interest`; leverage and
+liquidation settlement interest) debit reserve cash and live reserve for the
+fee: a real cost to LP reserves, never to the income book. Like the funding
+payment it accompanies, the fee is excluded from pricing, so spot does not
+move and depth falls instead.
+
+The fee is part of every pay-or-carry decision for the payment it
+accompanies, so cash never pays the interest without its fee. A spot swap
+carries hLP funding on the vault's debt when cash cannot cover the funding,
+its fee and the trader's output (the swap still executes); leverage swaps and
+liquidation settlements refuse, as they do for funding cash cannot cover; the
+terminal waterfall and flash terminal pay only funding whose fee cash also
+covers and cancel the rest; hLP entry, exit and harvest, leverage settlement
+interest and `fund_interest` require the fee with the payment (`fund_interest`
+also keeps back the fee on funding the reserve owes). The only remaining net
+credit is a swap's own safety net: a settlement rebuilt after a loss inside
+the swap that leaves less cash than its prepared plan counted. SPL fee
+arithmetic makes the grossed-up transfer deliver exactly the interest; if one
+ever delivered more than the settlement budget, collection would credit
+exactly the budget and leave the excess in the vault, unrecorded.
+
+An epoch credited less than its pending interest (a fee changed after the
+gross-up was priced, the swap safety net above, a terminal caller bounty) or
+with a writeoff is impaired and needs an archived roll before it can issue
+again, instead of an in-place advance.
+
 `roll_income_epoch` archives a book only once at least half of its units are
 repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's
-growth) reaches half its numeric range. Holders carry their units across
-archived epochs in bounded catch-up batches, so rolling a barely repaid book
-would let anyone fragment that catch-up into many epochs without freeing
-capacity. Rolling needs no keeper: anyone may call it, the SDK's
-`prepareDrainedIncomeBooks` rolls fully drained books as market maintenance,
-and holders run `prepareHolderIncome` before a transfer, exit or claim.
+growth) reaches half its numeric range; it refuses a drained book that can
+advance in place. An archived roll starts a new drain run. Holders carry
+their units across archived epochs in bounded catch-up batches, so rolling a
+barely repaid book would let anyone fragment that catch-up into many epochs
+without freeing capacity. Rolling needs no keeper: anyone may call it, the
+SDK's `prepareDrainedIncomeBooks` rolls impaired or exhausted drained books as market
+maintenance, and holders run `prepareHolderIncome` before a transfer, exit or
+claim. Catch-up passes only the archived epochs: the archive that ended a run
+carries that run's start, so the SDK walks back from the live book's run.
 
 ## Interest fees and cash advances
 

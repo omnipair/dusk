@@ -13182,6 +13182,11 @@ export type Dusk = {
       "code": 6148,
       "name": "concentratedSwapFeeBelowMinimum",
       "msg": "Concentrated curves require a base swap fee of at least 1 bps"
+    },
+    {
+      "code": 6149,
+      "name": "hlpFirstDepositTooSmall",
+      "msg": "A first hLP deposit must borrow at least one atom of the opposite asset; see min_first_deposit_net in the hLP deposit capacity preview"
     }
   ],
   "types": [
@@ -16209,6 +16214,26 @@ export type Dusk = {
               "Greatest net target reserve credit supported by opposite-asset funding."
             ],
             "type": "u64"
+          },
+          {
+            "name": "minFirstDepositNet",
+            "docs": [
+              "Net first deposit that opens this side's empty vault; zero once the",
+              "side has receipts. A first deposit must borrow at least one atom of",
+              "the opposite asset or it fails `HlpFirstDepositTooSmall`. This quotes",
+              "two atoms' worth at the reserve ratio behind `funding_limit_net`,",
+              "after the recenter-bucket premium, so somewhat smaller first deposits",
+              "can still pass; simulate the deposit for the exact boundary."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "minFirstDepositGross",
+            "docs": [
+              "`min_first_deposit_net` as a wallet debit at the current epoch's",
+              "transfer fee."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -17011,21 +17036,36 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "units",
-            "type": "u64"
-          },
-          {
-            "name": "paidPerUnitQ64",
+            "name": "unitsQ64",
+            "docs": [
+              "Outstanding units with 64 fractional bits. Fractional issuance keeps a",
+              "unit's paid-plus-unpaid value at its face value through an epoch, so a",
+              "drained epoch pays every unit exactly that value."
+            ],
             "type": "u128"
           },
           {
-            "name": "paidRemainder",
+            "name": "paidPerUnitQ64",
+            "docs": [
+              "Cash per whole unit (Q64), rounded down at each credit."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "paidRemainderQ64",
+            "docs": [
+              "Cash (Q64 atoms) that the last credit's rounding left undistributed.",
+              "It joins the next credit, so rounding never accumulates: a loss-free",
+              "drained epoch's paid index ends within a few 2^-64 of face value.",
+              "Packed into the book's alignment padding, so it adds no heap."
+            ],
             "type": "u64"
           },
           {
             "name": "growth",
             "docs": [
-              "Ordinary senior, junior, base hLP, quote hLP."
+              "Ordinary senior, junior, base hLP, quote hLP. Growth is cumulative",
+              "across the epochs of one drain run and resets only at an archived roll."
             ],
             "type": {
               "array": [
@@ -17037,6 +17077,44 @@ export type Dusk = {
                 4
               ]
             }
+          },
+          {
+            "name": "runLength",
+            "docs": [
+              "Epochs of the current drain run before this one. Every epoch from",
+              "`epoch - run_length` up to the current one ended fully repaid without a",
+              "writeoff and was advanced in place, so holders catch up across them",
+              "without archived history. Packed with `impaired` to keep the decoded",
+              "books inside liquidation heap headroom."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "epochStartUnitsQ64",
+            "docs": [
+              "Ordinary senior and junior lane units when the current epoch started;",
+              "equal to `growth` units at the last in-place advance. Catch-up values",
+              "units issued before this point at the drained unit value and units",
+              "issued after it at the live paid index, so the starting weighted index",
+              "is never needed. The hLP lanes have one market-held claim each,",
+              "checkpointed after every issuance, so that claim's own checkpoint is",
+              "its lane's start. Units alone, for two lanes, keep the decoded income",
+              "books inside liquidation heap headroom."
+            ],
+            "type": {
+              "array": [
+                "u128",
+                2
+              ]
+            }
+          },
+          {
+            "name": "impaired",
+            "docs": [
+              "A writeoff in this epoch. Such an epoch cannot be advanced in place;",
+              "it needs an archived roll."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -23706,10 +23784,12 @@ export type Dusk = {
         "This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`",
         "decimals and sets independent lower/upper utilization rate targets.",
         "Aggregate virtual reserves use u128; physical token amounts remain u64.",
-        "Separate hLP funding offsets preserve pricing principal through payment."
+        "Separate hLP funding offsets preserve pricing principal through payment.",
+        "Income books record their drain run so a fully repaid epoch advances in",
+        "place without an archive."
       ],
       "type": "u8",
-      "value": "17"
+      "value": "18"
     },
     {
       "name": "marketParamsHashDomain",

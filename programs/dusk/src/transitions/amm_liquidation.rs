@@ -177,7 +177,12 @@ impl Market {
                     reserve_credit: collateral_credit,
                     protocol_fee_bps,
                 }
-                .prepare_ema_liquidation(self, scratch, reads)?,
+                .prepare_ema_liquidation(
+                    self,
+                    scratch,
+                    reads,
+                    &LeverageCollateralFee::by_asset(asset, debt_fee, collateral_fee),
+                )?,
             )
         };
         let output = swap.as_ref().map_or(0, |s| s.quote.amount_out);

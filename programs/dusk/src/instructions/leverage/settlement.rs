@@ -26,8 +26,9 @@ use crate::{
     instructions::referral::accounting::ReferralInterestAccrualReceipt,
     state::{FutarchyAuthority, Market, MarketAsset, ReferralAccrual, ReferralPartner},
     token::{
-        get_transfer_fee_for_epoch, invoke_signed_reusing_instruction, token_burn, token_mint_to,
-        transfer_checked_with_remaining_accounts, transfer_checked_with_remaining_accounts_and_instruction,
+        get_epoch_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee,
+        invoke_signed_reusing_instruction, token_burn, token_mint_to, transfer_checked_with_remaining_accounts,
+        transfer_checked_with_remaining_accounts_and_instruction,
     },
     transitions::{
         HlpRebalanceReceipt, HlpYieldEligibility, LeverageCollateralFee, LeverageSwapFeeCredit, LeverageSwapQuote,
@@ -52,16 +53,37 @@ pub const LEVERAGE_DELEGATION_APPROVAL_VERSION: u8 = 1;
 
 /// Keeps shared, boxed swap preparation and the initial risk observation out
 /// of the instruction handler's account-creation and token-CPI stack frame.
+/// `interest_transfer_fees` are the two mints' effective transfer fees
+/// (`leverage_interest_transfer_fees`); reserve cash pays them on any hLP
+/// funding the swap moves into income custody.
 #[inline(never)]
 pub(crate) fn prepare_leverage_swap(
     market: &mut Market,
     request: SwapRequest,
     cash_policy: SwapCashPolicy,
+    interest_transfer_fees: [LeverageCollateralFee; 2],
 ) -> Result<PreparedLeverageSwap> {
     let current_slot = request.current_slot;
-    let prepared = request.prepare_with_cash_policy(market, cash_policy)?;
+    let prepared = request.prepare_with_cash_policy(market, cash_policy, &interest_transfer_fees)?;
     market.observe_current_risk(current_slot)?;
     Ok(prepared)
+}
+
+/// `interest_transfer_fees` for a leverage position's debt and collateral mints.
+#[inline(never)]
+pub(crate) fn leverage_interest_transfer_fees<'info>(
+    market: &Market,
+    debt_asset: MarketAsset,
+    debt_mint: &InterfaceAccount<'info, Mint>,
+    collateral_mint: &InterfaceAccount<'info, Mint>,
+    epoch: u64,
+) -> Result<[LeverageCollateralFee; 2]> {
+    let (base, quote) = if debt_asset == MarketAsset::Base {
+        (debt_mint.to_account_info(), collateral_mint.to_account_info())
+    } else {
+        (collateral_mint.to_account_info(), debt_mint.to_account_info())
+    };
+    interest_transfer_fees(market, &base, &quote, epoch)
 }
 
 /// Validates the canonical Market PDA and its layout outside Anchor's
@@ -246,18 +268,25 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
             require_keys_eq!(*mint.owner, Token2022::id(), ErrorCode::InvalidTokenProgram);
             token_2022_program.to_account_info()
         };
+        // The transition that produced this receipt debited reserve cash for
+        // the transfer fee, so custody receives the full payment.
         transfer_checked_with_remaining_accounts(
             market.to_account_info(),
             reserve_vault,
             interest_vault.clone(),
             mint,
             token_program_account,
-            receipt.interest_paid,
+            receipt
+                .interest_paid
+                .checked_add(receipt.interest_transfer_fee)
+                .ok_or(ErrorCode::MarketMathOverflow)?,
             decimals,
             &signer_seeds,
             layout.hook_accounts(remaining_accounts),
         )?;
-        let interest_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        let measured_credit = token_account_info_credit(interest_vault_balance_before, interest_vault)?;
+        let credit = market.quote_interest_revenue_credit(borrowed_asset, true, measured_credit)?;
+        let interest_credit = credit.credited();
         crate::instructions::accounting::emit_interest_paid(
             market,
             borrowed_asset,
@@ -266,9 +295,7 @@ pub(crate) fn settle_inline_hlp_accounts<'info>(
             crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
                 interest_credit,
-                market
-                    .quote_interest_revenue_credit(borrowed_asset, true, interest_credit)?
-                    .protocol,
+                credit.protocol,
                 None,
             )?,
             0,
@@ -581,6 +608,23 @@ pub fn lending_market_admission_fees(
     })
 }
 
+/// Each market asset's effective transfer fee (base, quote). Reserve cash
+/// pays it on top of hLP funding moved into income custody.
+#[inline(never)]
+pub(crate) fn interest_transfer_fees(
+    market: &Market,
+    base_mint: &AccountInfo,
+    quote_mint: &AccountInfo,
+    epoch: u64,
+) -> Result<[LeverageCollateralFee; 2]> {
+    require_keys_eq!(*base_mint.key, market.base_side.asset_mint, ErrorCode::InvalidMint);
+    require_keys_eq!(*quote_mint.key, market.quote_side.asset_mint, ErrorCode::InvalidMint);
+    Ok([
+        LeverageCollateralFee::new(get_epoch_transfer_fee(base_mint, epoch)?),
+        LeverageCollateralFee::new(get_epoch_transfer_fee(quote_mint, epoch)?),
+    ])
+}
+
 fn collateral_fee_schedule(
     mint_info: &AccountInfo,
     epoch: u64,
@@ -656,6 +700,7 @@ pub fn record_leverage_interest<'info>(
     referral_partner: Option<&Account<'info, ReferralPartner>>,
     referral_accrual: Option<&mut Account<'info, ReferralAccrual>>,
     interest_paid: u64,
+    borrower_transfer_fee: Option<u64>,
     interest_eligibility: HlpYieldEligibility,
     remaining_accounts: &[AccountInfo<'info>],
     event_authority: AccountInfo<'info>,
@@ -668,6 +713,28 @@ pub fn record_leverage_interest<'info>(
         .take_payment(interest_paid)?;
     let transfer_gross = fresh_gross
         .checked_add(frozen_protocol_gross)
+        .ok_or(ErrorCode::MarketMathOverflow)?;
+    // Gross up the transfer by the Token-2022 fee so custody receives the
+    // full interest. A direct repayment's borrower already paid the fee into
+    // the reserve vault (`borrower_transfer_fee`); otherwise reserve cash
+    // pays it as an LP cost. The repayment just credited reserve cash with
+    // its principal; settlement that cannot also pay the fee is refused
+    // like a payment cash cannot cover, never credited net.
+    let transfer_fee = if transfer_gross == 0 {
+        require_eq!(borrower_transfer_fee.unwrap_or(0), 0, ErrorCode::BrokenInvariant);
+        0
+    } else {
+        let fee = get_transfer_inverse_fee(&debt_mint.to_account_info(), transfer_gross)?;
+        match borrower_transfer_fee {
+            Some(paid) => {
+                require_eq!(paid, fee, ErrorCode::BrokenInvariant);
+                paid
+            }
+            None => market.pay_settled_interest_transfer_fee(debt_asset, fee, Clock::get()?.slot)?,
+        }
+    };
+    let transfer_gross = transfer_gross
+        .checked_add(transfer_fee)
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let interest_vault_balance_before = interest_vault.amount;
     if transfer_gross > 0 {
@@ -700,8 +767,9 @@ pub fn record_leverage_interest<'info>(
         }
         interest_vault.reload()?;
     }
-    let interest_vault_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
-    let frozen = market.quote_interest_revenue_credit(debt_asset, false, interest_vault_credit)?;
+    let measured_credit = token_account_credit(interest_vault_balance_before, interest_vault)?;
+    let frozen = market.quote_interest_revenue_credit(debt_asset, false, measured_credit)?;
+    let interest_vault_credit = frozen.credited();
     let protocol_credit = frozen.protocol;
     let referral_receipt = crate::instructions::referral::accounting::accrue_referral_interest_with_protocol(
         expected_referral_partner,

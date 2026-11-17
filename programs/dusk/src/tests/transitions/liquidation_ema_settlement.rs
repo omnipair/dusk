@@ -25,7 +25,7 @@ fn ema_emergency_quote_ignores_same_slot_spot_and_observed_depth_in_both_directi
         let before = quote(&m);
         let spot_before = m.current_concentrated_spot_price_nad().unwrap().unwrap();
         let mut trade = SwapRequest { current_slot: 1, current_unix_timestamp: 120, asset_in: asset.opposite(),
-            reserve_credit: 5_000_000, protocol_fee_bps: 2_000 }.prepare(&mut m).unwrap();
+            reserve_credit: 5_000_000, protocol_fee_bps: 2_000 }.prepare(&mut m, &Default::default()).unwrap();
         trade.finalize_state(&mut m, 1, 2_000, ProtocolAuctionSplit::default()).unwrap();
         assert_ne!(spot_before, m.current_concentrated_spot_price_nad().unwrap().unwrap());
         m.risk.observed_curve_depth_nad /= 2;

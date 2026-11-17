@@ -463,4 +463,9 @@ authority can change the rate. Borrow capacity uses the collateral expected to
 reach reserves on unwind at the current fee; liquidation measures the actual
 reserve credit. Auction payment remains excluded for transfer-fee mints.
 LP receipt mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
-and the mandatory immutable Dusk `TransferHook` are allowed.
+and the mandatory immutable Dusk `TransferHook` are allowed. A `MetadataPointer` must
+leave its authority unset or set to the market, and point nowhere or at the mint
+itself. A `TokenMetadata` extension must leave its update authority unset or set to
+the market, so no outside key can rename a receipt after the market issues it.
+The SDK's LP mint builders add only the transfer hook; display metadata lives in
+the Metaplex account the program creates with the market as update authority.

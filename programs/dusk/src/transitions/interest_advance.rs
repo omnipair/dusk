@@ -5,6 +5,7 @@ use crate::{
     errors::ErrorCode,
     math::{mul_div_ceil_u128, mul_div_u128},
     state::{Market, MarketAsset, PublicInterestAdvance},
+    transitions::LeverageCollateralFee,
 };
 use anchor_lang::prelude::*;
 
@@ -120,7 +121,101 @@ impl PublicInterestAdvance {
     }
 }
 
+/// Smallest wallet debit that credits `credit` under `fee`.
+fn gross_for_credit(fee: LeverageCollateralFee, credit: u64) -> Result<u64> {
+    credit
+        .checked_add(fee.inverse_fee(credit)?)
+        .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
+}
+
+/// Reserve credit a direct repayment may use within the borrower's gross
+/// limit `max_gross`, under the debt mint's effective transfer fee. The
+/// borrower also pays the fee on the interest the reserve then moves into
+/// income custody, which is at most the repayment. When the limit leaves room
+/// for that fee the repayment is unchanged and the fee is charged on top;
+/// only when the limit binds is the repayment reduced, by at most the fee on
+/// the whole repayment.
+pub(crate) fn direct_repayment_credit(
+    fee: LeverageCollateralFee,
+    max_gross: u64,
+    repayment_for_max: impl Fn(u64) -> Result<u64>,
+) -> Result<u64> {
+    let max_credit = fee.unwind_credit(max_gross)?;
+    let credit = repayment_for_max(max_credit)?;
+    let fee_bound = fee.inverse_fee(credit)?;
+    let with_fee = credit.checked_add(fee_bound).ok_or(ErrorCode::MarketMathOverflow)?;
+    if fee_bound == 0 || gross_for_credit(fee, with_fee)? <= max_gross {
+        return Ok(credit);
+    }
+    repayment_for_max(max_credit.saturating_sub(fee_bound))
+}
+
+/// Wallet debit and reserve credit for a direct repayment whose transition
+/// already ran: the repayment plus `interest_transfer_fee`, the transfer fee
+/// on the interest the reserve moves into income custody.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct DirectRepaymentTransfer {
+    pub gross: u64,
+    pub reserve_credit: u64,
+    pub interest_transfer_fee: u64,
+}
+
 impl Market {
+    pub(crate) fn direct_repayment_transfer(
+        &self,
+        asset: MarketAsset,
+        fee: LeverageCollateralFee,
+        repay_credit: u64,
+        interest_paid: u64,
+        max_gross: u64,
+    ) -> Result<DirectRepaymentTransfer> {
+        // The gross `take_payment(interest_paid)` will move to interest
+        // custody, read before the borrower's transfer.
+        let advance = self.side(asset).fees.public_interest_advance;
+        require_gte!(
+            interest_paid,
+            advance.repayment_credit_pending,
+            ErrorCode::BrokenInvariant
+        );
+        let interest_transfer = (interest_paid - advance.repayment_credit_pending)
+            .checked_add(advance.revenue_release_pending)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let interest_transfer_fee = fee.inverse_fee(interest_transfer)?;
+        let reserve_credit = repay_credit
+            .checked_add(interest_transfer_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let gross = gross_for_credit(fee, reserve_credit)?;
+        require_gte!(max_gross, gross, ErrorCode::BrokenInvariant);
+        Ok(DirectRepaymentTransfer {
+            gross,
+            reserve_credit,
+            interest_transfer_fee,
+        })
+    }
+
+    /// `fund_public_interest` whose LP transfer is grossed up by the asset's
+    /// transfer fee, which reserve cash also pays
+    /// (`pay_settled_interest_transfer_fee`), so custody receives the full
+    /// advance. `available` is the reserve cash the advance may use; the fee
+    /// is kept inside it by capping the advance at what `available` would
+    /// deliver through one transfer, since the smallest grossed-up transfer
+    /// of anything below that is at most `available`. Returns the gross
+    /// advance, the LP transfer, and the fee paid on top of it.
+    pub fn fund_public_interest_paying_transfer_fee(
+        &mut self,
+        asset: MarketAsset,
+        max_gross: u64,
+        available: u64,
+        protocol_bps: u16,
+        fee: LeverageCollateralFee,
+        slot: u64,
+    ) -> Result<(u64, u64, u64)> {
+        let (gross, lp_gross) =
+            self.fund_public_interest(asset, max_gross.min(fee.unwind_credit(available)?), protocol_bps)?;
+        let transfer_fee = self.pay_settled_interest_transfer_fee(asset, fee.inverse_fee(lp_gross)?, slot)?;
+        Ok((gross, lp_gross, transfer_fee))
+    }
+
     /// Reserve cash replaces a public interest receivable in LP yield custody.
     /// Borrower debt stays outstanding; frozen protocol revenue remains in the
     /// reserve vault and is payable only when that interest is actually repaid.
@@ -146,12 +241,19 @@ impl Market {
             ))
             .ok_or(ErrorCode::BrokenInvariant)?;
         let side = self.side_mut(asset);
-        let gross = u64::try_from(
-            unfunded
-                .min(u128::from(max_gross))
-                .min(u128::from(side.reserves.cash_reserve)),
-        )
-        .map_err(|_| ErrorCode::MarketMathOverflow)?;
+        let mut gross = unfunded
+            .min(u128::from(max_gross))
+            .min(u128::from(side.reserves.cash_reserve));
+        if gross < unfunded && self.side(asset).fees.junior.initialized {
+            // Never leave the income book a dust remainder. Accrual issues
+            // units at the book's unit value, so a remainder priced below
+            // 2^-16 per unit multiplies the unit count with each round and
+            // can exhaust the unit range. Fund the whole coupon or leave at
+            // least that floor unfunded.
+            let floor = self.income.get()?.books[asset.code() as usize].units_q64 >> 80;
+            gross = gross.min(unfunded.saturating_sub(floor));
+        }
+        let gross = u64::try_from(gross).map_err(|_| ErrorCode::MarketMathOverflow)?;
         let fee = if self.side(asset).fees.junior.initialized {
             let i = asset.code() as usize;
             let fee_unpaid = self.income.get()?.revenue[i]

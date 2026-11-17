@@ -10,7 +10,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
-    .prepare(&mut t)?;
+    .prepare(&mut t, &Default::default())?;
     let out = f.unwind_credit(s.quote.amount_out)?;
     s.finalize_state(&mut t, 2, 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;
@@ -219,9 +219,10 @@ fn cmp_v1_inventory(
     };
     // Hypothetical inventory exchange: cancel receivable, receive collateral.
     // Native ledger kernel ensures no fictional debt-token cash is introduced.
+    let inventory = t.ordinary_inventory_point_nad()?;
     t.apply_leverage_lifecycle_transition(policy, collateral, credit, a.debt, a.debt)?;
     t.apply_liquidation_position(&mut Mut::Leverage(&mut q), debt, a, seized, full)?;
-    t.finalize_amm_socialized_loss_and_observe_risk(2)?;
+    t.finalize_amm_socialized_loss_and_observe_risk(2, inventory)?;
     t.assert_market_invariants()?;
     let after = t.flash_liquidation_health(&Ref::Leverage(&q), debt, f)?;
     let improves = full || health.improves(after)?;
@@ -483,7 +484,7 @@ fn cmp_current_candidate(
                         reserve_credit: credit,
                         protocol_fee_bps: 2000,
                     })
-                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote)
+                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote, &Default::default())
                     {
                         Ok(s) => s,
                         Err(_) => continue,

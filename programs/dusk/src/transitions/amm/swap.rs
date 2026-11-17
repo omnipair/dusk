@@ -3,7 +3,9 @@ use crate::transitions::liquidity::{
     consume_hlp_tracking_unrealized_interest, prepare_concentrated_hlp_transition_at_current_state,
     rebase_hlp_tracking_for_socialized_loss,
 };
-use crate::transitions::{FeesReceipt, LeverageLifecycleTransition, LeverageSwapFeeCredit, LeverageSwapQuote};
+use crate::transitions::{
+    FeesReceipt, LeverageCollateralFee, LeverageLifecycleTransition, LeverageSwapFeeCredit, LeverageSwapQuote,
+};
 use crate::{
     errors::ErrorCode,
     state::{ConcentratedCurveCache, Debt, Market, MarketAsset, ProtocolAuctionSplit},
@@ -50,6 +52,28 @@ pub struct PreparedSwap {
     pub(crate) cash_policy: SwapCashPolicy,
     pub(crate) post_fee_curve_cache: Option<Box<ConcentratedCurveCache>>,
     pub(crate) concentrated_transition: Option<Box<ConcentratedHlpTransition>>,
+    /// Effective Token-2022 transfer fee of each asset (base, quote). Reserve
+    /// cash pays the fee on hLP funding the swap pays into income custody.
+    /// The default (no fee) leaves such a transfer net of any fee. Only the
+    /// effective schedule is kept: this box is on the liquidation heap path.
+    pub(crate) interest_transfer_fees: [InterestTransferFee; 2],
+}
+
+/// One asset's effective transfer fee schedule, if any.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct InterestTransferFee(Option<spl_token_2022::extension::transfer_fee::TransferFee>);
+
+// `TransferFee` holds only integers, so its equality is total.
+impl Eq for InterestTransferFee {}
+
+impl InterestTransferFee {
+    pub(crate) fn effective(fee: LeverageCollateralFee) -> Self {
+        Self(fee.effective())
+    }
+
+    pub(crate) fn schedule(self) -> LeverageCollateralFee {
+        LeverageCollateralFee::new(self.0)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +125,7 @@ impl PreparedSwap {
             shares > 0 && debt_asset == self.quote.asset_in.opposite(),
             ErrorCode::InvalidLiquidationSession
         );
+        let fees = self.interest_transfer_fees.map(|fee| fee.schedule());
         if market.side(debt_asset).fees.public_interest_advance.outstanding_gross > 0 {
             let (base_cash, quote_cash) = market.preview_leverage_settlement_cash(
                 policy,
@@ -113,7 +138,7 @@ impl PreparedSwap {
                 self.concentrated_transition
                     .as_ref()
                     .ok_or(ErrorCode::BrokenInvariant)?
-                    .interest_cash_floors(self.quote.asset_in, 0)
+                    .interest_cash_floors(self.quote.asset_in, 0, &fees)?
                     .available_amounts(base_cash, quote_cash),
                 ErrorCode::InsufficientLiquidity
             );
@@ -127,7 +152,7 @@ impl PreparedSwap {
                 self.concentrated_transition
                     .as_ref()
                     .ok_or(ErrorCode::BrokenInvariant)?
-                    .interest_cash_floors(self.quote.asset_in, cash_out)
+                    .interest_cash_floors(self.quote.asset_in, cash_out, &fees)?
                     .available(market),
                 ErrorCode::InsufficientLiquidity
             );
@@ -214,6 +239,19 @@ impl PreparedSwap {
         let prepared_transition = self.concentrated_transition.take().ok_or(ErrorCode::BrokenInvariant)?;
         self.inventory_settlement = None;
         let prepared_cache = self.post_fee_curve_cache.take();
+        // An inventory settlement rebuilds the curve as a loss. Its final
+        // checkpoint rescales the unpriced funding remainder from this
+        // snapshot, taken before the EMA trade: by the trade and any
+        // write-off together. A write-off in the lifecycle below was already
+        // rescaled once by `apply_leverage_socialized_loss` (from just before
+        // the loss), so it shrinks the remainder twice and the trade once.
+        // That is kept on purpose: a single pass over the whole settlement
+        // moves spot further, and measured post-liquidation arbitrage was up
+        // to about 11x larger (audit FEE3-02).
+        let inventory_before = inventory
+            .is_some()
+            .then(|| market.ordinary_inventory_point_nad())
+            .transpose()?;
         let fee_asset = MarketAsset::try_from_code(quote.fee.fee_asset)?;
         let lifecycle = if cash_policy == SwapCashPolicy::Spot || lending.is_some() {
             let (side_in, side_out) = market.swap_sides_mut(quote.asset_in);
@@ -291,15 +329,30 @@ impl PreparedSwap {
             }
             prepared_transition.as_ref()
         };
-        let (base_rebalance, quote_rebalance) = transition.consume(market)?;
+        // Paid funding can scale the priced point down to the inventory. A
+        // book-hedge quote prepared its cache at that point; any other path
+        // rebuilds the curve there (same spot, lower depth).
+        let rebuild_for_funding = transition.pays_funding() && inventory.is_none() && prepared_cache.is_none();
+        let (mut base_rebalance, mut quote_rebalance) = transition.consume(market)?;
+        // Reserve cash also pays each funding payment's transfer fee, so
+        // income custody receives the full payment. The fee shrinks the
+        // inventory below any prepared cache, so the curve is rebuilt.
+        let transfer_fee_paid = market.pay_hlp_funding_transfer_fees(
+            [&mut base_rebalance, &mut quote_rebalance],
+            self.interest_transfer_fees.map(|fee| fee.schedule()),
+            crate::transitions::FundingFeePayment::IfCashAllows,
+        )?;
         if inventory.is_some() {
             require!(prepared_cache.is_none(), ErrorCode::BrokenInvariant);
             // Reference pricing can change real invariant depth even without
             // a recorded write-off. Consume protection on loss; an apparent
             // gain cannot manufacture a spendable recenter buffer.
-            market.checkpoint_amm_socialized_loss_raw(current_slot)?;
+            market.checkpoint_amm_socialized_loss_raw(
+                current_slot,
+                inventory_before.ok_or(ErrorCode::BrokenInvariant)?,
+            )?;
         } else if prepared_cache.is_some() {
-            let cache = if socialized_loss {
+            let cache = if socialized_loss || transfer_fee_paid {
                 None
             } else {
                 Some(*prepared_cache.ok_or(ErrorCode::BrokenInvariant)?)
@@ -307,22 +360,34 @@ impl PreparedSwap {
             market.checkpoint_amm_neutral_inventory_raw(current_slot, cache)?;
         } else {
             require_eq!(quote.fee.compounded_fee_debit, 0, ErrorCode::BrokenInvariant);
+            if rebuild_for_funding || transfer_fee_paid {
+                market.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
+            }
         }
         // Fixed-debt clearance can still change reserves after the AMM/hLP leg.
         // Observe the complete operation once, including that final change.
+        let before_liquidation = lending
+            .is_some()
+            .then(|| market.ordinary_inventory_point_nad())
+            .transpose()?;
         let liquidation = lending
             .map(|settlement| settlement.apply(market, quote.amount_out))
             .transpose()?;
         let final_price_nad = if let Some(receipt) = liquidation {
             if receipt.liquidation.socialized_loss > 0 {
-                market.checkpoint_amm_socialized_loss_raw(current_slot)?.0
+                market
+                    .checkpoint_amm_socialized_loss_raw(
+                        current_slot,
+                        before_liquidation.ok_or(ErrorCode::BrokenInvariant)?,
+                    )?
+                    .0
             } else {
                 market.checkpoint_amm_neutral_inventory_raw(current_slot, None)?;
                 market
                     .current_concentrated_spot_price_nad()?
                     .ok_or(ErrorCode::BrokenInvariant)?
             }
-        } else if socialized_loss || inventory.is_some() {
+        } else if socialized_loss || inventory.is_some() || rebuild_for_funding || transfer_fee_paid {
             market
                 .current_concentrated_spot_price_nad()?
                 .ok_or(ErrorCode::BrokenInvariant)?
@@ -362,14 +427,24 @@ impl PreparedSwap {
 include!("../../../benchmark/analysis/backstop_swap.rs");
 
 impl SwapRequest {
-    pub(crate) fn prepare(self, market: &mut Market) -> Result<Box<PreparedSwap>> {
-        self.prepare_with_cash_policy(market, SwapCashPolicy::Spot)
+    pub(crate) fn prepare(
+        self,
+        market: &mut Market,
+        interest_transfer_fees: &[LeverageCollateralFee; 2],
+    ) -> Result<Box<PreparedSwap>> {
+        self.prepare_with_cash_policy(market, SwapCashPolicy::Spot, interest_transfer_fees)
     }
 
+    /// `interest_transfer_fees` are both assets' effective Token-2022 fees
+    /// (base, quote). Reserve cash pays them on top of any hLP funding the
+    /// swap moves into income custody, so they are part of every funding
+    /// cash floor: a payment that cannot also cover its fee is carried (spot)
+    /// or refused (leverage), never credited net.
     pub(crate) fn prepare_with_cash_policy(
         self,
         market: &mut Market,
         cash_policy: SwapCashPolicy,
+        interest_transfer_fees: &[LeverageCollateralFee; 2],
     ) -> Result<Box<PreparedSwap>> {
         market.accrue_interest_to_slot(self.current_slot)?;
         require_eq!(
@@ -435,7 +510,11 @@ impl SwapRequest {
         if cash_policy == SwapCashPolicy::Spot
             && (market.base_hlp_vault.debt_shares > 0 || market.quote_hlp_vault.debt_shares > 0)
         {
-            let floors = transition.interest_cash_floors(self.asset_in, concentrated.gross_amount_out);
+            let floors = transition.interest_cash_floors(
+                self.asset_in,
+                concentrated.gross_amount_out,
+                interest_transfer_fees,
+            )?;
             if !floors.available_amounts(
                 market.base_side.reserves.cash_reserve.saturating_sub(1),
                 market.quote_side.reserves.cash_reserve.saturating_sub(1),
@@ -474,7 +553,7 @@ impl SwapRequest {
                 concentrated.gross_amount_out,
             )?;
             transition
-                .interest_cash_floors(self.asset_in, 0)
+                .interest_cash_floors(self.asset_in, 0, interest_transfer_fees)?
                 .available_amounts(base_cash, quote_cash)
         } else {
             match cash_policy {
@@ -496,7 +575,7 @@ impl SwapRequest {
                         .checked_sub(clearance.principal_paid)
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     transition
-                        .interest_cash_floors(self.asset_in, cash_out)
+                        .interest_cash_floors(self.asset_in, cash_out, interest_transfer_fees)?
                         .available(market)
                 }
                 SwapCashPolicy::Close {
@@ -536,7 +615,7 @@ impl SwapRequest {
                         .checked_sub(principal_paid)
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     transition
-                        .interest_cash_floors(self.asset_in, cash_out)
+                        .interest_cash_floors(self.asset_in, cash_out, interest_transfer_fees)?
                         .available(market)
                 }
                 SwapCashPolicy::SettleLiquidation {
@@ -551,11 +630,11 @@ impl SwapRequest {
                         .checked_sub(repayment.min(principal_removed))
                         .ok_or(ErrorCode::InsufficientAmount)?;
                     transition
-                        .interest_cash_floors(self.asset_in, cash_out)
+                        .interest_cash_floors(self.asset_in, cash_out, interest_transfer_fees)?
                         .available(market)
                 }
                 _ => transition
-                    .interest_cash_floors(self.asset_in, concentrated.gross_amount_out)
+                    .interest_cash_floors(self.asset_in, concentrated.gross_amount_out, interest_transfer_fees)?
                     .available(market),
             }
         };
@@ -582,6 +661,7 @@ impl SwapRequest {
             cash_policy,
             post_fee_curve_cache,
             concentrated_transition: Some(Box::new(transition)),
+            interest_transfer_fees: interest_transfer_fees.map(InterestTransferFee::effective),
         }))
     }
 }

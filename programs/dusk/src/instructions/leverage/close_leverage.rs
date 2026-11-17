@@ -6,11 +6,12 @@ use anchor_spl::{
 };
 
 use super::settlement::{
-    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee, leverage_swap_fee_credit,
-    prepare_leverage_swap, record_leverage_interest, settle_inline_leverage_hlp, split_delegated_accounts,
-    validate_leverage_futarchy_pda, validate_leverage_interest_account, validate_leverage_market_pda,
-    validate_leverage_mints, validate_leverage_reserve_accounts, DelegatedCallbackBuffers, DelegatedCpiArgs,
-    LEVERAGE_DELEGATE_CLOSE, LEVERAGE_DELEGATE_CLOSE_SETTLED,
+    invoke_delegated_approval_callback, leverage_collateral_credit, leverage_collateral_fee,
+    leverage_interest_transfer_fees, leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest,
+    settle_inline_leverage_hlp, split_delegated_accounts, validate_leverage_futarchy_pda,
+    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
+    validate_leverage_reserve_accounts, DelegatedCallbackBuffers, DelegatedCpiArgs, LEVERAGE_DELEGATE_CLOSE,
+    LEVERAGE_DELEGATE_CLOSE_SETTLED,
 };
 use crate::{
     constants::*,
@@ -462,12 +463,19 @@ impl<'info> CloseLeverage<'info> {
             debt_principal: ctx.accounts.leverage_position.debt_principal,
             shares_to_burn: close_slice.debt_shares,
         };
+        let transfer_fees = leverage_interest_transfer_fees(
+            &ctx.accounts.market,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            current_epoch,
+        )?;
         let mut approved_swap = None;
         // A delegate needs a payout quote before its approval callback. An
         // owner close validates debt coverage and the net minimum against the
         // measured-input settlement below, so a second curve quote is redundant.
         let (expected_residual, expected_payout) = if matches!(mode, CloseMode::Delegate) {
-            let prepared = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
+            let prepared = prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?;
             let close_quote = prepared.leverage_quote();
             require!(
                 ctx.accounts.leverage_position.close_approval == Default::default(),
@@ -653,7 +661,7 @@ impl<'info> CloseLeverage<'info> {
         // read-only across approval; no callback can change this price basis.
         let prepared_swap = match approved_swap {
             Some(prepared) => prepared,
-            None => prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?,
+            None => prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?,
         };
 
         let swap = prepared_swap.leverage_quote();
@@ -801,6 +809,7 @@ impl<'info> CloseLeverage<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            None,
             interest_eligibility,
             remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),

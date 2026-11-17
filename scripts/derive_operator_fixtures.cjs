@@ -69,6 +69,8 @@ function encode(data) {
   market.config.irm.lower_utilization_bps=7_500;
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
   restate(market,MARKET_AMOUNTS,amountFactor(market));
+  // Every captured income epoch began at genesis or an archived roll, so no
+  // drain run spans it (run_length 0) and growth restarted at zero.
   return encodeAccount('Market',market);
 }
 function encodeAccount(name,value) {
@@ -105,12 +107,18 @@ for (const account of batch.result.value.accounts) {
   if (account.owner===batch.programId) account.owner=nextProgram;
 }
 const adaptedMarket=newCoder.decode('Market',Buffer.from(batch.result.value.accounts[0].data[0],'base64'));
-batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
-  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram))[0].toBase58();
+const [marketAddress,marketBump]=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
+  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram));
+batch.market=marketAddress.toBase58();
+// The stored bump belongs to the market's address under the current program.
+if(adaptedMarket.bump!==marketBump){
+  adaptedMarket.bump=marketBump;
+  batch.result.value.accounts[0].data[0]=encodeAccount('Market',adaptedMarket).toString('base64');
+}
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero, and each income book starts a new drain run at its current epoch. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
 const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
 writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
 process.stdout.write(`${batchTarget}\n`);

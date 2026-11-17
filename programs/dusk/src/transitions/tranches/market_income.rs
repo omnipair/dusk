@@ -60,13 +60,19 @@ impl Market {
         let book = &income.books[i];
         let claim = income.hlp[i][i];
         require!(book.unpaid > 0, ErrorCode::BrokenInvariant);
-        let units = u64::try_from(crate::math::mul_div_ceil_u128(
-            needed as u128,
-            book.units as u128,
-            book.unpaid as u128,
-        )?)
+        // Whole units, rounded up, that carry `needed` of unpaid value.
+        let units = u64::try_from(
+            crate::math::mul_div_ceil_u128(needed as u128, book.units_q64, book.unpaid as u128)?.div_ceil(1 << 64),
+        )
         .map_err(|_| ErrorCode::MarketMathOverflow)?;
         let owned = (claim.units_q64 >> 64) as u64;
+        // When `needed` reaches into the claim's fractional unit, convert the
+        // whole claim (1/1), which takes that fraction too.
+        let (units, owned) = if units > owned && claim.units_q64.div_ceil(1 << 64) >= units as u128 {
+            (1, 1)
+        } else {
+            (units, owned)
+        };
         require_gte!(owned, units, ErrorCode::BrokenInvariant);
         let value = self.quote_hlp_receivable_conversion(target, target, units, owned)?;
         require_gte!(value, needed, ErrorCode::BrokenInvariant);
@@ -310,6 +316,10 @@ impl Market {
         }
         require_gte!(removed, payable, ErrorCode::BrokenInvariant);
         let i = asset.code() as usize + if funding { 2 } else { 0 };
+        if payable < removed {
+            // A writeoff: units in this epoch are owed less than face value.
+            self.income.get_mut()?.books[i].impaired = true;
+        }
         self.income.get_mut()?.books[i].settle(removed, 0)?;
         self.income.get_mut()?.pending[i] = self.income.get()?.pending[i]
             .checked_add(payable)
@@ -320,10 +330,109 @@ impl Market {
     pub fn collect_income_receivable(&mut self, asset: MarketAsset, funding: bool, cash: u64) -> Result<()> {
         let i = asset.code() as usize + if funding { 2 } else { 0 };
         require_gte!(self.income.get()?.pending[i], cash, ErrorCode::UnbackedFeeLiability);
+        // Interest transfers into custody are grossed up by the Token-2022
+        // fee and every pay-or-carry decision counts that fee, so a routine
+        // collection credits the full pending amount. Cash can still fall
+        // short: a transfer fee raised or scheduled after the gross-up was
+        // priced, a swap's settlement rebuilt after a loss leaving less cash
+        // than its plan counted (`FundingFeePayment::IfCashAllows`), or a
+        // terminal caller bounty. Such an epoch was paid below face value;
+        // marking it impaired sends it through an archived roll instead of an
+        // in-place advance.
+        if cash < self.income.get()?.pending[i] {
+            self.income.get_mut()?.books[i].impaired = true;
+        }
         self.income.get_mut()?.books[i].credit_cash(cash)?;
         self.income.get_mut()?.pending[i] = 0;
         Ok(())
     }
+
+    /// Reserve cash pays the Token-2022 fee on an internal interest transfer
+    /// into income custody, so custody receives the full interest its income
+    /// book expects and the epoch's paid index reaches face value. The fee is
+    /// a real cost to LP reserves, never to the income book: cash and live
+    /// reserve fall by it. Like the funding payment it accompanies, it is
+    /// excluded from pricing, so spot does not move and depth falls instead;
+    /// the caller refreshes the curve cache before the instruction ends.
+    ///
+    /// Every pay-or-carry decision counts the fee with the payment it
+    /// accompanies, so cash covers it here; a shortfall fails like a payment
+    /// cash cannot cover (`CashReserveUnderflow`) rather than credit custody
+    /// net and impair the book.
+    pub(crate) fn pay_interest_transfer_fee(&mut self, asset: MarketAsset, fee: u64) -> Result<u64> {
+        if fee == 0 {
+            return Ok(0);
+        }
+        let priced = if self.amm.initialized {
+            Some(self.ordinary_curve_point_nad()?)
+        } else {
+            None
+        };
+        self.side_mut(asset).debit_reserve(fee, true)?;
+        if let Some(point) = priced {
+            self.preserve_hlp_pricing_point(point)?;
+        }
+        Ok(fee)
+    }
+
+    /// `pay_interest_transfer_fee` for an operation whose AMM transition is
+    /// already final. If paying the fee scaled the priced point into the
+    /// smaller inventory, the curve cache is rebuilt there (same spot).
+    pub(crate) fn pay_settled_interest_transfer_fee(&mut self, asset: MarketAsset, fee: u64, slot: u64) -> Result<u64> {
+        let priced = if self.amm.initialized && fee > 0 {
+            Some(self.ordinary_curve_point_nad()?)
+        } else {
+            None
+        };
+        let paid = self.pay_interest_transfer_fee(asset, fee)?;
+        if paid > 0 && priced.is_some() && priced != Some(self.ordinary_curve_point_nad()?) {
+            self.checkpoint_amm_neutral_inventory_raw(slot, None)?;
+        }
+        Ok(paid)
+    }
+
+    /// After an hLP plan paid funding from reserve cash, pay each payment's
+    /// transfer fee and record it on the receipt whose custody transfer the
+    /// instruction settles. Returns whether any fee was paid.
+    pub(crate) fn pay_hlp_funding_transfer_fees(
+        &mut self,
+        receipts: [&mut crate::transitions::HlpRebalanceReceipt; 2],
+        fees: [crate::transitions::LeverageCollateralFee; 2],
+        payment: FundingFeePayment,
+    ) -> Result<bool> {
+        let mut paid = false;
+        for receipt in receipts {
+            if receipt.interest_paid == 0 {
+                continue;
+            }
+            require_eq!(receipt.interest_transfer_fee, 0, ErrorCode::BrokenInvariant);
+            let asset = receipt.target_asset.opposite();
+            let fee = fees[asset.code() as usize].inverse_fee(receipt.interest_paid)?;
+            receipt.interest_transfer_fee = match payment {
+                FundingFeePayment::Settled { slot } => self.pay_settled_interest_transfer_fee(asset, fee, slot)?,
+                FundingFeePayment::Required => self.pay_interest_transfer_fee(asset, fee)?,
+                FundingFeePayment::IfCashAllows if self.side(asset).reserves.cash_reserve < fee => 0,
+                FundingFeePayment::IfCashAllows => self.pay_interest_transfer_fee(asset, fee)?,
+            };
+            paid |= receipt.interest_transfer_fee > 0;
+        }
+        Ok(paid)
+    }
+}
+
+/// How an hLP plan's funding transfer fees are paid.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FundingFeePayment {
+    /// The plan's cash requirement included the fee; the caller refreshes
+    /// the curve cache afterwards.
+    Required,
+    /// As `Required`, after the operation's AMM transition was final.
+    Settled { slot: u64 },
+    /// A swap applying its prepared plan. The carry decision already counted
+    /// the fee, so cash covers it; should a settlement rebuilt after a loss
+    /// still leave less, the transfer credits net (the book is impaired and
+    /// rolls) rather than revert the swap.
+    IfCashAllows,
 }
 
 impl Market {
@@ -350,13 +459,20 @@ impl Market {
             let book = &self.income.get()?.books[i];
             let claim = &mut holder.income[source];
             if !holder.income_initialized {
+                // A new holder owns nothing yet, so it starts at the lane's
+                // current point (its closed growth, if the exposure ended in
+                // this epoch). Starting at zero growth would put its
+                // checkpoint at the drain run's start, before payments the
+                // current epoch's paid index no longer reflects.
+                let end = if junior { ends[i] } else { IncomeExposureEnd::default() };
                 claim.epoch = book.epoch;
-                claim.checkpoint_exposure(
-                    0,
-                    book,
-                    lane,
-                    if junior { ends[i] } else { IncomeExposureEnd::default() },
-                )?;
+                claim.units_q64 = 0;
+                claim.paid_checkpoint_q64 = book.paid_per_unit_q64;
+                claim.growth_checkpoint = if end.ended && end.epoch == book.epoch {
+                    end.growth
+                } else {
+                    *book.growth.get(lane).ok_or(ErrorCode::InvalidArgument)?
+                };
             } else {
                 claim.checkpoint_exposure(
                     balance,
@@ -449,6 +565,13 @@ impl Market {
 
     /// Quote from frozen fee ownership, including previously funded fractional
     /// carry. Current Futarchy or operator rates never re-price old interest.
+    ///
+    /// Once income books are live, the measured custody credit is capped at
+    /// the settlement budget (pending LP plus pending fee gross). SPL fee
+    /// arithmetic makes a grossed-up transfer deliver exactly the interest;
+    /// should one ever deliver more, the excess stays in the interest vault
+    /// as unrecorded custody (the vault balance check is a lower bound) and
+    /// is never credited to holders. `credited()` is the recorded amount.
     pub(crate) fn quote_interest_revenue_credit(
         &self,
         asset: MarketAsset,
@@ -460,6 +583,11 @@ impl Market {
         let total = income.pending[i]
             .checked_add(income.revenue[i].pending_gross)
             .ok_or(ErrorCode::MarketMathOverflow)?;
+        let credit = if self.side(asset).fees.junior.initialized {
+            credit.min(total)
+        } else {
+            credit
+        };
         let (fee, protocol) = income.revenue[i].quote_cash(credit, total)?;
         let available = self
             .side(asset)
@@ -494,7 +622,7 @@ impl Market {
         let fees = &mut self.side_mut(asset).fees;
         fees.interest_vault_balance = fees
             .interest_vault_balance
-            .checked_add(credit)
+            .checked_add(quote.credited())
             .ok_or(ErrorCode::MarketMathOverflow)?;
         fees.interest_liability = fees
             .interest_liability

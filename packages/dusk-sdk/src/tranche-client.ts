@@ -8,28 +8,29 @@ import { assertLpTokenMetadata, type LpTokenMetadataInput } from "./lp-naming.js
 import { oracleComputeBudgetInstructions, oracleReadAccounts } from "./oracle.js";
 import { DuskWrite } from "./write.js";
 import { assertCurrentMarketLayout } from "./market-layout.js";
+import { DRAINED_UNIT_VALUE_Q64, incomeBookNearCapacity, incomeRunStartEpoch } from "./income-receivable.js";
 import type { Dusk as DuskIdl } from "./types_v2.js";
 import type { Market } from "./type-aliases.js";
 
 type IncomeBook = Market["income"]["books"][number];
 
-/** Whether `value` reaches half of an unsigned `bits`-bit range (Rust's
- * `MAX / 2`, which is 2^(bits−1) − 1). */
-const atHalfRange = (value: BN, bits: number) => value.addn(1).bitLength() >= bits;
 
 /** Mirrors `roll_income_epoch`: a book with settled units rolls once at least
  * half its units are repaid, or once any counter reaches half its range.
  * Rolling earlier would let anyone fragment holders' catch-up into many
  * archived epochs. */
 export function incomeBookMayRoll(book: IncomeBook): boolean {
-  if (book.units.lte(book.unpaid)) return false;
-  if (book.unpaid.lte(book.units.divn(2))) return true;
-  return (
-    atHalfRange(book.units, 64) ||
-    atHalfRange(book.unpaid, 64) ||
-    atHalfRange(book.paidPerUnitQ64, 128) ||
-    book.growth.some((lane) => atHalfRange(lane.unitsQ64, 128) || atHalfRange(lane.weightedPaidQ128[3], 64))
-  );
+  const near = incomeBookNearCapacity(book);
+  if (incomeBookAdvancesInPlace(book) && !near) return false;
+  const unitsQ64 = BigInt(book.unitsQ64.toString()), face = BigInt(book.unpaid.toString()) << 64n;
+  return unitsQ64 > face && (face <= unitsQ64 / 2n || near);
+}
+
+/** Mirrors `can_advance_in_place`: a fully repaid, unimpaired book whose
+ * paid index reached the drained unit value continues without a roll. */
+export function incomeBookAdvancesInPlace(book: IncomeBook): boolean {
+  return !book.unitsQ64.isZero() && book.unpaid.isZero() && !book.impaired && book.runLength < 0xffff_ffff
+    && BigInt(book.paidPerUnitQ64.toString()) >= DRAINED_UNIT_VALUE_Q64;
 }
 
 export type TrancheAction =
@@ -87,16 +88,33 @@ export class DuskTranches {
     for (let source = 0; source < 2; source++) {
       const bookIndex = assetIndex + source * 2;
       const epoch = BigInt(holder.income[source].epoch.toString());
-      const liveEpoch = BigInt(state.income.books[bookIndex].epoch.toString());
+      const liveBook = state.income.books[bookIndex];
+      const liveEpoch = BigInt(liveBook.epoch.toString());
       if (epoch > liveEpoch) throw new Error("Holder income epoch exceeds market epoch");
-      const count = Number(liveEpoch - epoch > 8n ? 8n : liveEpoch - epoch);
+      // Epochs advanced in place have no archive: pass only the archived
+      // epochs that end each earlier run, oldest first, at most 8 per call.
+      const archived = await this.archivedIncomeEpochs(market, bookIndex, epoch, incomeRunStartEpoch(liveBook));
       const remainingAccounts: AccountMeta[] = [];
       if (params.kind === "junior" && !lpMint.equals(state.juniorMint)) remainingAccounts.push({ pubkey: deriveJuniorCohortAddress(market, lpMint, this.program.programId)[0], isSigner: false, isWritable: false });
-      for (let i = 0; i < count; i++) remainingAccounts.push({ pubkey: deriveIncomeEpochAddress(market, bookIndex, epoch + BigInt(i), this.program.programId)[0], isSigner: false, isWritable: false });
+      for (const archivedEpoch of archived.slice(0, 8)) remainingAccounts.push({ pubkey: deriveIncomeEpochAddress(market, bookIndex, archivedEpoch, this.program.programId)[0], isSigner: false, isWritable: false });
       instructions.push(await this.write.instruction("checkpointIncome", { source }, { accounts: { market, lpMint, ownerLp, yieldAccount }, remainingAccounts }));
-      hasMore ||= epoch + BigInt(count) < liveEpoch;
+      hasMore ||= archived.length > 8;
     }
     return { instructions, hasMore, yieldAccount };
+  }
+
+  /** Archived epochs at or after `from`, oldest first. The archive that ended
+   * each run records that run's start, which leads to the previous archive. */
+  private async archivedIncomeEpochs(market: PublicKey, bookIndex: number, from: bigint, liveRunStart: bigint) {
+    const epochs: bigint[] = [];
+    let epoch = liveRunStart === 0n ? undefined : liveRunStart - 1n;
+    while (epoch !== undefined && epoch >= from) {
+      epochs.push(epoch);
+      const archive = await this.program.account.incomeEpoch.fetch(deriveIncomeEpochAddress(market, bookIndex, epoch, this.program.programId)[0]);
+      const runStart = incomeRunStartEpoch(archive.book);
+      epoch = runStart === 0n ? undefined : runStart - 1n;
+    }
+    return epochs.reverse();
   }
 
   /** Prepare bounded, separate transactions to catch up both assets before a
@@ -114,16 +132,20 @@ export class DuskTranches {
     return { transactions, hasMore };
   }
 
-  /** Archive drained books before another operation issues income. This is a
-   * market-wide maintenance step, separate from catching up individual holders.
-   * A numerically exhausted, partially paid book can be rolled explicitly with
-   * rollIncome after IncomeEpochNeedsRollover. The payer funds archival rent. */
+  /** Archive books that block income issuance: impaired drained books (a
+   * writeoff or custody shortfall) and books near their numeric limits, where
+   * accrual is clipped without an error. A loss-free drained book advances in
+   * place and needs no transaction. This is market-wide maintenance, separate
+   * from catching up individual holders. The payer funds archival rent. */
   async prepareDrainedIncomeBooks(params: { market: AddressLike; payer: AddressLike }) {
     const state = await this.marketState(address(params.market));
     const transactions: Transaction[] = [];
     for (let bookIndex = 0; bookIndex < 4; bookIndex++) {
       const book = state.income.books[bookIndex];
-      if (!book.units.isZero() && book.unpaid.isZero()) {
+      // A loss-free drained book advances in place on its next issuance and
+      // cannot be rolled; an impaired or short-paid one needs an archive, as
+      // does any book near its numeric limits.
+      if (!book.unitsQ64.isZero() && (book.unpaid.isZero() || incomeBookNearCapacity(book)) && incomeBookMayRoll(book)) {
         transactions.push((await this.rollIncome({ ...params, bookIndex })).transaction);
       }
     }

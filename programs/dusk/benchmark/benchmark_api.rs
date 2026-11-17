@@ -2058,6 +2058,7 @@ impl BenchmarkMarket {
                 asset: request.debt_asset,
                 amount: borrowed_amount,
             },
+            Default::default(),
         )?;
         // Derive settlement debits by running the same native transition on a
         // disposable fork. The prepared state itself remains untouched and
@@ -2386,6 +2387,7 @@ impl BenchmarkMarket {
                 debt_principal: leverage.position.debt_principal,
                 shares_to_burn: slice.debt_shares,
             },
+            Default::default(),
         )?;
         require_gte!(
             prepared_swap.leverage_quote().amount_out,
@@ -3977,6 +3979,7 @@ fn prepare_floor_liquidation_plan(
                     debt_shares: 0,
                     debt_principal: 0,
                 },
+                &Default::default(),
             )?,
         )
     } else {
@@ -5105,7 +5108,7 @@ fn execute_swap(
         reserve_credit: request.reserve_credit,
         protocol_fee_bps: request.protocol_fee_bps,
     }
-    .prepare(market)?;
+    .prepare(market, &Default::default())?;
     let quote = prepared.quote;
     let fee_eligible_srlp_supply = prepared.fee_eligible_srlp_supply;
     let interest_eligibility = prepared.interest_eligibility;

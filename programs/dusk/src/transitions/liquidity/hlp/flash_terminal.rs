@@ -22,6 +22,7 @@ impl Market {
         slot: u64,
     ) -> Result<HlpFlashTerminalSettlement> {
         require!(quote.full, ErrorCode::InvalidLiquidationSession);
+        let inventory_before = self.ordinary_inventory_point_nad()?;
         let target = MarketAsset::try_from_code(quote.target_asset)?;
         let borrowed = target.opposite();
         let vault = match target {
@@ -58,9 +59,11 @@ impl Market {
             .checked_add(quote.reserve_credit)
             .ok_or(ErrorCode::ReserveOverflow)?;
         require_gte!(cash, loss.surplus, ErrorCode::InsufficientLiquidity);
-        // Funding interest is paid from available cash. Cancel the unpaid
-        // remainder; its corresponding backing stays with the pool on close.
-        let cash_interest = loss.interest_paid.min(cash - loss.surplus);
+        // Funding interest is paid from available cash, together with the
+        // transfer fee reserve cash pays on top of it when the instruction
+        // moves it into income custody. Cancel the unpaid remainder; its
+        // corresponding backing stays with the pool on close.
+        let cash_interest = loss.interest_paid.min(debt_fee.unwind_credit(cash - loss.surplus)?);
         loss.interest_canceled = loss
             .interest_canceled
             .checked_add(loss.interest_paid - cash_interest)
@@ -140,7 +143,7 @@ impl Market {
         require!(self.hlp_frozen(target), ErrorCode::BrokenInvariant);
         self.clear_frozen_hlp(target);
         self.exclude_hlp_funding_payment_from_pricing(borrowed, loss.interest_paid)?;
-        self.rebase_concentrated_curve_after_terminal_hlp_loss()?;
+        self.rebase_concentrated_curve_after_terminal_hlp_loss(inventory_before)?;
         // A second vault may also be insolvent. Closing this cohort must not
         // require rehedging that other cohort first; its debt and full-value
         // backing remain explicit and can be recovered independently.

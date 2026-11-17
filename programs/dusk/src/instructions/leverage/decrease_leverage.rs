@@ -16,9 +16,10 @@ use crate::{
 };
 
 use super::settlement::{
-    leverage_collateral_fee, leverage_swap_fee_credit, prepare_leverage_swap, record_leverage_interest,
-    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_interest_account,
-    validate_leverage_market_pda, validate_leverage_mints, validate_leverage_reserve_accounts,
+    leverage_collateral_fee, leverage_interest_transfer_fees, leverage_swap_fee_credit, prepare_leverage_swap,
+    record_leverage_interest, settle_inline_leverage_hlp, validate_leverage_futarchy_pda,
+    validate_leverage_interest_account, validate_leverage_market_pda, validate_leverage_mints,
+    validate_leverage_reserve_accounts,
 };
 use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, HlpSwapAccountLayout,
@@ -196,6 +197,13 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.event_authority.to_account_info(),
             ctx.accounts.futarchy_authority.revenue_share.interest_bps,
         )?;
+        let transfer_fees = leverage_interest_transfer_fees(
+            &ctx.accounts.market,
+            debt_asset,
+            &ctx.accounts.debt_mint,
+            &ctx.accounts.collateral_mint,
+            Clock::get()?.epoch,
+        )?;
         let mut prepared_swap = prepare_leverage_swap(
             &mut ctx.accounts.market,
             SwapRequest {
@@ -210,6 +218,7 @@ impl<'info> DecreaseLeverage<'info> {
                 debt_shares: ctx.accounts.leverage_position.debt_shares,
                 debt_principal: ctx.accounts.leverage_position.debt_principal,
             },
+            transfer_fees,
         )?;
         let swap = prepared_swap.leverage_quote();
         let interest_eligibility = prepared_swap.interest_eligibility;
@@ -262,6 +271,7 @@ impl<'info> DecreaseLeverage<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            None,
             interest_eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),

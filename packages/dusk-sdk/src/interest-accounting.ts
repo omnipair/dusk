@@ -1,4 +1,4 @@
-import { transferFeeCredit, type TransferFeeNotice } from "./transfer-fees.js";
+import { transferFeeCredit, transferInverseFee, type TransferFeeNotice } from "./transfer-fees.js";
 import type { BorrowPosition, Market } from "./type-aliases.js";
 
 const U64_MAX = (1n << 64n) - 1n;
@@ -56,9 +56,15 @@ export function hlpFundingInterest(
  * Once the side's junior income is initialized, the frozen protocol and
  * operator share is the historical unpaid fee book's share of the advance; no
  * current fee rate is used. Before that, the program splits the advance at the
- * current protocol interest rate. Reserve cash owed as hLP funding interest is
- * not advanced. Protocol and operator fees remain unpaid until borrower cash
- * arrives. Inputs must describe the same checkpointed market state. */
+ * current protocol interest rate. Reserve cash owed as hLP funding interest,
+ * and the transfer fee reserve cash pays on top of it when that funding is
+ * settled, is not advanced. Protocol and operator fees remain unpaid until borrower cash
+ * arrives. Inputs must describe the same checkpointed market state.
+ *
+ * Reserve cash also pays the effective Token-2022 fee on the LP transfer, so
+ * interest custody receives the whole LP amount (`lpVaultCredit`). The
+ * reserve-vault debit `lpVaultDebit` adds that `transferFee`, and the advance
+ * leaves room for the fee inside the advanceable cash. */
 export function quoteInterestAdvanceAmounts(input: {
   unpaidPublicInterest: bigint;
   /** The side's unpaid fee book after synchronization. Required once junior
@@ -84,8 +90,12 @@ export function quoteInterestAdvanceAmounts(input: {
   for (const value of [advanced, escrow, reserveCash, maxGross, fundingInterest]) amount(value);
   if (advanced > unpaid || escrow > advanced) throw new RangeError("Inconsistent unpaid interest/advance");
   const available = unpaid - advanced;
-  const spendableCash = reserveCash > fundingInterest ? reserveCash - fundingInterest : 0n;
-  const grossAdvance = [available, spendableCash, maxGross].reduce((a, b) => a < b ? a : b);
+  const owed = fundingInterest + transferInverseFee(fundingInterest, input.transferFee);
+  const spendableCash = reserveCash > owed ? reserveCash - owed : 0n;
+  // Keep the fee inside spendable cash: anything up to what that cash would
+  // deliver through one transfer can be grossed up within it.
+  const advanceableCash = transferFeeCredit(spendableCash, input.transferFee, "effective");
+  const grossAdvance = [available, advanceableCash, maxGross].reduce((a, b) => a < b ? a : b);
   let revenueEscrow: bigint;
   if (input.juniorInitialized ?? true) {
     const fees = input.unpaidFeeInterest;
@@ -102,23 +112,27 @@ export function quoteInterestAdvanceAmounts(input: {
     }
     revenueEscrow = grossAdvance * BigInt(bps) / 10_000n;
   }
-  const lpVaultDebit = grossAdvance - revenueEscrow;
-  const lpVaultCredit = transferFeeCredit(lpVaultDebit, input.transferFee, "effective");
-  return { grossAdvance, revenueEscrow, lpVaultDebit, lpVaultCredit, transferFee: lpVaultDebit - lpVaultCredit };
+  const lpVaultCredit = grossAdvance - revenueEscrow;
+  const transferFee = transferInverseFee(lpVaultCredit, input.transferFee);
+  return { grossAdvance, revenueEscrow, lpVaultDebit: lpVaultCredit + transferFee, lpVaultCredit, transferFee };
 }
 
 /** Allocate measured custody credit against the frozen settlement budget.
  * grossTransfer excludes LP yield already funded by an advance. pendingFeeGross
  * includes both protocol and operator receivables. Recipient claims are settled
- * by the on-chain fee book, including fractional cash from earlier payments. */
+ * by the on-chain fee book, including fractional cash from earlier payments.
+ * Interest transfers are grossed up by the Token-2022 fee. A measured credit
+ * above the budget is capped at it, as on chain; the excess stays in the
+ * vault uncredited. */
 export function allocateRepaidInterest(input: {
   grossTransfer: bigint;
   pendingFeeGross: bigint;
   measuredVaultCredit: bigint;
 }) {
-  const { grossTransfer, pendingFeeGross: fees, measuredVaultCredit: credit } = input;
-  for (const value of [grossTransfer, fees, credit]) amount(value);
-  if (credit > grossTransfer || fees > grossTransfer) throw new RangeError("Custody credit or fees exceed settlement");
+  const { grossTransfer, pendingFeeGross: fees, measuredVaultCredit: measured } = input;
+  for (const value of [grossTransfer, fees, measured]) amount(value);
+  if (fees > grossTransfer) throw new RangeError("Fees exceed settlement");
+  const credit = measured > grossTransfer ? grossTransfer : measured;
   const revenueCredit = grossTransfer === 0n ? 0n : credit * fees / grossTransfer;
   return { grossTransfer, revenueCredit, lpCredit: credit - revenueCredit };
 }

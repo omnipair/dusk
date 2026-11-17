@@ -270,6 +270,7 @@ impl<'info> EmergencyLiquidation<'info> {
             a.referral_partner.as_deref(),
             a.referral_accrual.as_deref_mut(),
             q.loss.interest_paid,
+            None,
             eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),

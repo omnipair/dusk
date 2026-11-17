@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { quoteInterestAdvanceAmounts, allocateRepaidInterest, borrowDebtBreakdown, hlpFundingInterest } from "../dist/interest-accounting.js";
-import { transferFeeNotice } from "../dist/transfer-fees.js";
+import { transferFeeCredit, transferFeeNotice, transferInverseFee } from "../dist/transfer-fees.js";
 
 const zero = transferFeeNotice(null, 1n);
 test("public borrower debt breakdown reads position principal, not the market ratio", () => {
@@ -74,8 +74,39 @@ test("advance pays the effective mint fee, not its announced future fee", () => 
     olderTransferFee: { epoch: 0n, transferFeeBasisPoints: 100, maximumFee: 100n },
     newerTransferFee: { epoch: 2n, transferFeeBasisPoints: 9_000, maximumFee: 1_000n },
   }, 1n);
+  // Reserve cash pays inverse_fee(792) = 8 on top of the LP transfer. The
+  // advance stops at what 1000 cash would deliver (990), so cash, not the
+  // coupon, binds it and the advance plus fee (998) stays within cash.
   assert.deepEqual(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 1_000n, outstandingGrossAdvance: 0n, reserveCash: 1_000n, maxGross: 1_000n, unpaidFeeInterest: 200n, outstandingRevenueEscrow: 0n, transferFee }),
-    { grossAdvance: 1_000n, revenueEscrow: 200n, lpVaultDebit: 800n, lpVaultCredit: 792n, transferFee: 8n });
+    { grossAdvance: 990n, revenueEscrow: 198n, lpVaultDebit: 800n, lpVaultCredit: 792n, transferFee: 8n });
+  // Funding owed from the same cash also keeps its own transfer fee:
+  // 2000 - 300 - inverse_fee(300) = 1696 spendable, delivering 1679.
+  assert.equal(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 5_000n, outstandingGrossAdvance: 0n, reserveCash: 2_000n,
+    maxGross: 5_000n, unpaidFeeInterest: 0n, outstandingRevenueEscrow: 0n, transferFee, hlpFundingInterest: 300n }).grossAdvance, 1_679n);
+  // With spare cash the advance is unchanged and custody still receives it in full.
+  assert.deepEqual(quoteInterestAdvanceAmounts({ unpaidPublicInterest: 1_000n, outstandingGrossAdvance: 0n, reserveCash: 2_000n, maxGross: 1_000n, unpaidFeeInterest: 200n, outstandingRevenueEscrow: 0n, transferFee }),
+    { grossAdvance: 1_000n, revenueEscrow: 200n, lpVaultDebit: 809n, lpVaultCredit: 800n, transferFee: 9n });
+});
+
+test("inverse transfer fee mirrors SPL calculate_inverse_fee", () => {
+  const notice = (transferFeeBasisPoints, maximumFee) => transferFeeNotice({
+    olderTransferFee: { epoch: 0n, transferFeeBasisPoints, maximumFee },
+    newerTransferFee: { epoch: 0n, transferFeeBasisPoints, maximumFee },
+  }, 1n);
+  assert.equal(transferInverseFee(0n, notice(100, 100n)), 0n);
+  assert.equal(transferInverseFee(792n, notice(100, 100n)), 8n);
+  assert.equal(transferInverseFee(1_000n, notice(100, 100n)), 11n);
+  assert.equal(transferInverseFee(1n, notice(1, 1_000n)), 1n);
+  assert.equal(transferInverseFee(1_000_000n, notice(500, 7n)), 7n);
+  assert.equal(transferInverseFee(5n, notice(10_000, 9n)), 9n);
+  assert.equal(transferInverseFee(5n, zero), 0n);
+  for (const [bps, max] of [[1, 1_000_000n], [50, 1_000_000n], [250, 13n], [9_999, 1n << 40n]]) {
+    for (const post of [1n, 2n, 99n, 10_000n, 123_457n]) {
+      const fee = transferInverseFee(post, notice(bps, max));
+      // The grossed-up transfer delivers at least the intended amount.
+      assert.ok(transferFeeCredit(post + fee, notice(bps, max)) >= post, `${bps} ${max} ${post}`);
+    }
+  }
 });
 
 test("repayment uses frozen fees rather than current rates", () => {
@@ -85,7 +116,8 @@ test("repayment uses frozen fees rather than current rates", () => {
   const mixed=allocateRepaidInterest({grossTransfer:700n,pendingFeeGross:350n,measuredVaultCredit:693n});
   assert.deepEqual(mixed,{grossTransfer:700n,revenueCredit:346n,lpCredit:347n});
   assert.equal(mixed.revenueCredit+mixed.lpCredit,693n);
-  assert.throws(()=>allocateRepaidInterest({grossTransfer:2n,pendingFeeGross:1n,measuredVaultCredit:3n}));
+  // Custody credit above the budget stays uncredited in the vault.
+  assert.deepEqual(allocateRepaidInterest({grossTransfer:2n,pendingFeeGross:1n,measuredVaultCredit:3n}),{grossTransfer:2n,revenueCredit:1n,lpCredit:1n});
   assert.throws(()=>allocateRepaidInterest({grossTransfer:2n,pendingFeeGross:3n,measuredVaultCredit:2n}));
 });
 

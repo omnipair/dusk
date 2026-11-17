@@ -5,6 +5,7 @@ use crate::{
     constants::{DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MS_PER_YEAR, NAD, TARGET_MS_PER_SLOT},
     state::{Debt, HlpVault, MarketConfig, MarketSide, Reserves, Risk},
 };
+use spl_token_2022::extension::transfer_fee::TransferFee;
 
 fn slots_for_ms(ms: u64) -> u64 {
     ms / TARGET_MS_PER_SLOT
@@ -619,7 +620,7 @@ fn exhausted_income_unit_capacity_pauses_accrual_and_keeps_repayments_available(
     let end = slot + slots_for_ms(crate::constants::MS_PER_DAY);
     accrue_side::<false>(&mut market, MarketAsset::Base, end, rate_input(Some(0))).unwrap();
     let books = market.income.get().unwrap();
-    assert!(books.books[0].units > u64::MAX - 2_000_000_000_000);
+    assert!(books.books[0].units_q64 > ((u64::MAX - 2_000_000_000_000) as u128) << 64);
     assert_eq!(books.books[0].unpaid, books.revenue[0].gross_unpaid);
     assert!(market.debt.fixed_base_debt().unwrap() >= remaining_before);
     assert!(market.debt.fixed_base_debt().unwrap() < u64::MAX as u128);
@@ -684,4 +685,394 @@ fn saturated_interest_does_not_block_an_otherwise_cash_backed_lp_exit() {
     assert_eq!(receipt.quote_amount_out, 100_000_000_000);
     assert_eq!(*market.income.get().unwrap().books[0], before);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+}
+
+/// A permissionless `fund_interest` that funds the whole public coupon fully
+/// repays the public income book. Accrual continues exactly as without it.
+#[test]
+fn full_fund_interest_does_not_stall_accrual() {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market.operator.interest_share_bps = 2_000;
+    let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
+    let index1 = market.debt.base_borrow_index_nad;
+    let mut control = market.clone();
+    let (_, credit) = market.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, credit, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    let epoch = {
+        let book = &market.income.get().unwrap().books[0];
+        assert_eq!(book.unpaid, 0);
+        assert!(book.can_advance_in_place());
+        assert!(!book.may_roll());
+        book.epoch
+    };
+    let s2 = s1 + slots_for_ms(10 * crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+    accrue_side::<false>(&mut control, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+    assert!(control.debt.base_borrow_index_nad > index1);
+    assert_eq!(market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad);
+    assert_eq!(market.income.get().unwrap().books[0].epoch, epoch + 1);
+}
+
+fn transfer_fee_schedule(bps: u16, maximum_fee: u64) -> (TransferFee, LeverageCollateralFee) {
+    let fee = TransferFee {
+        epoch: 0.into(),
+        transfer_fee_basis_points: bps.into(),
+        maximum_fee: maximum_fee.into(),
+    };
+    (fee, LeverageCollateralFee::new(Some(fee)))
+}
+
+/// `fund_interest` with a transfer fee on the funded coupon, as the
+/// instruction runs it: reserve cash pays the fee on top of the LP transfer,
+/// so custody receives the whole advance. The public book drains at face
+/// value, advances in place, and accrual continues exactly as without it.
+#[test]
+fn fee_token_fund_interest_does_not_stall_accrual() {
+    let setup = || {
+        let mut market = numeric_limit_market();
+        market.base_side.fees.junior.initialized = true;
+        market.quote_side.fees.junior.initialized = true;
+        market.operator.interest_share_bps = 2_000;
+        let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
+        accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
+        (market, s1)
+    };
+    let fund = |market: &mut Market, fee: (TransferFee, LeverageCollateralFee), slot: u64| {
+        let cash = market.base_side.reserves.cash_reserve;
+        let (gross, lp_gross, transfer_fee) = market
+            .fund_public_interest_paying_transfer_fee(MarketAsset::Base, u64::MAX, cash, 0, fee.1, slot)
+            .unwrap();
+        let sent = lp_gross + transfer_fee;
+        let credit = sent - fee.0.calculate_fee(sent).unwrap();
+        market
+            .record_receivable_income_credit(MarketAsset::Base, false, credit, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+            .unwrap();
+        market.assert_market_invariants().unwrap();
+        (gross, lp_gross, transfer_fee, credit, cash)
+    };
+    let (mut fee_free, s1) = setup();
+    let (free_gross, free_lp, free_fee, _, _) = fund(&mut fee_free, transfer_fee_schedule(0, 0), s1);
+    assert_eq!(free_fee, 0);
+    for (bps, maximum_fee) in [(1_u16, u64::MAX), (25, u64::MAX), (500, 7)] {
+        let fee = transfer_fee_schedule(bps, maximum_fee);
+        let (mut market, s1) = setup();
+        let mut control = market.clone();
+        let (gross, lp_gross, transfer_fee, credit, cash) = fund(&mut market, fee, s1);
+        // The coupon, not reserve cash, binds: the advance is unchanged.
+        assert_eq!((gross, lp_gross), (free_gross, free_lp), "bps={bps}");
+        assert_eq!(transfer_fee, fee.1.inverse_fee(lp_gross).unwrap(), "bps={bps}");
+        assert!(transfer_fee > 0 && credit >= lp_gross, "bps={bps}");
+        assert_eq!(market.base_side.reserves.cash_reserve, cash - gross - transfer_fee, "bps={bps}");
+        assert_eq!(market.base_side.fees.interest_vault_balance, lp_gross, "bps={bps}");
+        assert_eq!(market.income.get().unwrap().books[0], fee_free.income.get().unwrap().books[0], "bps={bps}");
+        let epoch = {
+            let book = &market.income.get().unwrap().books[0];
+            assert_eq!(book.unpaid, 0);
+            assert!(!book.impaired && book.can_advance_in_place() && !book.may_roll(), "bps={bps}");
+            book.epoch
+        };
+        let s2 = s1 + slots_for_ms(10 * crate::constants::MS_PER_DAY);
+        accrue_side::<false>(&mut market, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+        accrue_side::<false>(&mut control, MarketAsset::Base, s2, rate_input(Some(0))).unwrap();
+        assert_eq!(market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad, "bps={bps}");
+        let book = &market.income.get().unwrap().books[0];
+        assert_eq!(book.epoch, epoch + 1, "bps={bps}");
+        // Advanced in place: the drained epoch joined the run without an archive.
+        assert!(book.run_length >= 1, "bps={bps}");
+    }
+}
+
+/// A custody credit below the pending LP amount (a fee change after the
+/// gross-up was priced, or no cash for the fee) marks the epoch impaired: it
+/// takes an archived roll instead of lowering the run's value in place.
+#[test]
+fn short_fund_interest_collection_impairs_the_book() {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
+    let (_, lp_gross) = market.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, lp_gross - 1, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    let book = &market.income.get().unwrap().books[0];
+    assert_eq!(book.unpaid, 0);
+    assert!(book.impaired && !book.can_advance_in_place() && book.may_roll());
+}
+
+/// A custody credit above the pending settlement budget is capped at it: the
+/// excess stays in the interest vault unrecorded, holders are credited
+/// exactly the budget, and the epoch is not impaired.
+#[test]
+fn custody_dust_above_the_settlement_budget_is_not_credited() {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    let s1 = slots_for_ms(crate::constants::MS_PER_DAY);
+    accrue_side::<false>(&mut market, MarketAsset::Base, s1, rate_input(Some(0))).unwrap();
+    let mut exact = market.clone();
+    let (_, lp_gross) = market.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
+    exact.fund_public_interest(MarketAsset::Base, u64::MAX, 0).unwrap();
+    let quote = market.quote_interest_revenue_credit(MarketAsset::Base, false, lp_gross + 2).unwrap();
+    assert_eq!(quote.credited(), lp_gross);
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, lp_gross + 2, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    exact
+        .record_receivable_income_credit(MarketAsset::Base, false, lp_gross, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    assert_eq!(market.income.get().unwrap().books[0], exact.income.get().unwrap().books[0]);
+    assert_eq!(market.base_side.fees.interest_vault_balance, lp_gross);
+    assert!(!market.income.get().unwrap().books[0].impaired);
+}
+
+/// A borrower repaying a Token-2022 debt pays principal, interest and the
+/// transfer fee on the interest the reserve moves into income custody. Debt
+/// reduction is unchanged, LP custody receives the full interest, and the
+/// income book ends exactly as for a fee-free asset.
+#[test]
+fn fee_token_repayment_pays_the_interest_transfer_fee_on_top() {
+    let setup = || {
+        let mut market = numeric_limit_market();
+        market.base_side.fees.junior.initialized = true;
+        market.quote_side.fees.junior.initialized = true;
+        market.protocol_interest_markup_bps = 2_000;
+        market.operator.interest_share_bps = 2_000;
+        let position = BorrowPosition {
+            fixed_base_shares: market.debt.fixed_base_shares,
+            fixed_base_principal: market.debt.fixed_base_principal,
+            auction_debt_asset: u8::MAX,
+            ..BorrowPosition::default()
+        };
+        let slot = slots_for_ms(10 * crate::constants::MS_PER_DAY);
+        accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        // Advance part of the coupon so repayment also recycles an advance
+        // and releases frozen fee escrow.
+        let (_, lp_gross) = market.fund_public_interest(MarketAsset::Base, 1_000_000, 2_000).unwrap();
+        market
+            .record_receivable_income_credit(MarketAsset::Base, false, lp_gross, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+            .unwrap();
+        (market, position)
+    };
+    // The reserve leg of `record_leverage_interest`: move the payment plus the
+    // borrower-funded fee into custody and credit what it delivers.
+    let settle = |market: &mut Market, fee: TransferFee, interest_paid: u64, borrower_fee: u64| {
+        let (fresh, frozen) = market.base_side.fees.public_interest_advance.take_payment(interest_paid).unwrap();
+        let sent = fresh + frozen + borrower_fee;
+        let measured = sent - fee.calculate_fee(sent).unwrap();
+        let quote = market.quote_interest_revenue_credit(MarketAsset::Base, false, measured).unwrap();
+        assert_eq!(quote.credited(), fresh + frozen);
+        market
+            .record_receivable_income_credit(MarketAsset::Base, false, measured, quote.protocol, crate::state::ProtocolAuctionSplit::default(), 0)
+            .unwrap();
+        fresh + frozen
+    };
+    for (bps, maximum_fee) in [(0_u16, 0), (1, u64::MAX), (50, u64::MAX), (500, 11)] {
+        let fee = transfer_fee_schedule(bps, maximum_fee);
+        let (mut market, mut position) = setup();
+        let (mut fee_free, mut free_position) = setup();
+        let debt = u64::try_from(position.fixed_base_debt(&market.debt).unwrap()).unwrap();
+        // A limit with room for the fee repays the whole debt.
+        let max_gross = debt * 2;
+        let repay_credit = crate::transitions::interest_advance::direct_repayment_credit(fee.1, max_gross, |max| {
+            Ok(market.fixed_repayment_for_max(&position, MarketAsset::Base, max)?.cash_repaid)
+        })
+        .unwrap();
+        assert_eq!(repay_credit, debt, "bps={bps}");
+        let receipt = market.repay(&mut position, MarketAsset::Base, repay_credit).unwrap();
+        let free_receipt = fee_free.repay(&mut free_position, MarketAsset::Base, repay_credit).unwrap();
+        assert_eq!(receipt, free_receipt, "bps={bps}");
+        assert!(receipt.interest_paid > 0);
+        let transfer = market
+            .direct_repayment_transfer(MarketAsset::Base, fee.1, repay_credit, receipt.interest_paid, max_gross)
+            .unwrap();
+        assert_eq!(transfer.reserve_credit, repay_credit + transfer.interest_transfer_fee);
+        assert_eq!(transfer.gross - fee.0.calculate_fee(transfer.gross).unwrap(), transfer.reserve_credit, "bps={bps}");
+        let interest = settle(&mut market, fee.0, receipt.interest_paid, transfer.interest_transfer_fee);
+        settle(&mut fee_free, transfer_fee_schedule(0, 0).0, free_receipt.interest_paid, 0);
+        assert_eq!(transfer.interest_transfer_fee, fee.1.inverse_fee(interest).unwrap(), "bps={bps}");
+        assert_eq!(transfer.interest_transfer_fee > 0, bps > 0, "bps={bps}");
+        assert_eq!(market.income.get().unwrap().books[0], fee_free.income.get().unwrap().books[0], "bps={bps}");
+        assert_eq!(
+            (market.base_side.reserves.cash_reserve, market.base_side.reserves.live_reserve),
+            (fee_free.base_side.reserves.cash_reserve, fee_free.base_side.reserves.live_reserve),
+            "bps={bps}"
+        );
+        let book = &market.income.get().unwrap().books[0];
+        assert_eq!(book.unpaid, 0);
+        assert!(!book.impaired && book.can_advance_in_place(), "bps={bps}");
+
+        // A limit that leaves no room repays less, never more than the limit.
+        let (market, position) = setup();
+        let tight = repay_credit + fee.1.inverse_fee(repay_credit).unwrap();
+        let credit = crate::transitions::interest_advance::direct_repayment_credit(fee.1, tight, |max| {
+            Ok(market.fixed_repayment_for_max(&position, MarketAsset::Base, max)?.cash_repaid)
+        })
+        .unwrap();
+        assert!(credit <= debt && (bps == 0) == (credit == debt), "bps={bps}");
+    }
+}
+
+
+fn drain_run_market() -> Market {
+    let mut market = numeric_limit_market();
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market
+}
+
+fn fund_base_interest(market: &mut Market, max_gross: u64) -> u64 {
+    let (_, lp) = market.fund_public_interest(MarketAsset::Base, max_gross, 0).unwrap();
+    market
+        .record_receivable_income_credit(MarketAsset::Base, false, lp, 0, crate::state::ProtocolAuctionSplit::default(), 0)
+        .unwrap();
+    lp
+}
+
+fn unfunded_base_interest(market: &Market) -> u64 {
+    let unpaid = market.public_unpaid_interest(MarketAsset::Base).unwrap();
+    (unpaid - u128::from(market.base_side.fees.public_interest_advance.outstanding_gross)) as u64
+}
+
+fn base_srlp_holder(market: &Market) -> crate::state::YieldAccount {
+    crate::state::YieldAccount {
+        token_kind: crate::state::YieldTokenKind::Srlp.code(),
+        asset_mint: market.base_side.asset_mint,
+        ..Default::default()
+    }
+}
+
+/// A new yield account starts at the lane's current point. Lane growth is
+/// cumulative over a drain run while each epoch's paid index restarts at
+/// zero, so starting at zero growth would put the checkpoint at the run's
+/// start and fail; the new holder must initialize at any point of the epoch.
+#[test]
+fn new_yield_account_initializes_during_a_drain_run() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let mut market = drain_run_market();
+    accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+    let half = unfunded_base_interest(&market) / 2;
+    fund_base_interest(&mut market, half);
+    accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day, rate_input(Some(0))).unwrap();
+    fund_base_interest(&mut market, u64::MAX);
+    accrue_side::<false>(&mut market, MarketAsset::Base, 3 * day, rate_input(Some(0))).unwrap();
+    let book = market.income.get().unwrap().books[0].clone();
+    assert_eq!((book.epoch, book.run_length, book.paid_per_unit_q64), (1, 1, 0));
+    let mut fresh = base_srlp_holder(&market);
+    market.checkpoint_holder_income(&mut fresh, 0, None).unwrap();
+    assert!(fresh.income_initialized);
+    assert_eq!(fresh.income[0].growth_checkpoint, book.growth[0]);
+    // It owns nothing issued before it joined.
+    fund_base_interest(&mut market, u64::MAX);
+    market.checkpoint_holder_income(&mut fresh, 1_000, None).unwrap();
+    assert_eq!(fresh.accrued_interest_amount, 0);
+}
+
+/// `fund_interest` never leaves the public book a dust remainder, so repeated
+/// "fund all but one atom" calls neither make units nearly free nor cost a
+/// lagging holder its run income.
+#[test]
+fn dust_fund_interest_cannot_strand_lagging_run_income() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let run = |attack: bool| {
+        let mut market = drain_run_market();
+        market.tranche_policy.junior_income_share_bps = 0;
+        let mut holder = base_srlp_holder(&market);
+        market.checkpoint_holder_income(&mut holder, 0, None).unwrap();
+        let balance = market
+            .tranches
+            .senior_reserve_shares(market.base_side.shares.srlp_supply)
+            .unwrap();
+        for d in 1..=4 {
+            accrue_side::<false>(&mut market, MarketAsset::Base, d * day, rate_input(Some(0))).unwrap();
+            fund_base_interest(&mut market, u64::MAX);
+        }
+        let mut slot = 4 * day;
+        for _ in 0..6 {
+            for _ in 0..4 {
+                slot += 1;
+                accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+                if attack {
+                    let leave_one = unfunded_base_interest(&market) - 1;
+                    fund_base_interest(&mut market, leave_one);
+                    let book = &market.income.get().unwrap().books[0];
+                    assert!(book.unpaid as u128 >= (book.units_q64 >> 80) / 2, "dust remainder");
+                }
+            }
+            fund_base_interest(&mut market, u64::MAX);
+            slot += 1;
+            accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        }
+        market.checkpoint_holder_income(&mut holder, balance, None).unwrap();
+        holder.accrued_interest_amount
+    };
+    let control = run(false);
+    let attacked = run(true);
+    assert!(control > 10_000_000_000);
+    assert!(attacked + control / 1_000_000 >= control, "{attacked} vs {control}");
+}
+
+/// Repeated near-full `fund_interest` calls cannot exhaust the public book's
+/// unit range, so the shared borrow index keeps accruing.
+#[test]
+fn dust_fund_interest_cannot_stall_the_shared_index() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let hour = day / 24;
+    let mut market = drain_run_market();
+    accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+    let mut control = market.clone();
+    let mut slot = day;
+    for _ in 0..12 {
+        let leave_one = unfunded_base_interest(&market) - 1;
+        fund_base_interest(&mut market, leave_one);
+        slot += 1;
+        accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        accrue_side::<false>(&mut control, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    }
+    let book = &market.income.get().unwrap().books[0];
+    assert!(!book.near_capacity());
+    let (index, control_index) = (market.debt.base_borrow_index_nad, control.debt.base_borrow_index_nad);
+    slot += 6 * hour;
+    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    accrue_side::<false>(&mut control, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+    let growth = market.debt.base_borrow_index_nad - index;
+    let control_growth = control.debt.base_borrow_index_nad - control_index;
+    assert!(growth * 100 >= control_growth * 99, "{growth} vs {control_growth}");
+}
+
+/// The hLP capitalization quote converts the whole claim, fraction included,
+/// when the coupon it must cover reaches into the claim's fractional unit.
+#[test]
+fn hlp_capitalization_quote_takes_a_fractional_claim() {
+    let day = slots_for_ms(crate::constants::MS_PER_DAY);
+    let mut trials = 0;
+    for fraction_bps in [1_000_u64, 2_500, 3_333, 5_000, 6_667, 7_777, 9_000] {
+        let mut market = drain_run_market();
+        market.base_hlp_vault.srlp_shares = 300_000_000_000;
+        accrue_side::<false>(&mut market, MarketAsset::Base, day, rate_input(Some(0))).unwrap();
+        let part = unfunded_base_interest(&market) * fraction_bps / 10_000;
+        fund_base_interest(&mut market, part);
+        accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day, rate_input(Some(0))).unwrap();
+        for extra in 0..20_u64 {
+            accrue_side::<false>(&mut market, MarketAsset::Base, 2 * day + 1 + extra, rate_input(Some(0))).unwrap();
+            let claim = market.income.get().unwrap().hlp[0][0];
+            let coupon = market.hlp_unpaid_income(MarketAsset::Base, MarketAsset::Base).unwrap();
+            if coupon == 0 || claim.units_q64 % (1_u128 << 64) == 0 {
+                continue;
+            }
+            trials += 1;
+            let (units, owned, value) = market.quote_hlp_capitalization_for_value(MarketAsset::Base, coupon).unwrap();
+            assert!(value >= coupon && units <= owned);
+            let mut executed = market.clone();
+            let actual = executed.capitalize_hlp_receivable(MarketAsset::Base, MarketAsset::Base, units, owned).unwrap();
+            assert_eq!(actual, value);
+        }
+    }
+    assert!(trials > 0);
 }

@@ -10,7 +10,7 @@ use crate::{
     events::{HlpClosed, OrphanedHlpClosed},
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
-    token::{token_burn, transfer_checked_with_remaining_accounts},
+    token::{get_transfer_inverse_fee, token_burn, transfer_checked_with_remaining_accounts},
     transitions::HlpYieldEligibility,
 };
 
@@ -300,20 +300,38 @@ impl<'info> WithdrawSingleSided<'info> {
                 &ctx.accounts.token_program,
                 &ctx.accounts.token_2022_program,
             )?;
+            // Reserve cash also pays the Token-2022 fee, so custody receives
+            // the full funding payment; an exit whose cash cannot also cover
+            // the fee is refused, as one that cannot cover the funding is. The
+            // exit's final AMM transition below rebuilds the curve after this
+            // debit.
+            let transfer_fee = get_transfer_inverse_fee(&borrowed_mint, receipt.interest_paid)?;
+            let transfer_fee = ctx
+                .accounts
+                .market
+                .pay_interest_transfer_fee(borrowed_asset, transfer_fee)?;
             transfer_checked_with_remaining_accounts(
                 ctx.accounts.market.to_account_info(),
                 borrowed_reserve_vault,
                 ctx.accounts.borrowed_interest_vault.to_account_info(),
                 borrowed_mint,
                 borrowed_token_program,
-                receipt.interest_paid,
+                receipt
+                    .interest_paid
+                    .checked_add(transfer_fee)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
                 borrowed_decimals,
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
                 ctx.remaining_accounts,
             )?;
             ctx.accounts.borrowed_interest_vault.reload()?;
-            let interest_vault_credit =
+            let measured_credit =
                 token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
+            let credit = ctx
+                .accounts
+                .market
+                .quote_interest_revenue_credit(borrowed_asset, true, measured_credit)?;
+            let interest_vault_credit = credit.credited();
             crate::instructions::accounting::emit_interest_paid(
                 &ctx.accounts.market,
                 borrowed_asset,
@@ -322,10 +340,7 @@ impl<'info> WithdrawSingleSided<'info> {
                 crate::state::ReferralInterestQuote::with_protocol_revenue(
                     receipt.interest_paid,
                     interest_vault_credit,
-                    ctx.accounts
-                        .market
-                        .quote_interest_revenue_credit(borrowed_asset, true, interest_vault_credit)?
-                        .protocol,
+                    credit.protocol,
                     None,
                 )?,
                 0,

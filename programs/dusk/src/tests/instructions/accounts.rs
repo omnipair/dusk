@@ -235,6 +235,85 @@ fn freezable_asset_mints_are_supported_under_both_token_programs() {
     }
 }
 
+/// NM-205 / GDL-02: wallets read a receipt's own Token-2022 metadata first.
+/// Its pointer and update authorities must be unset or the market, and the
+/// pointer may name only the mint itself. The official mint carries only the
+/// transfer hook.
+#[test]
+fn lp_mint_metadata_cannot_stay_under_an_outside_authority() {
+    use spl_token_2022::extension::metadata_pointer::MetadataPointer;
+    use spl_token_metadata_interface::state::TokenMetadata;
+
+    let market = Pubkey::new_unique();
+    let mint_key = Pubkey::new_unique();
+    let outsider = Some(Pubkey::new_unique());
+    let lp_mint_data = |pointer: Option<(Option<Pubkey>, Option<Pubkey>)>, update_authority: Option<Option<Pubkey>>| {
+        let mut extensions = vec![ExtensionType::TransferHook];
+        extensions.extend(pointer.map(|_| ExtensionType::MetadataPointer));
+        let metadata = update_authority.map(|authority| TokenMetadata {
+            update_authority: authority.try_into().unwrap(),
+            mint: mint_key,
+            name: "Dusk hLP".into(),
+            symbol: "hLP".into(),
+            uri: "https://example.invalid/hlp.json".into(),
+            ..TokenMetadata::default()
+        });
+        let metadata_len = metadata.as_ref().map_or(0, |metadata| metadata.tlv_size_of().unwrap());
+        let mint_len =
+            ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&extensions).unwrap() + metadata_len;
+        let mut data = vec![0_u8; mint_len];
+        let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack_uninitialized(&mut data).unwrap();
+        mint.init_extension::<TransferHook>(true).unwrap().program_id = Some(crate::ID).try_into().unwrap();
+        if let Some((authority, address)) = pointer {
+            let extension = mint.init_extension::<MetadataPointer>(true).unwrap();
+            extension.authority = authority.try_into().unwrap();
+            extension.metadata_address = address.try_into().unwrap();
+        }
+        mint.base = SplToken2022Mint {
+            mint_authority: COption::Some(market),
+            supply: 0,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        mint.pack_base();
+        mint.init_account_type().unwrap();
+        if let Some(metadata) = metadata {
+            mint.init_variable_len_extension(&metadata, false).unwrap();
+        }
+        data
+    };
+    for (pointer, update_authority, accepted) in [
+        // The official mint: transfer hook only.
+        (None, None, true),
+        (Some((None, None)), None, true),
+        (Some((Some(market), Some(mint_key))), Some(None), true),
+        (Some((None, Some(mint_key))), Some(Some(market)), true),
+        // A foreign pointer authority, a foreign metadata address, and a
+        // foreign update authority, with and without a pointer.
+        (Some((outsider, Some(mint_key))), Some(None), false),
+        (Some((None, outsider)), None, false),
+        (Some((None, Some(mint_key))), Some(outsider), false),
+        (None, Some(outsider), false),
+    ] {
+        let mut data = lp_mint_data(pointer, update_authority);
+        let owner = spl_token_2022::ID;
+        let mut lamports = 1;
+        let info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut data, &owner, false, 0);
+        let mint = InterfaceAccount::<Mint>::try_from(&info).unwrap();
+        let result = validate_lp_mint(&mint, market, 6);
+        if accepted {
+            result.unwrap_or_else(|error| panic!("{pointer:?} {update_authority:?}: {error:?}"));
+        } else {
+            assert_eq!(
+                result.unwrap_err(),
+                error!(ErrorCode::InvalidLpMintKey),
+                "{pointer:?} {update_authority:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
     let market = Pubkey::new_unique();

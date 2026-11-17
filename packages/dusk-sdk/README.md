@@ -1054,6 +1054,13 @@ transaction with your own budget, use `setupInstructions` and `actionInstruction
 instead. Low-level instruction builders must supply the settlement prefix
 themselves, before token-hook and oracle accounts.
 
+The first deposit into a side with no receipts must borrow at least one atom
+of the opposite asset, or it fails `HlpFirstDepositTooSmall`. On such a side the
+preview also reports `minFirstDepositNet` and `minFirstDepositGross`: two
+opposite atoms' worth at the reserve ratio behind the funding ceiling, after the
+recenter-bucket premium. Both are zero once the side has receipts. The exact
+boundary can be lower, so simulate the deposit for amounts below the quote.
+
 `Ready` and the capacity ceiling do not guarantee execution for every amount.
 Simulate the completed deposit transaction to check rounding, cash custody,
 transfer fees and slippage. Under concentration, an opposite-token-neutral
@@ -1062,7 +1069,10 @@ hLP need not have a literal 2x gross-value/equity ratio.
 ### Public-interest cash advance calculations
 
 `quoteInterestAdvanceAmounts` computes the cash-capped gross advance, frozen
-protocol escrow, LP transfer debit and measured-fee-adjusted LP credit. Pass
+protocol escrow, LP custody credit and reserve-vault debit. Reserve cash pays
+the effective Token-2022 fee on top of the LP transfer (`transferFee`,
+`transferInverseFee`), so custody is credited the whole LP amount, and the
+advance keeps room for that fee inside the advanceable cash. Pass
 amounts as `bigint` and the current `TransferFeeNotice`; pending transfer fees
 are reported separately by that notice and do not replace the effective fee.
 It follows both branches of `fund_interest`. After the side's junior income is
@@ -1071,12 +1081,20 @@ advance's share of the synchronized fee book, `unpaidFeeInterest`. Before then
 the program splits the advance at the current
 `FutarchyAuthority.revenueShare.interestBps`, which the quote takes as
 `protocolInterestBps`. Reserve cash that backs hLP
-funding interest is never advanced: pass `hlpFundingInterest(market, asset)`,
-the opposite vault's indexed funding debt less its principal, as
-`hlpFundingInterest`.
+funding interest, and the transfer fee reserve cash pays on top of it when
+that funding is settled, is never advanced: pass
+`hlpFundingInterest(market, asset)`, the opposite vault's indexed funding debt
+less its principal, as `hlpFundingInterest`.
 `allocateRepaidInterest` splits measured repayment custody credit between
 fresh LP/protocol revenue and the already-frozen protocol portion. Already
-funded LP interest must be excluded from `freshGrossInterest`.
+funded LP interest must be excluded from `freshGrossInterest`. Interest
+transfers are grossed up by the transfer fee; a measured credit above the
+settlement budget is capped at it, as on chain, and the excess stays in the
+vault.
+A direct `repay` or `addLeverageMargin` on a transfer-fee debt mint also
+charges the fee on the interest the reserve moves into income custody: it is
+paid on top of the repayment when `repayAmount` leaves room, and otherwise
+comes out of the repayment so the wallet debit never exceeds `repayAmount`.
 
 For transaction composition, use the vault-aware yield client:
 

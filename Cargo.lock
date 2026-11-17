@@ -655,6 +655,7 @@ dependencies = [
  "spl-token 4.0.2",
  "spl-token-2022 7.0.0",
  "spl-token-group-interface",
+ "spl-token-metadata-interface",
  "spl-transfer-hook-interface",
  "spl-type-length-value",
  "uint 0.9.5",

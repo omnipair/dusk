@@ -9,7 +9,7 @@ use crate::{
     errors::ErrorCode,
     events::{LeveragePositionUpdated, MarketEventMetadata},
     state::{FutarchyAuthority, LeveragePosition, Market, MarketAsset, ReferralAccrual, ReferralPartner},
-    token::{get_transfer_fee_for_epoch, get_transfer_inverse_fee_for_epoch, transfer_checked_with_remaining_accounts},
+    token::transfer_checked_with_remaining_accounts,
     transitions::HlpYieldEligibility,
 };
 
@@ -21,6 +21,7 @@ use crate::instructions::accounts::{
     require_reserve_custody, token_account_credit, token_program_for_mint, validate_side_vault_accounts,
 };
 use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
+use crate::transitions::interest_advance::direct_repayment_credit;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct AddLeverageMarginArgs {
@@ -145,35 +146,50 @@ impl<'info> AddLeverageMargin<'info> {
             quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
         };
 
-        // Resolve the gross transfer required for the exact net debt repayment.
+        // Resolve the exact net debt repayment within the gross limit,
+        // leaving room for the interest transfer fee the owner pays.
         let reserve_balance_before = ctx.accounts.debt_reserve_vault.amount;
         let debt_token_program = token_program_for_mint(
             &ctx.accounts.debt_mint,
             &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
         )?;
-        let max_repay_credit = args
-            .amount
-            .checked_sub(get_transfer_fee_for_epoch(
-                &ctx.accounts.debt_mint.to_account_info(),
-                args.amount,
-                current_epoch,
-            )?)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let repay_credit = ctx
-            .accounts
-            .market
-            .debt
-            .isolated_repayment_for_max(debt_asset, ctx.accounts.leverage_position.debt_shares, max_repay_credit)?
-            .cash_repaid;
-        let repay_gross = repay_credit
-            .checked_add(get_transfer_inverse_fee_for_epoch(
-                &ctx.accounts.debt_mint.to_account_info(),
+        let debt_fee = leverage_collateral_fee(&ctx.accounts.debt_mint, current_epoch)?;
+        let repay_credit = direct_repayment_credit(debt_fee, args.amount, |max_credit| {
+            Ok(ctx
+                .accounts
+                .market
+                .debt
+                .isolated_repayment_for_max(debt_asset, ctx.accounts.leverage_position.debt_shares, max_credit)?
+                .cash_repaid)
+        })?;
+
+        // Apply the repayment, then collect it with the Token-2022 fee on the
+        // interest the reserve moves to income custody, so LP custody
+        // receives the full interest. Debt reduction is unchanged.
+        let receipt = if quote_closeout {
+            ctx.accounts.market.add_leverage_margin(
+                &mut ctx.accounts.leverage_position,
                 repay_credit,
-                current_epoch,
-            )?)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        require_gte!(args.amount, repay_gross, ErrorCode::BrokenInvariant);
+                current_slot,
+                leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
+            )?
+        } else {
+            ctx.accounts.market.repay_leverage_debt_from_curve(
+                &mut ctx.accounts.leverage_position,
+                repay_credit,
+                current_slot,
+                before_accrual,
+            )?
+        };
+        let transfer = ctx.accounts.market.direct_repayment_transfer(
+            debt_asset,
+            debt_fee,
+            repay_credit,
+            receipt.interest_paid,
+            args.amount,
+        )?;
+        let repay_gross = transfer.gross;
         require_gte!(
             ctx.accounts.owner_debt_account.amount,
             repay_gross,
@@ -192,24 +208,11 @@ impl<'info> AddLeverageMargin<'info> {
         )?;
         ctx.accounts.debt_reserve_vault.reload()?;
         let measured_repay_credit = token_account_credit(reserve_balance_before, &ctx.accounts.debt_reserve_vault)?;
-        require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
-
-        // Apply the repayment, route interest, and verify reserve custody.
-        let receipt = if quote_closeout {
-            ctx.accounts.market.add_leverage_margin(
-                &mut ctx.accounts.leverage_position,
-                repay_credit,
-                current_slot,
-                leverage_collateral_fee(&ctx.accounts.collateral_mint, current_epoch)?,
-            )?
-        } else {
-            ctx.accounts.market.repay_leverage_debt_from_curve(
-                &mut ctx.accounts.leverage_position,
-                repay_credit,
-                current_slot,
-                before_accrual,
-            )?
-        };
+        require_eq!(
+            measured_repay_credit,
+            transfer.reserve_credit,
+            ErrorCode::BrokenInvariant
+        );
 
         let referral_receipt = record_leverage_interest(
             &mut ctx.accounts.market,
@@ -225,6 +228,7 @@ impl<'info> AddLeverageMargin<'info> {
             ctx.accounts.referral_partner.as_deref(),
             ctx.accounts.referral_accrual.as_deref_mut(),
             receipt.interest_paid,
+            Some(transfer.interest_transfer_fee),
             interest_eligibility,
             ctx.remaining_accounts,
             ctx.accounts.event_authority.to_account_info(),

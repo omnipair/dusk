@@ -16,7 +16,7 @@ fn audit_open(m: &mut Market, side: MarketAsset, spend: u64, wallet_bps: u16, f:
     let multiplier = 100_000_000 / u64::from(wallet_bps);
     let debt = leverage_debt_from_margin(net, multiplier)?;
     let prepared = SwapRequest { current_slot: 2, current_unix_timestamp: 0, asset_in: side,
-        reserve_credit: debt + net, protocol_fee_bps: 0 }.prepare_with_cash_policy(m, SwapCashPolicy::Borrow { asset: side, amount: debt })?;
+        reserve_credit: debt + net, protocol_fee_bps: 0 }.prepare_with_cash_policy(m, SwapCashPolicy::Borrow { asset: side, amount: debt }, &Default::default())?;
     let q = prepared.leverage_quote();
     let mut p = empty_position();
     m.open_leverage(&mut p, Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(), Pubkey::new_unique(),
@@ -88,7 +88,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             } else {
                 let credit=f.unwind_credit(q.collateral_credit)?;
                 let mut swap=match (SwapRequest {current_slot:slot,current_unix_timestamp:now,asset_in:side.opposite(),reserve_credit:credit,protocol_fee_bps:0})
-                    .prepare_with_cash_policy(&mut trial,SwapCashPolicy::LiquidationQuote) {Ok(s)=>s,Err(_)=>continue};
+                    .prepare_with_cash_policy(&mut trial,SwapCashPolicy::LiquidationQuote, &Default::default()) {Ok(s)=>s,Err(_)=>continue};
                 let owner=budget-repaid-fee.total;
                 let obligation=repaid+f.effective_gross_for_credit(fee.junior)?+f.effective_gross_for_credit(0u64+fee.protocol)?+f.effective_gross_for_credit(owner)?;
                 if swap.quote.amount_out<obligation {continue;}

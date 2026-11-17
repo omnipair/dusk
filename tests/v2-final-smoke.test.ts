@@ -111,6 +111,7 @@ import { marketParamsHash } from "../packages/dusk-sdk/src/market-bootstrap.js";
 import { marketCreationLookupTablePlan, marketCreationV0Transaction, operatorChangeV0Transaction } from "../packages/dusk-sdk/src/market-launch.js";
 import { DuskGet } from "../packages/dusk-sdk/src/get.js";
 import { grossLiquidationPayment } from "../packages/dusk-sdk/src/liquidation.js";
+import { transferFeeNotice, transferInverseFee } from "../packages/dusk-sdk/src/transfer-fees.js";
 import { honorHeapFrameRequests, LiteSVMConnection } from "./utils/litesvm-connection.js";
 import { Metadata } from "@metaplex-foundation/mpl-token-metadata";
 import {
@@ -1581,6 +1582,30 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     return connection.sendTransactionMeasured(tx, [payer]);
   }
 
+  // Dynamic surcharge is retained only while a center move is pending. Let the
+  // AMM price EMA catch up with the last trade and open a new slot, so the
+  // next operation values a center move toward that off-center price.
+  function letPriceEmaFollowLastTrade(
+    fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
+  ) {
+    const account = svm.getAccount(fixture.market);
+    expect(account).to.not.equal(null);
+    const market = accountCoder.decode("Market", Buffer.from(account!.data)) as any;
+    expect(market.amm.last_trade_price_nad.eq(market.amm.center_price_nad)).to.equal(false);
+    market.amm.price_ema_nad = market.amm.last_trade_price_nad;
+    // Market exceeds Anchor's generic encoder buffer; use its generated layout.
+    const body = Buffer.alloc(account!.data.length - 8);
+    const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+    const data = Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"),
+      body.subarray(0, length),
+    ]);
+    expect(data.length).to.equal(account!.data.length);
+    svm.setAccount(fixture.market, { ...account!, data: new Uint8Array(data) });
+    svm.warpToSlot(svm.getClock().slot + 1n);
+    svm.expireBlockhash();
+  }
+
   function currentConcentrationDeltaNad(
     fixture: Awaited<ReturnType<typeof addBalancedLiquidity>>
   ) {
@@ -2398,8 +2423,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(decoded.quote_side.shares.srlp_supply.toNumber()).to.equal(141_421);
   });
 
-  it("rejects a first hLP deposit whose ownership would round to no value", async function () {
-    // One base atom buys far less than one srLP share in this pool.
+  it("rejects a first hLP deposit that would not borrow one opposite atom", async function () {
+    // One base atom buys far less than one srLP share in this pool, and about
+    // a million base atoms back one quote atom of debt.
     const f = await addBalancedLiquidity(331, marketConfig(), {
       baseDeposit: 1_000_000_000_000n,
       quoteDeposit: 1_000_000n,
@@ -2412,17 +2438,17 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       .base_hlp_vault.hlp_supply.toString());
     let error: unknown;
     try { await openBaseHedge(f, 1, ownerBaseHlpAccount); } catch (e) { error = e; }
-    expect(String(error)).to.include("AmountZero");
+    expect(String(error)).to.include("HlpFirstDepositTooSmall");
     expect(hlpSupply()).to.equal(0n);
     expect((await getAccount(connection as any, ownerBaseHlpAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
 
-    // A deposit that carries value opens the vault, and later entries still price against it.
+    // A deposit that borrows opens the vault, and later entries still price against it.
+    svm.expireBlockhash();
+    await openBaseHedge(f, 2_000_000, ownerBaseHlpAccount);
+    expect(hlpSupply()).to.equal(2_000_000n);
     svm.expireBlockhash();
     await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
-    expect(hlpSupply()).to.equal(1_000_000n);
-    svm.expireBlockhash();
-    await openBaseHedge(f, 1_000_000, ownerBaseHlpAccount);
-    expect(hlpSupply() > 1_000_000n).to.equal(true);
+    expect(hlpSupply() > 2_000_000n).to.equal(true);
     trackV2Instruction("depositSingleSided", this.test?.title);
   });
 
@@ -2605,10 +2631,23 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(compounded.tranches.juniorReceiptSupply.eq(compounded.tranches.permanentReceipts)).to.equal(true);
     expect((await getMint(connection as any, f.srlpMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(seniorBefore);
     expect((await getMint(connection as any, compounded.juniorMint, undefined, TOKEN_2022_PROGRAM_ID)).supply).to.equal(0n);
-    // The fully collected epoch is archived without erasing old owners' cash.
+    // A fully collected, loss-free epoch needs no archive: it advances in
+    // place on its next issuance, and old owners keep their cash.
     const maintenance = await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
-    expect(maintenance.transactions.length).to.equal(2);
-    for (const transaction of maintenance.transactions) await connection.sendTransaction(transaction, [payer]);
+    expect(maintenance.transactions.length).to.equal(0);
+    // An impaired drained epoch (here marked directly) still needs an archive,
+    // and holders carry their cash through it.
+    const account = svm.getAccount(f.market)!;
+    const impaired = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    impaired.income.books[0].impaired = true;
+    const marketLayout = (accountCoder as any).accountLayouts.get("Market");
+    const encoded = Buffer.alloc(account.data.length - 8), encodedLength = marketLayout.layout.encode(impaired, encoded);
+    svm.setAccount(f.market, { ...account, data: new Uint8Array(Buffer.concat([
+      (accountCoder as any).accountDiscriminator("Market"), encoded.subarray(0, encodedLength),
+    ])) });
+    const roll = await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey });
+    expect(roll.transactions.length).to.equal(1);
+    for (const transaction of roll.transactions) await connection.sendTransaction(transaction, [payer]);
     expect((await tranches.prepareDrainedIncomeBooks({ market: f.market, payer: payer.publicKey })).transactions.length).to.equal(0);
     trackV2Instruction("rollIncomeEpoch", this.test?.title);
     for (const asset of ["base", "quote"] as const) {
@@ -2617,7 +2656,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       await connection.sendTransaction(new Transaction().add(...prepared.instructions), [payer]);
       const claim = await sdkProgram.account.yieldAccount.fetch(prepared.yieldAccount);
       expect(claim.accruedInterestAmount.gtn(0)).to.equal(true);
-      expect(claim.income[0].epoch.toString()).to.equal("1");
+      expect(claim.income[0].epoch.toString()).to.equal(asset === "base" ? "1" : "0");
     }
     trackV2Instruction("checkpointIncome", this.test?.title);
   });
@@ -3643,6 +3682,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       expect(preview.status).to.have.property("ready");
       expect(preview.fundingLimitGross.toString()).to.equal(preview.fundingLimitNet.toString());
       expect(preview.fundingLimitNet.toNumber()).to.be.greaterThan(0);
+      // Neither side has a cohort yet, so each quotes a first deposit that borrows.
+      expect(preview.minFirstDepositGross.toString()).to.equal(preview.minFirstDepositNet.toString());
+      expect(preview.minFirstDepositNet.toNumber()).to.be.greaterThan(0);
+      expect(preview.minFirstDepositNet.lte(preview.fundingLimitNet)).to.equal(true);
       await connection.sendTransaction(tx, [payer]);
       expect(Buffer.from(svm.getAccount(fixture.market)!.data).equals(before)).to.equal(true);
     }
@@ -4903,19 +4946,32 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       quoteMint: 500_000_000,
     });
 
-    // A centered pool has no recenter impairment yet. The first outward swap
-    // creates an off-center state whose next permitted center step needs a
-    // protected budget, so retention turns on for the following quote.
-    await swapBaseForQuote(fixture, [], 5_000_000, 1);
+    // A centered pool has no pending center move, so the first outward swap
+    // distributes its surcharge. Once the EMA follows the off-center price,
+    // the next permitted center step needs a protected budget: the arming
+    // swap values that unfunded move and retention turns on for the quotes
+    // that follow in the same slot.
+    const firstSwap = await swapBaseForQuote(fixture, [], 5_000_000, 1);
     trackV2Instruction("swap", this.test?.title);
-    const afterFirstSwap = svm.getAccount(fixture.market);
-    expect(afterFirstSwap).to.not.equal(null);
-    const firstDecoded = accountCoder.decode(
+    const firstEvent = cpiEvent(firstSwap.transaction, "swapExecuted");
+    expect(firstEvent.divergenceFee.gt(new BN(0))).to.equal(true);
+    expect(firstEvent.retainedFee.toString()).to.equal("0");
+    letPriceEmaFollowLastTrade(fixture);
+    await swapBaseForQuote(fixture, [], 1_000_000, 1);
+    trackV2Instruction("swap", this.test?.title);
+    // The measured swap below repeats these bytes in the same slot.
+    svm.expireBlockhash();
+    const afterArmingSwap = svm.getAccount(fixture.market);
+    expect(afterArmingSwap).to.not.equal(null);
+    const armedDecoded = accountCoder.decode(
       "Market",
-      Buffer.from(afterFirstSwap!.data)
+      Buffer.from(afterArmingSwap!.data)
     ) as any;
-    expect(firstDecoded.amm.retain_dynamic_surcharge).to.equal(true);
-    const custodyBefore = firstDecoded.base_side.fees.swap_fee_custody_balance;
+    expect(armedDecoded.amm.retain_dynamic_surcharge).to.equal(true);
+    expect(armedDecoded.amm.deferred_controller_target.kind).to.equal(2);
+    expect(armedDecoded.amm.retention_required_nad.gt(new BN(0))).to.equal(true);
+    const custodyBefore = armedDecoded.base_side.fees.swap_fee_custody_balance;
+    const bucketBefore = armedDecoded.base_side.reserves.protected_recenter_reserve;
 
     const preview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -4966,7 +5022,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         BigInt(decoded.base_side.reserves.protected_recenter_reserve.toString())
     );
     expect(
-      decoded.base_side.reserves.protected_recenter_reserve.toString()
+      decoded.base_side.reserves.protected_recenter_reserve.sub(bucketBefore).toString()
     ).to.equal(preview.retainedSurcharge.toString());
     expect(decoded.amm.curve_depth_per_share_nad.toString()).to.equal(
       decoded.amm.protected_floor_per_share_nad.toString()
@@ -5137,6 +5193,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       Buffer.from(afterFirst!.data)
     ) as any;
     expect(decodedAfterFirst.amm.retain_dynamic_surcharge).to.equal(true);
+    // The first swap left the price far off center. With the EMA following
+    // it, the next quote values a pending center move and retains for it.
+    letPriceEmaFollowLastTrade(retained);
 
     const retainedPreview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -5235,6 +5294,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(armedAccount).to.not.equal(null);
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+    // Retention needs a pending center move: the EMA follows the off-center
+    // price, so the extreme quote values a move and retains for it.
+    letPriceEmaFollowLastTrade(retained);
 
     const retainedPreview = decodePreviewSwapReturnData(
       await simulateReturnData(
@@ -5309,6 +5371,9 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(armedAccount).to.not.equal(null);
     const armed = accountCoder.decode("Market", Buffer.from(armedAccount!.data)) as any;
     expect(armed.amm.retain_dynamic_surcharge).to.equal(true);
+    // Keep the rejected quote on the retention route: with the EMA following
+    // the off-center price, it values a pending center move first.
+    letPriceEmaFollowLastTrade(fixture);
 
     const marketBefore = svm.getAccount(fixture.market);
     expect(marketBefore).to.not.equal(null);
@@ -5489,8 +5554,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
 
     const hLpAccounts = hlpSwapAccounts(fixture);
     await swapBaseForQuote(fixture, hLpAccounts, 35_000_001, 1);
-    // The first outward swap arms retention. The second pays the surcharge
-    // into the custody-backed, non-quoteable Base bucket.
+    // The first outward swap moves the price off center. Once the EMA follows
+    // it, the second swap values a center move the empty bucket cannot fund
+    // and pays its surcharge into the custody-backed, non-quoteable Base
+    // bucket.
+    letPriceEmaFollowLastTrade(fixture);
     await swapBaseForQuote(fixture, hLpAccounts, 35_000_000, 1);
     const accountBefore = svm.getAccount(fixture.market);
     expect(accountBefore).to.not.equal(null);
@@ -5505,6 +5573,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     expect(
       funded.base_side.reserves.protected_recenter_reserve.gt(new BN(0))
     ).to.equal(true);
+    expect(funded.amm.deferred_controller_target.kind).to.equal(2);
     funded.amm.price_ema_nad = funded.amm.last_trade_price_nad;
     funded.amm.retention_target_stale = true;
     const marketLayout = (accountCoder as any).accountLayouts.get("Market");
@@ -5519,8 +5588,10 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       ...accountBefore!,
       data: new Uint8Array(fundedData),
     });
+    // The next slot is the first in which the controller may value the
+    // pending move again.
     const recenterSlot = BigInt(
-      funded.amm.last_adjustment_slot.add(new BN(1)).toString()
+      funded.amm.last_observation_slot.add(new BN(1)).toString()
     );
     svm.warpToSlot(recenterSlot);
 
@@ -5773,12 +5844,29 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const fresh = interest - advanced;
         const transferGross = fresh + frozenProtocol;
         const feeConfig = getTransferFeeConfig(await getMint(connection as any, debtMint, undefined, assetProgram));
-        const fee = feeConfig ? calculateEpochFee(feeConfig, svm.getClock().epoch, transferGross) : 0n;
-        const credit = transferGross - fee;
+        const epochFee = feeConfig && (svm.getClock().epoch >= feeConfig.newerTransferFee.epoch
+          ? feeConfig.newerTransferFee : feeConfig.olderTransferFee);
+        // The borrower pays the Token-2022 fee on the interest the reserve
+        // moves into income custody, on top of principal and interest, so
+        // custody receives the whole interest transfer.
+        const interestFee = epochFee ? transferInverseFee(transferGross, transferFeeNotice({
+          olderTransferFee: epochFee, newerTransferFee: epochFee }, svm.getClock().epoch)) : 0n;
+        expect(interestFee > 0n).to.equal(feeTokens);
+        const repayEvent = cpiEvent(repay, "marketDebtUpdated");
+        const reserveCredit = raw(repayEvent.cashCredit) + interestFee;
+        const repayFee = epochFee ? calculateEpochFee(feeConfig!, svm.getClock().epoch, raw(repayEvent.cashDebit)) : 0n;
+        expect(raw(repayEvent.cashDebit) - repayFee).to.equal(reserveCredit);
+        // Custody is credited the whole interest transfer, never a net amount.
+        const interestPaid = cpiEvents(repay).filter((event) => event.name === "borrowInterestPaid"
+          && "credit" in event.data.source).map((event) => event.data);
+        expect(interestPaid).to.have.length(1);
+        expect(raw(interestPaid[0].interestVaultCredit)).to.equal(transferGross);
+        const credit = transferGross;
         const feeCash = credit * frozenFeeGross / transferGross;
         const custodyAfter = await tokensWithWithheld(reserveVault) + await tokensWithWithheld(interestVault);
         const walletAfter = (await getAccount(connection as any, debtWallet, undefined, assetProgram)).amount;
         expect(custodyAfter - custodyBefore).to.equal(walletBefore - walletAfter);
+        expect(walletBefore - walletAfter).to.equal(raw(repayEvent.cashDebit));
         const protocolCash = raw(repaidSide.fees.interest_protocol_fee_liability) - raw(side.fees.interest_protocol_fee_liability);
         expect(feeCash - protocolCash >= 0n && feeCash - protocolCash <= 1n).to.equal(true);
         expect(raw(repaid.protocol_interest_markup_bps)).to.equal(6_000n);
@@ -5787,9 +5875,12 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
         const bookIndex = debtIsBase ? 0 : 1;
         const beforeBook = funded.income.books[bookIndex];
         const afterBook = repaid.income.books[bookIndex];
-        const freshScaled = ((credit - feeCash) << 64n) + raw(beforeBook.paid_remainder);
+        // Cash per whole unit: (net cash + carried remainder) * 2^128 /
+        // units_q64, rounded down; the remainder is held in Q64 atoms.
+        const scaled = ((credit - feeCash) << 128n) + (raw(beforeBook.paid_remainder_q64) << 64n);
         expect(raw(afterBook.paid_per_unit_q64) - raw(beforeBook.paid_per_unit_q64))
-          .to.equal(freshScaled / raw(beforeBook.units));
+          .to.equal(scaled / raw(beforeBook.units_q64));
+        expect(raw(afterBook.paid_remainder_q64)).to.equal((scaled % raw(beforeBook.units_q64)) >> 64n);
         expect(raw(repaidSide.fees.interest_growth_index_q64)).to.equal(raw(side.fees.interest_growth_index_q64));
         for (const value of Object.values(repaidSide.fees.public_interest_advance)) expect(raw(value)).to.equal(0n);
         expect(raw(repaid.debt[`fixed_${interestAsset}_shares`])).to.equal(0n);
@@ -7068,9 +7159,20 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       const after = accountCoder.decode("Market", Buffer.from(svm.getAccount(f.market)!.data)) as any;
       for (const side of ["base", "quote"]) {
         const v = after[`${side}_hlp_vault`], other = side === "base" ? "quote" : "base";
-        const claim = raw(after[`${other}_side`].reserves.live_reserve) * raw(v.srlp_shares) / raw(after.base_side.shares.srlp_supply);
+        const supply = raw(after.base_side.shares.srlp_supply);
+        const claim = raw(after[`${other}_side`].reserves.live_reserve) * raw(v.srlp_shares) / supply;
         const debt = (raw(v.debt_shares) * raw(after.debt[`${other}_borrow_index_nad`]) + 999_999_999n) / 1_000_000_000n;
-        if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n).to.equal(true);
+        // Reserve cash paid the transfer fee on the vault's funding payment
+        // after the hedge was solved; the vault bears its srLP share of it.
+        const funding = raw(e.fundingInterestPaid[side === "base" ? 0 : 1]);
+        const schedule = getTransferFeeConfig(await getMint(connection as any, other === "base" ? f.baseMint : f.quoteMint, undefined, tokenProgram));
+        const epochFee = schedule && (svm.getClock().epoch >= schedule.newerTransferFee.epoch ? schedule.newerTransferFee : schedule.olderTransferFee);
+        const transferFee = epochFee && funding > 0n
+          ? transferInverseFee(funding, transferFeeNotice({ olderTransferFee: epochFee, newerTransferFee: epochFee }, svm.getClock().epoch))
+          : 0n;
+        const feeShare = (transferFee * raw(v.srlp_shares) + supply - 1n) / supply;
+        if (mode !== "full") expect((debt > claim ? debt - claim : claim - debt) <= 2n + feeShare,
+          `fees=${fees} amp=${amp} target=${target} mode=${mode} side=${side} debt=${debt} claim=${claim} fee=${transferFee}`).to.equal(true);
         if (mode === "full" && side === target) {
           expect(raw(e[`${side}HlpSrlpBurned`]) > 0n).to.equal(true);
           expect(raw(v.srlp_shares)).to.equal(0n); expect(raw(v.debt_shares)).to.equal(0n);

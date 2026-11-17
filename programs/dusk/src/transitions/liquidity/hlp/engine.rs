@@ -48,6 +48,11 @@ pub struct HlpRebalanceReceipt {
     pub srlp_burn_amount: u64,
     pub debt_delta: i128,
     pub interest_paid: u64,
+    /// Token-2022 fee reserve cash paid on top of `interest_paid`, so income
+    /// custody receives the full payment. Zero for a fee-free asset, or in
+    /// a swap's safety net (`FundingFeePayment::IfCashAllows`) when cash could
+    /// not cover it; custody is then credited net.
+    pub interest_transfer_fee: u64,
     pub nav_nad: u128,
     pub(crate) tracking_start_nav_nad: i128,
     pub(crate) tracking_loss_budget_nad: u128,
@@ -76,6 +81,7 @@ impl Default for HlpRebalanceReceipt {
             srlp_burn_amount: 0,
             debt_delta: 0,
             interest_paid: 0,
+            interest_transfer_fee: 0,
             nav_nad: 0,
             tracking_start_nav_nad: 0,
             tracking_loss_budget_nad: 0,
@@ -112,6 +118,11 @@ pub(crate) struct ConcentratedHlpTransition {
     final_base_pricing_offset_nad: i128,
     final_quote_pricing_offset_nad: i128,
     final_srlp_supply: u64,
+    /// The final point was translated to the end state's spot-preserving
+    /// point and then scaled into inventory. A trade is priced against the
+    /// unscaled point, so the trader never pays for the depth a funding
+    /// payment removes; consume persists the scaled point.
+    pricing_translated: bool,
     final_base_srlp_shares: u64,
     final_quote_srlp_shares: u64,
     final_base_debt_shares: u128,
@@ -158,6 +169,7 @@ fn concentrated_hlp_receipt(
         srlp_burn_amount: start_srlp_shares.saturating_sub(end_srlp_shares),
         debt_delta: signed_u64_delta(end_debt, start_debt)?,
         interest_paid,
+        interest_transfer_fee: 0,
         nav_nad,
         tracking_start_nav_nad: i128::try_from(nav_nad).map_err(|_| ErrorCode::MarketMathOverflow)?,
         tracking_loss_budget_nad: 0,
@@ -451,7 +463,15 @@ impl HlpTerminalWaterfallPlan {
         self.target_asset
     }
 
-    pub(crate) fn consume(self, market: &mut Market, max_socialized_loss: u64) -> Result<HlpTerminalWaterfallReceipt> {
+    /// `borrowed_fee` is the borrowed asset's effective transfer fee, which
+    /// reserve cash pays on top of the funding moved into income custody.
+    pub(crate) fn consume(
+        self,
+        market: &mut Market,
+        max_socialized_loss: u64,
+        borrowed_fee: crate::transitions::LeverageCollateralFee,
+    ) -> Result<HlpTerminalWaterfallReceipt> {
+        let inventory_before = market.ordinary_inventory_point_nad()?;
         require_eq!(
             market.curve_revision,
             self.expected_curve_revision,
@@ -503,7 +523,10 @@ impl HlpTerminalWaterfallPlan {
         );
         let borrowed_asset = self.target_asset.opposite();
         let cash = market.side(borrowed_asset).reserves.cash_reserve;
-        let interest_paid = loss.interest_paid.min(cash);
+        // Pay only funding whose transfer fee cash can also cover: anything
+        // up to what `cash` delivers through one transfer grosses up within
+        // it. The rest is canceled with the cash-limited part.
+        let interest_paid = loss.interest_paid.min(borrowed_fee.unwind_credit(cash)?);
         loss.interest_canceled = loss
             .interest_canceled
             .checked_add(loss.interest_paid - interest_paid)
@@ -552,7 +575,7 @@ impl HlpTerminalWaterfallPlan {
         market.clear_frozen_hlp(self.target_asset);
         market.absorb_funded_credit_loss(borrowed_asset, socialized_loss)?;
         market.exclude_hlp_funding_payment_from_pricing(borrowed_asset, interest_paid)?;
-        market.rebase_concentrated_curve_after_terminal_hlp_loss()?;
+        market.rebase_concentrated_curve_after_terminal_hlp_loss(inventory_before)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Base)?;
         market.assert_virtual_reserve_invariant(MarketAsset::Quote)?;
         Ok(HlpTerminalWaterfallReceipt {
@@ -774,6 +797,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
             final_base_pricing_offset_nad: end.base_pricing_offset_nad,
             final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
             final_srlp_supply: start_supply,
+            pricing_translated: false,
             final_base_srlp_shares: 0,
             final_quote_srlp_shares: 0,
             final_base_debt_shares: 0,
@@ -1086,6 +1110,7 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
         final_base_pricing_offset_nad: end.base_pricing_offset_nad,
         final_quote_pricing_offset_nad: end.quote_pricing_offset_nad,
         final_srlp_supply: ownership.total_srlp_supply,
+        pricing_translated: false,
         final_base_srlp_shares: ownership.base_hlp_srlp_shares,
         final_quote_srlp_shares: ownership.quote_hlp_srlp_shares,
         final_base_debt_shares,
@@ -1119,24 +1144,51 @@ pub(crate) fn prepare_concentrated_hlp_transition_from_end(
 }
 
 impl ConcentratedHlpTransition {
+    /// Price the final point at `point` (the pre-payment spot), scaled down
+    /// its price ray so it never exceeds the final inventory: paid funding is
+    /// never priced as reserve the pool still holds.
     fn with_pricing_point(
         mut self,
         market: &Market,
         point: crate::transitions::amm::ConcentratedCurvePoint,
     ) -> Result<Self> {
-        let actual = self.final_ordinary_point_nad(market)?;
-        let signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
-        self.final_base_pricing_offset_nad = self
-            .final_base_pricing_offset_nad
-            .checked_add(signed(point.base_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.base_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.final_quote_pricing_offset_nad = self
-            .final_quote_pricing_offset_nad
-            .checked_add(signed(point.quote_reserve)?)
-            .and_then(|value| value.checked_sub(signed(actual.quote_reserve).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let priced = self.final_ordinary_point_nad(market)?;
+        let inventory = crate::transitions::amm::ConcentratedCurvePoint {
+            base_reserve: priced
+                .base_reserve
+                .checked_add_signed(-self.final_base_pricing_offset_nad)
+                .ok_or(ErrorCode::BrokenInvariant)?,
+            quote_reserve: priced
+                .quote_reserve
+                .checked_add_signed(-self.final_quote_pricing_offset_nad)
+                .ok_or(ErrorCode::BrokenInvariant)?,
+        };
+        self.pricing_translated = true;
+        let point = point.within_inventory(inventory)?;
+        (self.final_base_pricing_offset_nad, self.final_quote_pricing_offset_nad) =
+            crate::transitions::amm::pricing_offsets_within(point, inventory)?;
         Ok(self)
+    }
+
+    /// The endpoint a trade is priced against: for the plan built from
+    /// `end`, the spot-preserving point before any funding payment scales it
+    /// into inventory.
+    pub(crate) fn trade_pricing_point_nad(
+        &self,
+        market: &Market,
+        end: IntegratedCurveState,
+    ) -> Result<crate::transitions::amm::ConcentratedCurvePoint> {
+        if self.pricing_translated {
+            end.reconstructed_curve_point()?
+                .ok_or_else(|| ErrorCode::InsufficientLiquidity.into())
+        } else {
+            self.final_ordinary_point_nad(market)
+        }
+    }
+
+    /// Whether consuming this plan pays hLP funding out of reserve cash.
+    pub(crate) fn pays_funding(&self) -> bool {
+        self.base_interest_paid > 0 || self.quote_interest_paid > 0
     }
 
     pub(crate) fn final_ordinary_point_nad(
@@ -1175,19 +1227,29 @@ impl ConcentratedHlpTransition {
         (self.base_receipt.debt_delta, self.quote_receipt.debt_delta)
     }
 
-    pub(crate) fn interest_cash_floors(&self, asset_in: MarketAsset, amount_out: u64) -> SwapCashFloors {
+    /// Reserve cash each side needs to pay this plan's funding, the transfer
+    /// fee reserve cash pays on top of it under `fees` (base, quote), and
+    /// `amount_out` on the output side. A payment that cannot also cover its
+    /// fee is carried (or the operation refused) rather than credited net.
+    pub(crate) fn interest_cash_floors(
+        &self,
+        asset_in: MarketAsset,
+        amount_out: u64,
+        fees: &[crate::transitions::LeverageCollateralFee; 2],
+    ) -> Result<SwapCashFloors> {
         let mut floors = SwapCashFloors::default();
-        floors.set(
-            MarketAsset::Base,
-            self.quote_interest_paid
-                .saturating_add(if asset_in == MarketAsset::Quote { amount_out } else { 0 }),
-        );
-        floors.set(
-            MarketAsset::Quote,
-            self.base_interest_paid
-                .saturating_add(if asset_in == MarketAsset::Base { amount_out } else { 0 }),
-        );
-        floors
+        for (asset, paid) in [
+            (MarketAsset::Base, self.quote_interest_paid),
+            (MarketAsset::Quote, self.base_interest_paid),
+        ] {
+            let out = if asset_in == asset.opposite() { amount_out } else { 0 };
+            floors.set(
+                asset,
+                paid.saturating_add(fees[asset.code() as usize].inverse_fee(paid)?)
+                    .saturating_add(out),
+            );
+        }
+        Ok(floors)
     }
 
     pub(crate) fn consume(&self, market: &mut Market) -> Result<(HlpRebalanceReceipt, HlpRebalanceReceipt)> {
@@ -1523,9 +1585,16 @@ impl Market {
         }
         let nav_after = hlp_share_nav_nad_with_prices(market, target_asset, pre_prices)?;
         let hlp_amount = if supply_before == 0 {
-            // Receipts backed by zero value would price every later entry
-            // against zero NAV and reject it. A dust deposit whose ownership
-            // rounds away must not become the vault's first cohort.
+            // The first cohort must borrow. One whose borrowed claim rounds
+            // below a debt atom owns srLP without a hedge, and a dust cohort
+            // costs its depositor most of the deposit. Receipts backed by
+            // zero value would also price every later entry against zero NAV
+            // and reject it.
+            let first_debt_shares = match target_asset {
+                MarketAsset::Base => market.base_hlp_vault.debt_shares,
+                MarketAsset::Quote => market.quote_hlp_vault.debt_shares,
+            };
+            require!(first_debt_shares > 0, ErrorCode::HlpFirstDepositTooSmall);
             require!(nav_after > 0, ErrorCode::AmountZero);
             deposit_amount
         } else {
@@ -1663,11 +1732,7 @@ impl Market {
             vault.hlp_supply,
             self.debt.borrow_index(borrowed_asset),
         )?;
-        let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
-            vault.debt_shares,
-            debt_shares,
-            self.debt.borrow_index(borrowed_asset),
-        )?;
+        let debt_repaid = hlp_exit_debt_repaid(vault.debt_shares, debt_shares, self.debt.borrow_index(borrowed_asset))?;
         settled_close_target_amount(self, target_asset, target_redeemed, borrowed_redeemed, debt_repaid)
     }
 
@@ -1739,7 +1804,7 @@ impl Market {
                 let base_out = hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Base, hlp_amount)?;
                 let quote_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Base, MarketAsset::Quote, hlp_amount)?;
-                let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
+                let debt_repaid = hlp_exit_debt_repaid(
                     market.base_hlp_vault.debt_shares,
                     quote_debt_shares,
                     market.debt.quote_borrow_index_nad,
@@ -1823,7 +1888,7 @@ impl Market {
                 let quote_out = hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Quote, hlp_amount)?;
                 let base_redeemed =
                     hlp_exit_underlying_amount(market, MarketAsset::Quote, MarketAsset::Base, hlp_amount)?;
-                let debt_repaid = Debt::aggregate_debt_reduction_for_shares(
+                let debt_repaid = hlp_exit_debt_repaid(
                     market.quote_hlp_vault.debt_shares,
                     base_debt_shares,
                     market.debt.base_borrow_index_nad,
@@ -2732,6 +2797,18 @@ fn hlp_exit_debt_shares(debt_shares: u128, hlp_amount: u64, hlp_supply: u64, bor
         .ok_or(ErrorCode::DebtShareMathOverflow)?;
     let max_remaining = (limit - 1) / borrow_index_nad;
     Ok(floored.max(debt_shares.saturating_sub(max_remaining)))
+}
+
+/// Borrowed-asset debt an hLP exit repays. A vault whose borrowed claim
+/// rounds below one atom owns srLP with no debt: a dust first cohort, or the
+/// holders left after a partial exit took the last debt atom. Its exits burn
+/// no debt shares and repay nothing. Rejecting that zero burn would leave the
+/// vault with no exit and no orphan close.
+fn hlp_exit_debt_repaid(vault_debt_shares: u128, shares_burned: u128, borrow_index_nad: u128) -> Result<u64> {
+    if vault_debt_shares == 0 {
+        return Ok(0);
+    }
+    Debt::aggregate_debt_reduction_for_shares(vault_debt_shares, shares_burned, borrow_index_nad)
 }
 
 #[cfg(test)]

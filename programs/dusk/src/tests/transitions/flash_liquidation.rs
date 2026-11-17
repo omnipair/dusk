@@ -474,7 +474,7 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
             assert!(market.quote_flash_liquidation(&reference, asset, 0, true, fee, fee, fee, 120, 0).is_err());
             let expected = SwapRequest { current_slot: 0, current_unix_timestamp: 120,
                 asset_in: asset.opposite(), reserve_credit: 1_000, protocol_fee_bps: 0 }
-                .prepare_with_cash_policy(&mut market.clone(), SwapCashPolicy::LiquidationQuote).unwrap().quote;
+                .prepare_with_cash_policy(&mut market.clone(), SwapCashPolicy::LiquidationQuote, &Default::default()).unwrap().quote;
             let mut prepared = market.prepare_emergency_liquidation(&reference, asset, 1_000, true, fee, fee, fee, 120, 0, 0).unwrap();
             assert!(prepared.quote.health_before.collateral_value > prepared.quote.health_before.debt);
             assert_eq!(prepared.quote.swap_output, expected.amount_out);

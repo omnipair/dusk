@@ -87,7 +87,7 @@ fn distressed_hlp_does_not_block_spot_swap() {
         reserve_credit: 1_000 * NAD,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap();
     assert!(prepared.quote.amount_out > 0);
     assert_eq!(market.amm.frozen_hlp_mask, 1);
@@ -140,7 +140,7 @@ fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
             reserve_credit: 1_000 * NAD,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market)
+        .prepare(&mut market, &Default::default())
         .unwrap();
         let base_out = forward.quote.amount_out;
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -174,7 +174,7 @@ fn frozen_hlp_keeps_opposite_hedge_and_cannot_reset_the_swap_price() {
             reserve_credit: base_out,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market)
+        .prepare(&mut market, &Default::default())
         .unwrap();
         let quote_out = reverse.quote.amount_out;
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
@@ -214,7 +214,7 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
     market.freeze_negative_hlp_vaults().unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 1);
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, 2, 0, 0).unwrap();
-    let receipt = plan.consume(&mut market, u64::MAX).unwrap();
+    let receipt = plan.consume(&mut market, u64::MAX, Default::default()).unwrap();
     assert!(receipt.debt_closed > 0);
     assert_eq!(market.base_hlp_vault.srlp_shares, 0);
     assert_eq!(market.amm.frozen_hlp_mask, 0);
@@ -226,7 +226,7 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
     market.assert_market_invariants().unwrap();
     let mut prepared = SwapRequest { current_slot: 3, current_unix_timestamp: 0,
         asset_in: MarketAsset::Quote, reserve_credit: 1_000 * NAD, protocol_fee_bps: 0 }
-        .prepare(&mut market).unwrap();
+        .prepare(&mut market, &Default::default()).unwrap();
     let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
         prepared.quote.fee.claimable_fee_debit).unwrap();
     prepared.apply(&mut market, SwapCashPolicy::Spot, credit, 3, 0,
@@ -268,13 +268,13 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     let quote_shares = market.quote_hlp_vault.srlp_shares;
     let quote_debt = market.quote_hlp_vault.debt_shares;
     let plan = market.prepare_terminal_hlp_waterfall(MarketAsset::Base, 2, 0, 0).unwrap();
-    plan.consume(&mut market, u64::MAX).unwrap();
+    plan.consume(&mut market, u64::MAX, Default::default()).unwrap();
     assert_eq!(market.amm.frozen_hlp_mask, 2);
     assert_eq!(market.quote_hlp_vault.srlp_shares, quote_shares);
     assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
     let mut prepared = SwapRequest { current_slot: 3, current_unix_timestamp: 0,
         asset_in: MarketAsset::Quote, reserve_credit: 1_000 * NAD, protocol_fee_bps: 0 }
-        .prepare(&mut market).unwrap();
+        .prepare(&mut market, &Default::default()).unwrap();
     assert!(prepared.quote.amount_out > 0);
     let credit = LeverageSwapFeeCredit::from_total_actual_credit(&prepared.leverage_quote(),
         prepared.quote.fee.claimable_fee_debit).unwrap();
@@ -283,6 +283,91 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     assert_eq!(market.quote_hlp_vault.srlp_shares, quote_shares);
     assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
     market.assert_market_invariants().unwrap();
+}
+
+/// A frozen vault is priced as a fixed carve-out. After the price has moved
+/// since the freeze, a pro-rata srLP add or remove must still leave the
+/// executable price unchanged, as it does without a frozen vault.
+#[test]
+fn srlp_add_and_remove_with_a_frozen_vault_keep_the_executable_price() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64) {
+        let mut prepared = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit,
+            protocol_fee_bps: 0,
+        }
+        .prepare(market, &Default::default())
+        .unwrap();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(market, SwapCashPolicy::Spot, credit, slot, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+    }
+    let spot = |market: &Market| market.current_concentrated_spot_price_nad().unwrap().unwrap();
+
+    for config in [AmmConfig::default(), concentrated_config()] {
+        for frozen_mask in [0_u8, 1, 3] {
+            let mut market = market_with_liquidity(config);
+            market.deposit_single_sided(MarketAsset::Base, 500_000 * NAD, 1).unwrap();
+            if frozen_mask == 3 {
+                market.deposit_single_sided(MarketAsset::Quote, 500_000 * NAD, 1).unwrap();
+            }
+            market.prepare_amm_for_swap(2).unwrap();
+            if frozen_mask != 0 {
+                market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+                if frozen_mask == 3 {
+                    market.debt.base_borrow_index_nad = 3 * NAD as u128;
+                }
+                market.freeze_negative_hlp_vaults().unwrap();
+            }
+            assert_eq!(market.amm.frozen_hlp_mask, frozen_mask);
+            // Move the price after the freeze, so each frozen carve-out no
+            // longer equals the vault's pro-rata claim.
+            swap(&mut market, MarketAsset::Quote, 20_000 * NAD, 2);
+            let price = spot(&market);
+            assert!(price.abs_diff(market.amm.center_price_nad) > NAD / 200);
+            let ordinary = market.base_side.shares.srlp_supply
+                - market.base_hlp_vault.srlp_shares
+                - market.quote_hlp_vault.srlp_shares;
+
+            let mut added = market.clone();
+            added
+                .add_liquidity(
+                    added.curve_reserve(MarketAsset::Base).unwrap() * 9,
+                    added.curve_reserve(MarketAsset::Quote).unwrap() * 9,
+                )
+                .unwrap();
+            added.finalize_amm_transition_and_observe_risk(2).unwrap();
+
+            let mut removed = market.clone();
+            removed.remove_liquidity(ordinary * 9 / 10).unwrap();
+            removed.finalize_amm_transition_and_observe_risk(2).unwrap();
+
+            // Point coordinates are ~1e15 NAD units and every rescale term
+            // rounds by under one unit, far below the 1e-9 resolution of the
+            // spot price; one unit covers a floor flip of spot itself. The
+            // unscaled carve-out moved spot by 3e6 to 2e8 units here.
+            for (moved, label) in [(&added, "add 9x"), (&removed, "remove 90%")] {
+                assert!(
+                    spot(moved).abs_diff(price) <= 1,
+                    "{label}, mask {frozen_mask}: spot {} -> {}",
+                    price,
+                    spot(moved)
+                );
+                moved.assert_market_invariants().unwrap();
+            }
+            assert_eq!(added.amm.frozen_hlp_mask, frozen_mask);
+            assert_eq!(removed.amm.frozen_hlp_mask, frozen_mask);
+        }
+    }
 }
 
 #[test]
@@ -493,7 +578,7 @@ fn funded_recenter_with_a_frozen_vault_caches_the_quoted_point() {
             reserve_credit: 1_000 * NAD,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market)
+        .prepare(&mut market, &Default::default())
         .unwrap();
         let credit = LeverageSwapFeeCredit::from_total_actual_credit(
             &prepared.leverage_quote(),
@@ -760,7 +845,7 @@ fn oracle_test_trade(market: &mut Market, asset: MarketAsset, input: u64) -> Res
     use crate::transitions::{liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
     let curve = market.bounded_curve()?;
     let mut prepared = SwapRequest {current_slot:2,current_unix_timestamp:0,asset_in:asset,
-        reserve_credit:input,protocol_fee_bps:0}.prepare(market)?;
+        reserve_credit:input,protocol_fee_bps:0}.prepare(market, &Default::default())?;
     // Quote preparation accrues interest before computing the executable
     // curve. Compare the swap against that post-accrual boundary; the rate
     // advance is a separate state transition from the swap itself.

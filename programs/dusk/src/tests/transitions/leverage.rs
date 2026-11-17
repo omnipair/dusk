@@ -262,6 +262,7 @@ fn prepared_leverage_swap(
             .unwrap();
     Box::new(crate::transitions::amm::PreparedSwap {
         inventory_settlement: None,
+        interest_transfer_fees: Default::default(),
         concentrated_transition: Some(Box::new(concentrated_transition)),
         post_fee_curve_cache,
         quoted_slot: swap.quoted_slot,
@@ -746,7 +747,7 @@ fn prepare_leverage_swap_with_policy(
         reserve_credit,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(market, cash_policy)
+    .prepare_with_cash_policy(market, cash_policy, &Default::default())
     .unwrap();
     prepared
 }
@@ -1838,7 +1839,7 @@ fn leverage_quote_is_the_same_concentrated_and_dynamic_fee_quote_as_spot() {
         reserve_credit: 50_000,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap()
     .quote;
 
@@ -2242,7 +2243,7 @@ fn concentrated_swap_repairs_worsening_stale_hlp_exposure_atomically() {
         reserve_credit: 50_000,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap();
     prepared
         .finalize_state(&mut market, 1, 0, ProtocolAuctionSplit::default())
@@ -2371,8 +2372,8 @@ fn shared_swap_matches_spot_with_the_same_borrow_cash_and_debt() {
                     protocol_fee_bps: 0,
                 };
                 let policy = SwapCashPolicy::Borrow { asset, amount: 1_000 };
-                let mut financed_plan = request.prepare_with_cash_policy(&mut financed, policy).unwrap();
-                let mut spot_plan = request.prepare(&mut spot).unwrap();
+                let mut financed_plan = request.prepare_with_cash_policy(&mut financed, policy, &Default::default()).unwrap();
+                let mut spot_plan = request.prepare(&mut spot, &Default::default()).unwrap();
                 assert_eq!(financed_plan.quote, spot_plan.quote);
                 let credit = full_fee_credit(&financed_plan.leverage_quote());
                 let financed_receipt = financed_plan
@@ -2413,7 +2414,7 @@ fn shared_swap_rejects_wrong_context_and_cannot_be_applied_twice() {
         reserve_credit: 20_000,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market)
+    .prepare(&mut market, &Default::default())
     .unwrap();
     let credit = full_fee_credit(&prepared.leverage_quote());
     let before = bytes(&market);
@@ -2510,7 +2511,7 @@ fn protection_snapshot_refreshes_symmetric_ema_after_either_swap_direction() {
             reserve_credit: 100_000,
             protocol_fee_bps: 0,
         };
-        let mut prepared = request.prepare(&mut market).unwrap();
+        let mut prepared = request.prepare(&mut market, &Default::default()).unwrap();
         let quote = prepared.leverage_quote();
         prepared
             .apply(
@@ -2582,7 +2583,7 @@ fn close_and_decrease_preflight_count_only_cash_after_principal_netting() {
                 debt_principal: position.debt_principal,
             }
         };
-        let mut prepared = request.prepare_with_cash_policy(&mut market, policy).unwrap();
+        let mut prepared = request.prepare_with_cash_policy(&mut market, policy, &Default::default()).unwrap();
         let quote = prepared.leverage_quote();
         assert!(quote.gross_amount_out > market.quote_side.reserves.cash_reserve);
         prepared
@@ -2729,7 +2730,7 @@ fn advanced_interest_can_be_repaid_in_a_swap_with_no_starting_cash() {
             // Output is 100, an exact two-atom debt-share repayment. An odd
             // output would leave one real owner-surplus atom needing cash.
             asset_in: debt_asset.opposite(), reserve_credit: 102, protocol_fee_bps: 0 }
-            .prepare_with_cash_policy(&mut market, policy).unwrap();
+            .prepare_with_cash_policy(&mut market, policy, &Default::default()).unwrap();
         assert_eq!(prepared.quote.amount_out, 100);
         let quote = prepared.leverage_quote();
         let fees = LeverageSwapFeeCredit::from_total_actual_credit(&quote, prepared.quote.fee.claimable_fee_debit).unwrap();

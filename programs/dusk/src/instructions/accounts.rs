@@ -5,9 +5,12 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 use spl_token_2022::{
-    extension::{transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions},
+    extension::{
+        metadata_pointer::MetadataPointer, transfer_hook, BaseStateWithExtensions, ExtensionType, StateWithExtensions,
+    },
     state::Mint as SplToken2022Mint,
 };
+use spl_token_metadata_interface::state::TokenMetadata;
 
 use crate::{
     constants::HLP_SRLP_VAULT_SEED_PREFIX,
@@ -219,15 +222,44 @@ pub fn validate_lp_mint(mint: &InterfaceAccount<Mint>, market: Pubkey, asset_dec
         let mint_info = mint.to_account_info();
         let mint_data = mint_info.try_borrow_data()?;
         let mint_state = StateWithExtensions::<SplToken2022Mint>::unpack(&mint_data)?;
+        let extensions = mint_state.get_extension_types()?;
         // LP receipts keep their own extension policy. Asset UI multipliers
         // and interest displays must not change how receipt balances appear.
         require!(
-            mint_state.get_extension_types()?.into_iter().all(|extension| matches!(
+            extensions.iter().all(|extension| matches!(
                 extension,
                 ExtensionType::MetadataPointer | ExtensionType::TokenMetadata | ExtensionType::TransferHook
             )),
             ErrorCode::InvalidLpMintKey
         );
+        // Wallets show a mint's own Token-2022 metadata ahead of the Metaplex
+        // account the program writes. Whoever held the pointer or update
+        // authority could rename the receipt after the market issues it, so
+        // each authority must be unset or the market itself, and the pointer
+        // may name only the mint's own embedded metadata.
+        if extensions.contains(&ExtensionType::MetadataPointer) {
+            let pointer = mint_state.get_extension::<MetadataPointer>()?;
+            let authority = Option::<Pubkey>::from(pointer.authority);
+            let address = Option::<Pubkey>::from(pointer.metadata_address);
+            require!(
+                authority.unwrap_or(market) == market && address.unwrap_or(mint.key()) == mint.key(),
+                ErrorCode::InvalidLpMintKey
+            );
+        }
+        if extensions.contains(&ExtensionType::TokenMetadata) {
+            // The Borsh value opens with the 32-byte optional update
+            // authority, all zeroes when unset. Reading only that prefix
+            // keeps a large creator-supplied metadata value off the heap.
+            let authority = mint_state
+                .get_extension_bytes::<TokenMetadata>()?
+                .get(..32)
+                .and_then(|bytes| Pubkey::try_from(bytes).ok())
+                .ok_or(ErrorCode::InvalidLpMintKey)?;
+            require!(
+                authority == Pubkey::default() || authority == market,
+                ErrorCode::InvalidLpMintKey
+            );
+        }
         mint_state
             .get_extension::<transfer_hook::TransferHook>()
             .ok()

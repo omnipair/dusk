@@ -46,7 +46,11 @@ impl Market {
             reserve_credit: collateral_credit,
             protocol_fee_bps,
         }
-        .prepare_with_cash_policy(self, SwapCashPolicy::LiquidationQuote)?;
+        .prepare_with_cash_policy(
+            self,
+            SwapCashPolicy::LiquidationQuote,
+            &crate::transitions::LeverageCollateralFee::by_asset(asset, debt_fee, collateral_fee),
+        )?;
         require_gte!(swap.quote.amount_out, terms.obligation, ErrorCode::InsufficientAmount);
         let buyer_debit = swap.quote.amount_out - terms.obligation;
         Ok(FlashAmmLiquidationQuote {
@@ -96,8 +100,8 @@ pub(super) fn settle_with_amm<'info>(
         &ctx.accounts.instructions,
         false,
     )?;
-    let collateral_credit =
-        leverage_collateral_fee(&a.collateral_mint, clock.epoch)?.unwind_credit(q.collateral_credit)?;
+    let collateral_fee = leverage_collateral_fee(&a.collateral_mint, clock.epoch)?;
+    let collateral_credit = collateral_fee.unwind_credit(q.collateral_credit)?;
     require_gt!(collateral_credit, 0, ErrorCode::InsufficientAmount);
     let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
     let junior_fee_debit = debt_fee.effective_gross_for_credit(fee.junior)?;
@@ -119,7 +123,11 @@ pub(super) fn settle_with_amm<'info>(
         reserve_credit: collateral_credit,
         protocol_fee_bps: a.futarchy_authority.revenue_share.swap_bps,
     }
-    .prepare_with_cash_policy(&mut a.market, SwapCashPolicy::LiquidationQuote)?;
+    .prepare_with_cash_policy(
+        &mut a.market,
+        SwapCashPolicy::LiquidationQuote,
+        &crate::transitions::LeverageCollateralFee::by_asset(asset, debt_fee, collateral_fee),
+    )?;
     require_gte!(swap.quote.amount_out, obligation, ErrorCode::InsufficientAmount);
     let buyer_debit = swap.quote.amount_out - obligation;
     let buyer_credit = debt_fee.unwind_credit(buyer_debit)?;
@@ -248,6 +256,7 @@ pub(super) fn settle_with_amm<'info>(
         a.referral_partner.as_deref(),
         a.referral_accrual.as_deref_mut(),
         loss.interest_paid,
+        None,
         eligibility,
         ctx.remaining_accounts,
         ctx.accounts.event_authority.to_account_info(),

@@ -207,7 +207,12 @@ impl Market {
             }
         }
         let plan = engine::prepare_concentrated_hlp_transition_from_end(self, end, false, true, 0, 0)?;
-        let (base, quote) = plan.consume(self)?;
+        let (mut base, mut quote) = plan.consume(self)?;
+        self.pay_hlp_funding_transfer_fees(
+            [&mut base, &mut quote],
+            fees,
+            crate::transitions::FundingFeePayment::Required,
+        )?;
         receipt.base_rebalance = base;
         receipt.quote_rebalance = quote;
         self.finalize_amm_transition_and_observe_risk(slot)?;

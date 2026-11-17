@@ -158,6 +158,7 @@ impl Market {
         let current = self.liquidation_debt_allocation(&position.as_ref(), asset, allocation.shares)?;
         require!(current == allocation, ErrorCode::InvalidLiquidationSession);
         let before_curve = self.curve_reserves_nad()?;
+        let inventory_before = self.ordinary_inventory_point_nad()?;
         let unpaid_before = self.public_unpaid_interest(asset)?;
         let collateral_before = position.as_ref().collateral(asset);
         require!(
@@ -206,7 +207,7 @@ impl Market {
             self.settle_public_debt_reserves(asset, unpaid_before, loss.interest_paid, live_debit, principal_credit)?;
         self.apply_liquidation_position(position, asset, allocation, collateral_debit, full)?;
         if loss.principal_written_off > 0 || advanced.canceled > advanced.revenue_returned {
-            self.finalize_amm_socialized_loss_and_observe_risk(slot)?;
+            self.finalize_amm_socialized_loss_and_observe_risk(slot, inventory_before)?;
         } else {
             self.finalize_debt_repayment(slot, before_curve)?;
         }

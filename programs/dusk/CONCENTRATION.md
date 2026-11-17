@@ -109,7 +109,11 @@ The current swap never moves the center used to price itself. Retained
 surcharge is credited after the endpoint into a custody-backed, non-quoteable
 Base/Quote recenter bucket. It is excluded from srLP NAV and withdrawals. A
 later admitted center move atomically deploys the bucket as reserve principal
-only when the resulting curve leaves srLP principal unimpaired.
+only when the resulting curve leaves srLP principal unimpaired. Surcharge is
+retained only while a center move is pending: from the last reserve mutation
+until the controller next values the target, and while a valued move impairs
+srLP depth. When the controller finds no move pending, dynamic surcharge is
+distributed as LP fee income.
 
 ## hLP hedge
 

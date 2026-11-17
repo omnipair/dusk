@@ -247,6 +247,7 @@ test("hLP capacity helper binds all mints and preserves native status, ceilings 
     market: payer, targetAsset: { base: {} }, hlpMint: targetHlpMint,
     slot: new anchor.BN(123), epoch: new anchor.BN(9), status: { ready: {} },
     fundingLimitGross: new anchor.BN(5_101), fundingLimitNet: new anchor.BN(5_000),
+    minFirstDepositNet: new anchor.BN(2_002), minFirstDepositGross: new anchor.BN(2_023),
   };
   const encoded = program.coder.types.encode("hlpDepositCapacityPreview", expected);
   rpcValue.returnData = { programId: programId.toBase58(), data: [encoded.toString("base64"), "base64"] };
@@ -258,6 +259,8 @@ test("hLP capacity helper binds all mints and preserves native status, ceilings 
   assert.equal(result.slot.toString(), "123");
   assert.equal(result.fundingLimitGross.toString(), "5101");
   assert.equal(result.fundingLimitNet.toString(), "5000");
+  assert.equal(result.minFirstDepositNet.toString(), "2002");
+  assert.equal(result.minFirstDepositGross.toString(), "2023");
   const tx = VersionedTransaction.deserialize(Buffer.from(calls[0].params[0], "base64"));
   const ix = tx.message.compiledInstructions.at(-1);
   assert.equal(tx.message.staticAccountKeys[ix.programIdIndex].toBase58(), programId.toBase58());

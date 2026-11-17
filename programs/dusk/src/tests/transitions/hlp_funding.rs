@@ -148,7 +148,7 @@ fn both_hlp_vaults_settle_idle_funding_once_without_losing_nav_or_hedges() {
                 reserve_credit: amount,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap();
             let state = before.integrated_curve_state_nad().unwrap();
             let quote = prepared.quote;
@@ -221,7 +221,7 @@ fn both_hlp_vaults_settle_idle_funding_once_without_losing_nav_or_hedges() {
                 reserve_credit: amount,
                 protocol_fee_bps: 0,
             }
-            .prepare(&mut market)
+            .prepare(&mut market, &Default::default())
             .unwrap();
             // Reconstructing a rounded endpoint can differ by a few NAD
             // price units. Bound the discrepancy to one part per billion.
@@ -240,8 +240,10 @@ fn both_hlp_vaults_settle_idle_funding_once_without_losing_nav_or_hedges() {
     }
 }
 
+/// Paid funding keeps the executable price but never prices reserve the
+/// pool no longer holds: the point is scaled down its price ray.
 #[test]
-fn funding_payment_alone_preserves_the_pricing_reserve_point() {
+fn funding_payment_alone_preserves_the_price_within_inventory() {
     use crate::transitions::liquidity::prepare_concentrated_hlp_transition_from_end;
     for vaults in [1, 2, 3] {
         for above in [false, true] {
@@ -258,22 +260,35 @@ fn funding_payment_alone_preserves_the_pricing_reserve_point() {
                 "state vaults={vaults} above={above}"
             );
             let payment = prepare_concentrated_hlp_transition_from_end(&market, state, false, true, 0, 0).unwrap();
-            assert_eq!(
-                payment.final_ordinary_point_nad(&market).unwrap(),
-                point,
+            let planned = payment.final_ordinary_point_nad(&market).unwrap();
+            assert!(
+                planned.base_reserve <= point.base_reserve && planned.quote_reserve <= point.quote_reserve,
                 "plan vaults={vaults} above={above}"
             );
             let (base, quote) = payment.consume(&mut market).unwrap();
             assert!(base.interest_paid > 0 || quote.interest_paid > 0);
-            assert_eq!(
-                market.ordinary_curve_point_nad().unwrap(),
-                point,
-                "vaults={vaults} above={above}"
-            );
-            assert_eq!(market.amm.concentrated_curve_cache, cache);
-            assert_eq!(market.current_concentrated_spot_price_nad().unwrap(), price);
+            // Installing the plan can move the inventory by a few atoms, which
+            // rescales the point along the same ray (same spot).
+            let priced = market.ordinary_curve_point_nad().unwrap();
+            let cross = |a: crate::transitions::amm::ConcentratedCurvePoint, b: crate::transitions::amm::ConcentratedCurvePoint| {
+                crate::math::mul_div_u128(a.base_reserve, b.quote_reserve, 1 << 40).unwrap()
+            };
+            let (left, right) = (cross(priced, planned), cross(planned, priced));
+            assert!(left.abs_diff(right) <= left / 1_000_000_000 + 1, "vaults={vaults} above={above}");
+            assert!(priced.base_reserve.abs_diff(planned.base_reserve) <= planned.base_reserve / 1_000_000_000 + 1);
+            let inventory = market.ordinary_inventory_point_nad().unwrap();
+            assert!(priced.base_reserve <= inventory.base_reserve && priced.quote_reserve <= inventory.quote_reserve);
+            assert!(market.amm.hlp_funding_base_pricing_offset_nad <= 0);
+            assert!(market.amm.hlp_funding_quote_pricing_offset_nad <= 0);
+            assert_ne!(market.amm.concentrated_curve_cache, Default::default());
+            let _ = cache;
+            // The payment instruction rebuilds the curve through the point.
+            market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+            let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+            let before = price.unwrap();
+            assert!(after.abs_diff(before) <= before / 1_000_000_000 + 2, "vaults={vaults} above={above}: {before} -> {after}");
             market.update_at_slot(slot).unwrap();
-            assert_eq!(market.risk.cached_spot_base_price_nad, price.unwrap());
+            assert!(market.risk.cached_spot_base_price_nad.abs_diff(before) <= before / 1_000_000_000 + 2);
             market.assert_market_invariants().unwrap();
         }
     }
@@ -296,8 +311,14 @@ fn funding_payment_on_partial_and_full_hlp_exit_keeps_pricing_principal() {
             for amount in [supply / 2, supply - supply / 2] {
                 let receipt = market.withdraw_single_sided(target, amount).unwrap();
                 assert!(receipt.interest_paid > 0);
-                assert_eq!(market.ordinary_curve_point_nad().unwrap(), point);
-                assert_eq!(market.current_concentrated_spot_price_nad().unwrap(), price);
+                let priced = market.ordinary_curve_point_nad().unwrap();
+                let inventory = market.ordinary_inventory_point_nad().unwrap();
+                assert!(priced.base_reserve <= point.base_reserve && priced.quote_reserve <= point.quote_reserve);
+                assert!(priced.base_reserve <= inventory.base_reserve && priced.quote_reserve <= inventory.quote_reserve);
+                market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+                let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                let before = price.unwrap();
+                assert!(after.abs_diff(before) <= before / 1_000_000_000 + 2, "{before} -> {after}");
                 market.assert_market_invariants().unwrap();
             }
         }
@@ -317,6 +338,7 @@ fn paid_funding_separation_survives_lp_round_trips_and_both_vault_closures() {
                 .unwrap()
                 .consume(&mut market)
                 .unwrap();
+            market.finalize_amm_transition_and_observe_risk(slot).unwrap();
             if close_vaults {
                 for target in [MarketAsset::Base, MarketAsset::Quote] {
                     let supply = if target == MarketAsset::Base {
@@ -325,6 +347,7 @@ fn paid_funding_separation_survives_lp_round_trips_and_both_vault_closures() {
                         market.quote_hlp_vault.hlp_supply
                     };
                     market.withdraw_single_sided(target, supply).unwrap();
+                    market.finalize_amm_transition_and_observe_risk(slot).unwrap();
                 }
                 assert!(!market.has_active_hlp());
             }
@@ -358,7 +381,9 @@ fn paid_funding_separation_survives_lp_round_trips_and_both_vault_closures() {
                     "above={above} closed={close_vaults} old={old} new={new} expected={expected} bound={bound}"
                 );
             }
+            market.finalize_amm_transition_and_observe_risk(slot).unwrap();
             let removed = market.remove_liquidity(added.srlp_amount).unwrap();
+            market.finalize_amm_transition_and_observe_risk(slot).unwrap();
             assert!(removed.base_amount_out <= added.base_reserve_credit);
             assert!(removed.quote_amount_out <= added.quote_reserve_credit);
             let after = market.ordinary_curve_point_nad().unwrap();
@@ -575,7 +600,7 @@ fn cash_constrained_both_hlp_vaults_retain_unpaid_funding_and_nav() {
             reserve_credit: 150_000,
             protocol_fee_bps: 0,
         }
-        .prepare(&mut market)
+        .prepare(&mut market, &Default::default())
         .unwrap();
         let before = market.clone();
         let quote = prepared.quote;
@@ -700,4 +725,549 @@ fn retained_surcharge_entry_pricing_holds_with_paid_funding_offsets() {
         assert!(after - before <= before / 1_000_000_000 + 4, "above={above} before={before} after={after}");
         market.assert_market_invariants().unwrap();
     }
+}
+
+fn swap_booking_funding(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64) -> Result<(u64, u64, u64)> {
+    let mut prepared = SwapRequest {
+        current_slot: slot,
+        current_unix_timestamp: 0,
+        asset_in,
+        reserve_credit,
+        protocol_fee_bps: 0,
+    }
+    .prepare(market, &Default::default())?;
+    let finalized = prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default())?;
+    let eligibility = prepared.interest_eligibility;
+    for receipt in [finalized.base_rebalance, finalized.quote_rebalance] {
+        if receipt.interest_paid > 0 {
+            crate::instructions::record_inline_hlp_interest_credit(
+                market,
+                receipt.target_asset.opposite(),
+                receipt.interest_paid,
+                0,
+                ProtocolAuctionSplit::default(),
+                eligibility,
+            )?;
+        }
+    }
+    Ok((prepared.quote.amount_out, finalized.base_rebalance.interest_paid, finalized.quote_rebalance.interest_paid))
+}
+
+/// Sell base in doubling chunks until even the smallest chunk reverts, then
+/// return the spot price relative to the curve center.
+fn sell_base_until_exhausted(market: &mut Market, slot: u64) -> f64 {
+    let mut chunk = reserve_raw(market, MarketAsset::Base) / 20 + 1_000;
+    let mut sells = 0;
+    while chunk >= 1_000 && sells < 300 {
+        let mut candidate = market.clone();
+        if swap_booking_funding(&mut candidate, MarketAsset::Base, chunk, slot).is_ok() {
+            *market = candidate;
+            sells += 1;
+            chunk = chunk.saturating_mul(2).min(u64::MAX / 4);
+        } else {
+            chunk /= 2;
+        }
+    }
+    market.current_concentrated_spot_price_nad().unwrap().unwrap() as f64 / market.amm.center_price_nad as f64
+}
+
+/// Paid hLP funding is a real reserve change. The curve never prices quote
+/// the pool no longer holds, so repeated funding payments cannot leave a
+/// price floor below which base sells revert, even on a narrow band.
+#[test]
+fn paid_funding_never_sets_a_sell_floor() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    for (label, shape) in [
+        ("band5", ConcentratedCurveParameters {
+            peak_amplification_nad: max_amplification(500, 0),
+            core_half_width_bps: 500,
+            fade_width_bps: 0,
+        }),
+        ("tailfloor", curve_parameters(Shape::TailFloor)),
+    ] {
+        let mut control = funding_market_with_shape(1, true, shape);
+        let control_floor = sell_base_until_exhausted(&mut control, 2);
+        for days in [1_u64, 7] {
+            let mut market = funding_market_with_shape(1, true, shape);
+            let mut slot = 2;
+            let mut paid_total = 0_u64;
+            for _ in 0..days {
+                slot += slots_per_day;
+                market.update_at_slot(slot).unwrap();
+                let before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                let (_, paid, _) = swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, slot).unwrap();
+                paid_total += paid;
+                // The cached curve always matches actual reserves.
+                let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                assert!(after.abs_diff(before) <= before / 100, "{label} days={days}: {before} -> {after}");
+                market.assert_market_invariants().unwrap();
+            }
+            assert!(paid_total > 0);
+            let floor = sell_base_until_exhausted(&mut market, slot);
+            assert!(
+                floor <= control_floor * 1.5 + 0.001,
+                "{label} days={days}: floor {floor} vs control {control_floor}"
+            );
+        }
+    }
+}
+
+/// A swap pays all hLP funding due and fully repays the funding income book.
+/// The book advances in place at the next accrual, so the shared borrow index
+/// keeps growing exactly as it would without the payment, with no roll.
+#[test]
+fn funding_payment_does_not_stall_the_shared_index() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    for junior in [false, true] {
+        let mut market = funding_tail_market(1, true);
+        if junior {
+            market.base_side.fees.junior.initialized = true;
+            market.quote_side.fees.junior.initialized = true;
+            market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
+            market.sync_income_receivable(MarketAsset::Quote, false, 0).unwrap();
+        }
+        let i0 = market.debt.quote_borrow_index_nad;
+        let mut control = market.clone();
+        let d1 = 2 + slots_per_day;
+        market.update_at_slot(d1).unwrap();
+        let (_, paid, _) = swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, d1).unwrap();
+        assert!(paid > 0);
+        let i1 = market.debt.quote_borrow_index_nad;
+        let epoch = {
+            let book = &market.income.get().unwrap().books[3];
+            assert_eq!(book.unpaid, 0);
+            assert!(book.units_q64 > 0);
+            assert!(book.can_advance_in_place());
+            assert!(!book.may_roll());
+            book.epoch
+        };
+        let d2 = d1 + slots_per_day;
+        market.update_at_slot(d2).unwrap();
+        control.update_at_slot(d1).unwrap();
+        let c1 = control.debt.quote_borrow_index_nad;
+        control.update_at_slot(d2).unwrap();
+        let c2 = control.debt.quote_borrow_index_nad;
+        assert!(c1 > i0);
+        assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1);
+        let book = &market.income.get().unwrap().books[3];
+        assert_eq!(book.epoch, epoch + 1);
+        assert_eq!(book.run_start_epoch(), 0);
+        assert!(book.unpaid > 0);
+        // The seed claim caught up across the drained epoch on issuance.
+        assert_eq!(market.income.get().unwrap().seed[3].epoch, book.epoch);
+    }
+}
+
+/// A loss can leave less inventory on an axis than its unpriced funding
+/// remainder. Only then does the loss rebase cut the remainder (to half the
+/// inventory) instead of failing to price the curve; a large but still
+/// smaller remainder is left alone so spot does not jump.
+#[test]
+fn loss_rebase_bounds_only_an_unpriceable_funding_remainder() {
+    let mut market = funding_tail_market(1, true);
+    let inventory = market.ordinary_inventory_point_nad().unwrap();
+    let signed = |value: u128| i128::try_from(value).unwrap();
+    let large = -signed(inventory.base_reserve - inventory.base_reserve / 10);
+    market.amm.hlp_funding_base_pricing_offset_nad = large;
+    market.amm.hlp_funding_quote_pricing_offset_nad = -1;
+    market.bound_unpriced_funding_inventory().unwrap();
+    assert_eq!(market.amm.hlp_funding_base_pricing_offset_nad, large);
+    assert_eq!(market.amm.hlp_funding_quote_pricing_offset_nad, -1);
+    market.amm.hlp_funding_base_pricing_offset_nad = -signed(inventory.base_reserve) - 5;
+    market.bound_unpriced_funding_inventory().unwrap();
+    assert_eq!(market.amm.hlp_funding_base_pricing_offset_nad, -signed(inventory.base_reserve / 2));
+    assert_eq!(market.amm.hlp_funding_quote_pricing_offset_nad, -1);
+    let priced = market.ordinary_curve_point_nad().unwrap();
+    assert!(priced.base_reserve >= inventory.base_reserve / 2);
+}
+
+fn bind_oracle_curve(market: &mut Market, lambda: u16, reference: u64) {
+    market.oracle.policy = crate::state::OraclePolicy {
+        lambda_bps: lambda,
+        adjustment_cap_nad: 2 * NAD,
+        ..crate::state::OraclePolicy::default()
+    };
+    market.oracle.runtime = crate::state::RuntimePricing::bind(
+        market.oracle.policy,
+        crate::state::OracleObservation { price_nad: reference, ..crate::state::OracleObservation::default() },
+    );
+    market.checkpoint_oracle_risk_depth().unwrap();
+}
+
+fn prepay_funding(market: &mut Market, slot: u64) -> u64 {
+    use crate::transitions::liquidity::prepare_concentrated_hlp_transition_from_end;
+    let state = market.integrated_curve_state_nad().unwrap();
+    let plan = prepare_concentrated_hlp_transition_from_end(market, state, false, true, 0, 0).unwrap();
+    let (base, quote) = plan.consume(market).unwrap();
+    market.finalize_amm_transition_and_observe_risk(slot).unwrap();
+    base.interest_paid + quote.interest_paid
+}
+
+/// On an oracle curve, a swap that also settles accrued hLP funding is priced
+/// exactly as if the funding had been paid beforehand: the trader never pays
+/// for the depth the payment removes, and small swaps still execute.
+#[test]
+fn oracle_swap_paying_funding_matches_a_prepaid_market() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    for shape in [Shape::Cpmm, Shape::Moderate, Shape::TailFloor] {
+        for lambda in [2_500_u16, 5_000] {
+            for days in [1_u64, 7] {
+                let mut market = seeded_market(PAIRS[1], 1_000_000.0, shape).unwrap();
+                let deposit = reserve_raw(&market, MarketAsset::Base) / 20;
+                market.deposit_single_sided(MarketAsset::Base, deposit, 1).unwrap();
+                let spot = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+                bind_oracle_curve(&mut market, lambda, spot);
+                let slot = 2 + days * slots_per_day;
+                market.update_at_slot(slot).unwrap();
+                let mut prepaid = market.clone();
+                assert!(prepay_funding(&mut prepaid, slot) > 0);
+                for (asset_in, amount) in [(MarketAsset::Quote, 5_000_001_u64), (MarketAsset::Quote, 500_000_001), (MarketAsset::Base, 20_000_001)] {
+                    let label = format!("{shape:?} lambda={lambda} days={days} {asset_in:?} {amount}");
+                    let (in_swap, paid, _) = swap_booking_funding(&mut market.clone(), asset_in, amount, slot)
+                        .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+                    assert!(paid > 0, "{label}");
+                    let (expected, _, _) = swap_booking_funding(&mut prepaid.clone(), asset_in, amount, slot).unwrap();
+                    assert!(in_swap.abs_diff(expected) <= expected / 10_000 + 2, "{label}: {in_swap} vs {expected}");
+                }
+                for collateral in [10_000_000_u64, 1_000_000_000] {
+                    let accrued = market.leverage_swap_output_at_time(MarketAsset::Base, collateral, slot, 0).unwrap();
+                    let settled = prepaid.leverage_swap_output_at_time(MarketAsset::Base, collateral, slot, 0).unwrap();
+                    assert!(accrued.abs_diff(settled) <= settled / 10_000 + 2, "{shape:?} {lambda} {days} {collateral}: {accrued} vs {settled}");
+                }
+            }
+        }
+    }
+}
+
+/// A loss checkpoint with no loss leaves spot where it was, even when trading
+/// has left the priced coordinate smaller than the unpriced funding remainder.
+#[test]
+fn zero_loss_checkpoint_never_moves_spot_through_the_funding_remainder() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let mut market = funding_market_with_shape(1, true, curve_parameters(Shape::TailFloor));
+    let mut slot = 2;
+    for _ in 0..30 {
+        slot += slots_per_day;
+        market.update_at_slot(slot).unwrap();
+        swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, slot).unwrap();
+    }
+    let mut largest = 0.0_f64;
+    for push in [0_u64, 5, 10, 20] {
+        let mut market = market.clone();
+        if push > 0 {
+            let amount = reserve_raw(&market, MarketAsset::Quote) / 100 * push;
+            swap_booking_funding(&mut market, MarketAsset::Quote, amount, slot).unwrap();
+        }
+        let inventory = market.ordinary_inventory_point_nad().unwrap();
+        let priced = market.ordinary_curve_point_nad().unwrap();
+        largest = largest.max((inventory.base_reserve - priced.base_reserve) as f64 / inventory.base_reserve as f64);
+        let before = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        let inventory = market.ordinary_inventory_point_nad().unwrap();
+        market.finalize_amm_socialized_loss_and_observe_risk(slot, inventory).unwrap();
+        let after = market.current_concentrated_spot_price_nad().unwrap().unwrap();
+        assert!(after.abs_diff(before) <= before / 1_000_000_000 + 2, "push={push}: {before} -> {after}");
+    }
+    // The scenario does reach a remainder above half the base inventory.
+    assert!(largest > 0.5, "largest unpriced share {largest}");
+}
+
+
+/// A loss on the axis that carries the unpriced funding remainder shrinks the
+/// remainder with the inventory, so spot moves about as it would with no
+/// remainder instead of by the loss's share of the priced coordinate.
+#[test]
+fn loss_shrinks_the_unpriced_funding_remainder_pro_rata() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let mut market = funding_market_with_shape(1, true, curve_parameters(Shape::TailFloor));
+    let mut slot = 2;
+    for _ in 0..90 {
+        slot += slots_per_day;
+        market.update_at_slot(slot).unwrap();
+        swap_booking_funding(&mut market, MarketAsset::Quote, 1_000, slot).unwrap();
+    }
+    let inventory = market.ordinary_inventory_point_nad().unwrap();
+    let priced = market.ordinary_curve_point_nad().unwrap();
+    assert!((inventory.base_reserve - priced.base_reserve) * 2 > inventory.base_reserve);
+    let base_atom_nad = market.normalize_amount(1, market.base_side.asset_decimals).unwrap();
+    for pct_of_priced in [10_u128, 50, 90, 99] {
+        let loss = u64::try_from(priced.base_reserve * pct_of_priced / 100 / base_atom_nad).unwrap();
+        let mut with_loss = market.clone();
+        let before = with_loss.ordinary_inventory_point_nad().unwrap();
+        with_loss.base_side.debit_reserve(loss, true).unwrap();
+        let after = with_loss.ordinary_inventory_point_nad().unwrap();
+        with_loss.finalize_amm_socialized_loss_and_observe_risk(slot, before).unwrap();
+        // The remainder's share of base inventory is unchanged by the loss.
+        let remainder = |m: &Market| {
+            let priced = m.ordinary_curve_point_nad().unwrap();
+            let inventory = m.ordinary_inventory_point_nad().unwrap();
+            (inventory.base_reserve - priced.base_reserve) as f64 / inventory.base_reserve as f64
+        };
+        assert!((remainder(&with_loss) - remainder(&market)).abs() < 1e-6, "{pct_of_priced}%");
+        assert!(after.base_reserve < before.base_reserve);
+    }
+}
+
+
+fn transfer_fee_schedule(bps: u16, maximum_fee: u64) -> (spl_token_2022::extension::transfer_fee::TransferFee, crate::transitions::LeverageCollateralFee) {
+    let fee = spl_token_2022::extension::transfer_fee::TransferFee {
+        epoch: 0.into(),
+        transfer_fee_basis_points: bps.into(),
+        maximum_fee: maximum_fee.into(),
+    };
+    (fee, crate::transitions::LeverageCollateralFee::new(Some(fee)))
+}
+
+/// What a grossed-up funding payment through a Token-2022 interest vault
+/// looked like: the receipt's payment and the fee reserve cash paid on top.
+#[derive(Clone, Copy, Debug, Default)]
+struct FeeFundingPayment {
+    interest: u64,
+    transfer_fee: u64,
+    custody_credit: u64,
+}
+
+/// A swap that pays hLP funding as the swap instruction does with a
+/// transfer-fee borrowed asset: reserve cash pays the fee on top of each
+/// payment, and custody is credited what the grossed-up transfer delivers.
+fn swap_booking_funding_with_fee(
+    market: &mut Market,
+    asset_in: MarketAsset,
+    reserve_credit: u64,
+    slot: u64,
+    fee: (spl_token_2022::extension::transfer_fee::TransferFee, crate::transitions::LeverageCollateralFee),
+) -> FeeFundingPayment {
+    let mut prepared = SwapRequest {
+        current_slot: slot,
+        current_unix_timestamp: 0,
+        asset_in,
+        reserve_credit,
+        protocol_fee_bps: 0,
+    }
+    .prepare(market, &[fee.1; 2])
+    .unwrap();
+    let finalized = prepared.finalize_state(market, slot, 0, ProtocolAuctionSplit::default()).unwrap();
+    let eligibility = prepared.interest_eligibility;
+    let mut payment = FeeFundingPayment::default();
+    for receipt in [finalized.base_rebalance, finalized.quote_rebalance] {
+        if receipt.interest_paid > 0 {
+            let sent = receipt.interest_paid + receipt.interest_transfer_fee;
+            let credit = sent - fee.0.calculate_fee(sent).unwrap();
+            crate::instructions::record_inline_hlp_interest_credit(
+                market,
+                receipt.target_asset.opposite(),
+                credit,
+                0,
+                ProtocolAuctionSplit::default(),
+                eligibility,
+            )
+            .unwrap();
+            payment.interest += receipt.interest_paid;
+            payment.transfer_fee += receipt.interest_transfer_fee;
+            payment.custody_credit += credit;
+        }
+    }
+    market.assert_market_invariants().unwrap();
+    payment
+}
+
+fn fee_funding_market() -> Market {
+    let mut market = funding_tail_market(1, true);
+    market.base_side.fees.junior.initialized = true;
+    market.quote_side.fees.junior.initialized = true;
+    market.sync_income_receivable(MarketAsset::Base, false, 0).unwrap();
+    market.sync_income_receivable(MarketAsset::Quote, false, 0).unwrap();
+    market
+}
+
+/// A transfer fee on the borrowed asset no longer short-credits a funding
+/// payment: reserve cash pays the fee on top, custody receives the whole
+/// payment, the drained funding book advances in place at face value, and the
+/// shared index keeps accruing exactly as without the payment.
+#[test]
+fn fee_token_funding_payment_does_not_stall_the_shared_index() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + slots_per_day;
+    let mut fee_free = fee_funding_market();
+    fee_free.update_at_slot(d1).unwrap();
+    let free_payment = swap_booking_funding_with_fee(&mut fee_free, MarketAsset::Quote, 1_000, d1, transfer_fee_schedule(0, 0));
+    assert!(free_payment.interest > 0 && free_payment.transfer_fee == 0);
+    for (bps, maximum_fee) in [(1_u16, u64::MAX), (10, u64::MAX), (50, u64::MAX), (500, 3)] {
+        let fee = transfer_fee_schedule(bps, maximum_fee);
+        let mut market = fee_funding_market();
+        let mut control = market.clone();
+        market.update_at_slot(d1).unwrap();
+        let payment = swap_booking_funding_with_fee(&mut market, MarketAsset::Quote, 1_000, d1, fee);
+        assert_eq!(payment.interest, free_payment.interest, "bps={bps}");
+        assert_eq!(payment.transfer_fee, fee.1.inverse_fee(payment.interest).unwrap(), "bps={bps}");
+        assert!(payment.transfer_fee > 0 && payment.custody_credit >= payment.interest, "bps={bps}");
+        // The fee is a reserve cost (borrowed quote side), not an income-book cost.
+        assert_eq!(
+            market.quote_side.reserves.cash_reserve + payment.transfer_fee,
+            fee_free.quote_side.reserves.cash_reserve,
+            "bps={bps}"
+        );
+        assert_eq!(market.income.get().unwrap().books[3], fee_free.income.get().unwrap().books[3], "bps={bps}");
+        let i1 = market.debt.quote_borrow_index_nad;
+        let epoch = {
+            let book = &market.income.get().unwrap().books[3];
+            assert_eq!(book.unpaid, 0);
+            assert!(book.paid_per_unit_q64 >= 1 << 64, "bps={bps}");
+            assert!(!book.impaired && book.can_advance_in_place() && !book.may_roll(), "bps={bps}");
+            book.epoch
+        };
+        let d2 = d1 + slots_per_day;
+        market.update_at_slot(d2).unwrap();
+        control.update_at_slot(d1).unwrap();
+        let c1 = control.debt.quote_borrow_index_nad;
+        control.update_at_slot(d2).unwrap();
+        let c2 = control.debt.quote_borrow_index_nad;
+        assert_eq!(market.debt.quote_borrow_index_nad - i1, c2 - c1, "bps={bps}");
+        let book = &market.income.get().unwrap().books[3];
+        assert_eq!(book.epoch, epoch + 1, "bps={bps}");
+        // Advanced in place: the drained epoch joined the run without an archive.
+        assert!(book.run_length >= 1, "bps={bps}");
+    }
+}
+
+/// When reserve cash cannot also pay the fee on a funding payment, the swap
+/// still executes and carries the funding on hLP debt, exactly as when cash
+/// cannot cover the payment itself. Nothing is credited net, the funding book
+/// is not impaired, and the shared index keeps accruing.
+#[test]
+fn fee_token_funding_payment_is_carried_when_reserve_cannot_pay_the_fee() {
+    let slots_per_day = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + slots_per_day;
+    let mut market = fee_funding_market();
+    market.update_at_slot(d1).unwrap();
+    let mut control = market.clone();
+    // A 100% fee capped above all reserve cash: no executable cash can pay it.
+    let fee = transfer_fee_schedule(10_000, u64::MAX);
+    let payment = swap_booking_funding_with_fee(&mut market, MarketAsset::Quote, 1_000, d1, fee);
+    assert_eq!((payment.interest, payment.transfer_fee, payment.custody_credit), (0, 0, 0));
+    let book = &market.income.get().unwrap().books[3];
+    assert!(book.unpaid > 0 && !book.impaired);
+    let i1 = market.debt.quote_borrow_index_nad;
+    let c1 = control.debt.quote_borrow_index_nad;
+    market.update_at_slot(d1 + slots_per_day).unwrap();
+    control.update_at_slot(d1 + slots_per_day).unwrap();
+    let (growth, control_growth) = (market.debt.quote_borrow_index_nad - i1, control.debt.quote_borrow_index_nad - c1);
+    assert!(control_growth > 0 && growth * 2 >= control_growth, "{growth} vs {control_growth}");
+}
+
+fn fee_borrower(base_collateral: u64) -> crate::state::BorrowPosition {
+    crate::state::BorrowPosition {
+        owner: Pubkey::new_unique(),
+        market: Pubkey::new_unique(),
+        position_id: Pubkey::new_unique(),
+        base_collateral,
+        auction_debt_asset: u8::MAX,
+        bump: 255,
+        ..Default::default()
+    }
+}
+
+/// FEE3-01: at high utilization one exact borrow can leave `1..fee-1` atoms of
+/// cash after the next funding payment. A dust swap then pays the funding
+/// only if it can also pay the fee; otherwise it carries the funding on hLP
+/// debt. The funding book is never credited net, so the shared index keeps
+/// accruing and no roll is needed.
+#[test]
+fn exact_borrow_cannot_make_a_swap_credit_funding_net_of_its_fee() {
+    let spd = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + spd;
+    let fee = transfer_fee_schedule(100, u64::MAX); // 1% Token-2022 fee
+    let mut start = fee_funding_market();
+    start.update_at_slot(d1).unwrap();
+    let dust = 1_000_u64;
+    let mut trial = start.clone();
+    let cash0 = trial.quote_side.reserves.cash_reserve;
+    let paid = swap_booking_funding_with_fee(&mut trial, MarketAsset::Base, dust, d1, fee);
+    let consumed = cash0 - trial.quote_side.reserves.cash_reserve; // out + funding + fee
+    assert!(paid.interest > 0 && paid.transfer_fee >= 2, "need a fee of at least 2 atoms: {paid:?}");
+    let daily = start.daily_limit_for_side(MarketAsset::Quote, start.config.max_daily_borrow_bps).unwrap();
+    // Existing borrowers hold the market at high utilization, `daily` atoms of
+    // quote cash beyond what the swap needs.
+    let attacker_borrow = daily / 2;
+    let prior_draw = cash0 - (consumed - paid.transfer_fee) - (paid.transfer_fee - 1) - attacker_borrow;
+    start.debt.add_isolated_debt(MarketAsset::Quote, prior_draw).unwrap();
+    start.quote_side.reserves.cash_reserve -= prior_draw;
+    start.assert_market_invariants().unwrap();
+    // Attacker: the borrow leaves `fee - 1` atoms after funding and output.
+    // Control: borrow `fee` atoms less, so cash also covers the fee.
+    let run = |borrow: u64| -> (Market, FeeFundingPayment) {
+        let mut m = start.clone();
+        let mut position = fee_borrower(u64::MAX / 4);
+        m.borrow(&mut position, MarketAsset::Quote, borrow, 0, d1).unwrap();
+        let payment = swap_booking_funding_with_fee(&mut m, MarketAsset::Base, dust, d1, fee);
+        (m, payment)
+    };
+    let (mut attacked, carried) = run(attacker_borrow);
+    let (mut control, paid_in_full) = run(attacker_borrow - paid.transfer_fee);
+    // The attacked swap carries the funding; the control pays it with its fee.
+    assert_eq!((carried.interest, carried.transfer_fee, carried.custody_credit), (0, 0, 0));
+    assert_eq!((paid_in_full.interest, paid_in_full.transfer_fee), (paid.interest, paid.transfer_fee));
+    assert_eq!(paid_in_full.custody_credit, paid.interest);
+    for market in [&attacked, &control] {
+        let book = &market.income.get().unwrap().books[3];
+        assert!(!book.impaired);
+    }
+    let d2 = d1 + spd;
+    let (a1, c1) = (attacked.debt.quote_borrow_index_nad, control.debt.quote_borrow_index_nad);
+    attacked.update_at_slot(d2).unwrap();
+    control.update_at_slot(d2).unwrap();
+    let (growth, control_growth) = (attacked.debt.quote_borrow_index_nad - a1, control.debt.quote_borrow_index_nad - c1);
+    assert!(control_growth > 0 && growth * 2 >= control_growth, "quote index stalled: {growth} vs {control_growth}");
+}
+
+/// FEE3-01, swap only: at 95% utilization an exact-in swap sized so its output
+/// leaves `1..fee-1` atoms of quote cash after the funding payment carries
+/// the funding instead of crediting it net of the fee.
+#[test]
+fn sized_swap_cannot_credit_funding_net_of_its_fee() {
+    let spd = crate::constants::MS_PER_DAY / crate::constants::TARGET_MS_PER_SLOT;
+    let d1 = 2 + spd;
+    let fee = transfer_fee_schedule(100, u64::MAX);
+    let mut start = fee_funding_market();
+    start.update_at_slot(d1).unwrap();
+    let live = start.quote_side.reserves.live_reserve;
+    let draw = start.quote_side.reserves.cash_reserve - u64::try_from(live / 20).unwrap();
+    start.debt.add_isolated_debt(MarketAsset::Quote, draw).unwrap();
+    start.quote_side.reserves.cash_reserve -= draw;
+    let cash = start.quote_side.reserves.cash_reserve;
+    let funding = swap_booking_funding_with_fee(&mut start.clone(), MarketAsset::Base, 1_000, d1, fee).interest;
+    // Size the input ignoring the fee, as an attacker aiming below it would.
+    let remaining = |amount: u64| -> Option<i128> {
+        let mut m = start.clone();
+        let prepared = SwapRequest {
+            current_slot: d1,
+            current_unix_timestamp: 0,
+            asset_in: MarketAsset::Base,
+            reserve_credit: amount,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut m, &Default::default())
+        .ok()?;
+        Some(cash as i128 - prepared.quote.gross_amount_out as i128 - funding as i128)
+    };
+    let (mut lo, mut hi) = (1_000_u64, start.base_side.reserves.live_reserve as u64 * 4);
+    while lo < hi {
+        let mid = lo + (hi - lo).div_ceil(2);
+        match remaining(mid) {
+            Some(r) if r >= 1 => lo = mid,
+            _ => hi = mid - 1,
+        }
+    }
+    let left = remaining(lo).unwrap();
+    assert!(left >= 1 && left < i128::from(fee.1.inverse_fee(funding).unwrap()));
+    let mut attacked = start.clone();
+    let mut control = start.clone();
+    let carried = swap_booking_funding_with_fee(&mut attacked, MarketAsset::Base, lo, d1, fee);
+    swap_booking_funding_with_fee(&mut control, MarketAsset::Base, 1_000, d1, fee);
+    assert_eq!((carried.interest, carried.transfer_fee, carried.custody_credit), (0, 0, 0));
+    assert!(!attacked.income.get().unwrap().books[3].impaired);
+    let (a1, c1) = (attacked.debt.quote_borrow_index_nad, control.debt.quote_borrow_index_nad);
+    attacked.update_at_slot(d1 + spd).unwrap();
+    control.update_at_slot(d1 + spd).unwrap();
+    let (growth, control_growth) = (attacked.debt.quote_borrow_index_nad - a1, control.debt.quote_borrow_index_nad - c1);
+    assert!(control_growth > 0 && growth * 2 >= control_growth, "quote index stalled: {growth} vs {control_growth}");
 }

@@ -7,7 +7,7 @@ use crate::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
             validate_interest_accounts, validate_side_vault_accounts, HlpSwapAccountLayout,
         },
-        leverage::settlement::settle_new_public_hlp_income,
+        leverage::settlement::{interest_transfer_fees, settle_new_public_hlp_income},
         validate_hlp_authority_pdas,
     },
     state::{Debt, FutarchyAuthority, Market, MarketAsset},
@@ -111,6 +111,12 @@ impl<'info> FundInterest<'info> {
             base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
             quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
         };
+        let transfer_fees = interest_transfer_fees(
+            &a.market,
+            &a.base_mint.to_account_info(),
+            &a.quote_mint.to_account_info(),
+            clock.epoch,
+        )?;
         let mut result = FundInterestReceipt::default();
         for (asset, mint, reserve, interest, maximum) in [
             (
@@ -140,17 +146,26 @@ impl<'info> FundInterest<'info> {
             )?)
             .map_err(|_| ErrorCode::DebtMathOverflow)?
             .saturating_sub(funding_vault.debt_principal);
-            // Reserve cash already owed as funding interest is not free to advance.
+            // Reserve cash already owed as funding interest, and the transfer
+            // fee it pays on top when that funding is settled, is not free to
+            // advance.
             let available = a
                 .market
                 .side(asset)
                 .reserves
                 .cash_reserve
-                .saturating_sub(funding_interest);
-            let (gross, lp_gross) = a.market.fund_public_interest(
+                .saturating_sub(funding_interest)
+                .saturating_sub(transfer_fees[i].inverse_fee(funding_interest)?);
+            // Reserve cash also pays the Token-2022 fee on the LP transfer, so
+            // custody receives the full advance; the fee stays within the
+            // advanceable cash.
+            let (gross, lp_gross, transfer_fee) = a.market.fund_public_interest_paying_transfer_fee(
                 asset,
-                maximum.min(available),
+                maximum,
+                available,
                 a.futarchy_authority.revenue_share.interest_bps,
+                transfer_fees[i],
+                clock.slot,
             )?;
             let before = interest.amount;
             if lp_gross > 0 {
@@ -160,14 +175,20 @@ impl<'info> FundInterest<'info> {
                     interest.to_account_info(),
                     mint.to_account_info(),
                     token_program_for_mint(mint, &a.token_program, &a.token_2022_program)?,
-                    lp_gross,
+                    lp_gross
+                        .checked_add(transfer_fee)
+                        .ok_or(ErrorCode::MarketMathOverflow)?,
                     mint.decimals,
                     &[&generate_market_seeds!(a.market)[..]],
                     layout.hook_accounts(ctx.remaining_accounts),
                 )?;
                 interest.reload()?;
             }
-            let credit = token_account_credit(before, interest)?;
+            let measured_credit = token_account_credit(before, interest)?;
+            let credit = a
+                .market
+                .quote_interest_revenue_credit(asset, false, measured_credit)?
+                .credited();
             a.market.record_receivable_income_credit(
                 asset,
                 false,
