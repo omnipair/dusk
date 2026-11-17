@@ -193,7 +193,7 @@ fn live_market_assets_accept_high_decimal_mints() {
 }
 
 #[test]
-fn freezable_asset_mints_are_rejected_under_both_token_programs() {
+fn freezable_asset_mints_are_supported_under_both_token_programs() {
     let freeze_authority = Pubkey::new_unique();
     for mint_owner in [spl_token::ID, spl_token_2022::ID] {
         let mut mint_data = if mint_owner == spl_token::ID {
@@ -208,9 +208,9 @@ fn freezable_asset_mints_are_rejected_under_both_token_programs() {
             .pack_into_slice(&mut data);
             data
         } else {
-            // Transfer fees and hooks are independent of freeze authority.
+            // Supported transfer fees are independent of freeze authority.
             let mut data = extended_asset_mint_data(
-                &[ExtensionType::TransferFeeConfig, ExtensionType::TransferHook],
+                &[ExtensionType::TransferFeeConfig],
                 Pubkey::new_unique(),
             );
             let mut mint = StateWithExtensionsMut::<SplToken2022Mint>::unpack(&mut data).unwrap();
@@ -231,17 +231,18 @@ fn freezable_asset_mints_are_rejected_under_both_token_programs() {
             0,
         );
         let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
-        assert_eq!(
-            require_supported_asset_mint(&mint).unwrap_err(),
-            error!(ErrorCode::FreezableAssetMint)
-        );
+        require_supported_asset_mint(&mint).unwrap();
     }
 }
 
 #[test]
 fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
     let market = Pubkey::new_unique();
-    for (hook_authority, accepted) in [(Some(Pubkey::new_unique()), false), (None, true)] {
+    for (hook_authority, freeze_authority, expected_error) in [
+        (Some(Pubkey::new_unique()), None, Some(ErrorCode::InvalidLpMintKey)),
+        (None, None, None),
+        (None, Some(Pubkey::new_unique()), Some(ErrorCode::FrozenLpMint)),
+    ] {
         let mint_len =
             ExtensionType::try_calculate_account_len::<SplToken2022Mint>(&[ExtensionType::TransferHook]).unwrap();
         let mut mint_data = vec![0_u8; mint_len];
@@ -255,7 +256,7 @@ fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
                 supply: 0,
                 decimals: 6,
                 is_initialized: true,
-                freeze_authority: COption::None,
+                freeze_authority: freeze_authority.into(),
             };
             mint.pack_base();
             mint.init_account_type().unwrap();
@@ -267,10 +268,10 @@ fn lp_mint_requires_an_immutable_dusk_transfer_hook() {
         let mint_info = AccountInfo::new(&mint_key, false, false, &mut lamports, &mut mint_data, &owner, false, 0);
         let mint = InterfaceAccount::<Mint>::try_from(&mint_info).unwrap();
         let result = validate_lp_mint(&mint, market, 6);
-        if accepted {
-            result.unwrap();
+        if let Some(expected_error) = expected_error {
+            assert_eq!(result.unwrap_err(), error!(expected_error));
         } else {
-            assert_eq!(result.unwrap_err(), error!(ErrorCode::InvalidLpMintKey));
+            result.unwrap();
         }
     }
 }
