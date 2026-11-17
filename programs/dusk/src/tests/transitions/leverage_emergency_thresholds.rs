@@ -50,14 +50,10 @@ fn open_current(market: &mut Market, case: Case, fee: LeverageCollateralFee) -> 
         reserve_credit: spend,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(
-        market,
-        SwapCashPolicy::Borrow {
+    .prepare_with_cash_policy(market, SwapCashPolicy::Borrow {
             asset: case.debt_asset,
             amount: margin,
-        },
-        &Default::default(),
-    )?;
+        })?;
     let quote = prepared.leverage_quote();
     let mut position = empty_position();
     market.open_leverage(
@@ -102,15 +98,11 @@ fn quote_sale(
         reserve_credit: fee.unwind_credit(sold)?,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(
-        &mut trial,
-        SwapCashPolicy::Liquidate {
+    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::Liquidate {
             debt_asset: position.debt_asset()?,
             debt_shares: position.debt_shares,
             debt_principal: position.debt_principal,
-        },
-        &Default::default(),
-    )?;
+        })?;
     Ok((trial, prepared))
 }
 
@@ -310,7 +302,7 @@ fn settle_netted(
         ..Paid::default()
     };
     if paid.contribution > 0 {
-        trial.side_mut(debt_asset).record_junior_liquidation_credit(paid.contribution)?;
+        trial.record_junior_liquidation_credit(debt_asset, paid.contribution)?;
     }
     if fill.kind > 0 && next.debt_shares > 0 {
         let receipt = trial.liquidate_leverage_position(&mut next, None, 0, LeverageSwapFeeCredit::default(), 0, ProtocolAuctionSplit::default(), slot)?;

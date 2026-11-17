@@ -25,7 +25,7 @@ fn ema_emergency_quote_ignores_same_slot_spot_and_observed_depth_in_both_directi
         let before = quote(&m);
         let spot_before = m.current_concentrated_spot_price_nad().unwrap().unwrap();
         let mut trade = SwapRequest { current_slot: 1, current_unix_timestamp: 120, asset_in: asset.opposite(),
-            reserve_credit: 5_000_000, protocol_fee_bps: 2_000 }.prepare(&mut m, &Default::default()).unwrap();
+            reserve_credit: 5_000_000, protocol_fee_bps: 2_000 }.prepare(&mut m).unwrap();
         trade.finalize_state(&mut m, 1, 2_000, ProtocolAuctionSplit::default()).unwrap();
         assert_ne!(spot_before, m.current_concentrated_spot_price_nad().unwrap().unwrap());
         m.risk.observed_curve_depth_nad /= 2;
@@ -76,14 +76,21 @@ fn ema_emergency_concentration_hlp_fees_and_real_cash_settle_without_virtual_res
         let cash = [m.base_side.reserves.cash_reserve, m.quote_side.reserves.cash_reserve];
         let cache = m.amm.concentrated_curve_cache;
         let protected_before = m.amm.spendable_protected_profit_nad();
-        let finalized = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, 1, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
+        let finalized = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, 1, 2_000, ProtocolAuctionSplit::default()).unwrap().0.unwrap();
         assert_eq!(p.collateral_amount, 1_000_000 - sold);
         assert_eq!(finalized.lifecycle.socialized_principal_loss, q.loss.principal_written_off);
         let fee_on_input = fee.fee_asset == asset.opposite().code();
         let debt_output_fee = if fee_on_input { 0 } else { fee.claimable_fee_debit + fee.retained_surcharge };
+        // Paid interest stays in cash; only its protocol share (and that of
+        // any funding the vault borrowing this asset paid) leaves it.
+        let funding_protocol = if asset == MarketAsset::Base {
+            finalized.quote_rebalance.protocol_paid
+        } else {
+            finalized.base_rebalance.protocol_paid
+        };
         let expected_debt_cash = cash[asset.code() as usize]
             - q.reward_debit - q.owner_debit - q.junior_fee_debit - q.revenue_fee_debit
-            - q.loss.interest_paid - debt_output_fee;
+            - finalized.lifecycle.protocol_paid - funding_protocol - debt_output_fee;
         assert_eq!(m.side(asset).reserves.cash_reserve, expected_debt_cash);
         let collateral_fee = if fee_on_input { fee.claimable_fee_debit + fee.retained_surcharge } else { 0 };
         assert_eq!(m.side(asset.opposite()).reserves.cash_reserve,
@@ -152,36 +159,36 @@ fn ema_reference_uses_collateral_direction_even_when_price_emas_are_not_reciproc
 
 #[test]
 fn ema_emergency_pays_accrued_hlp_funding_from_real_cash_and_cancels_unpaid_loan_interest() {
-    for amp in [1, 4, 10] { for asset in [MarketAsset::Base, MarketAsset::Quote] { for advanced in [false, true] {
+    for amp in [1, 4, 10] { for asset in [MarketAsset::Base, MarketAsset::Quote] {
         let mut m = market(amp, true);
         let mut p = seeded_position(&mut m, asset, 1_100_000, 1_000_000);
         let slot = 1_000_001;
         m.accrue_interest_to_slot(slot).unwrap();
         m.observe_current_risk(slot).unwrap();
-        let held_protocol = if advanced {
-            let (gross, lp) = m.fund_public_interest(asset, u64::MAX, 2_000).unwrap();
-            assert!(gross > 0);
-            gross - lp
-        } else { 0 };
         let fee = LeverageCollateralFee::default();
         let mut prepared = m.prepare_emergency_liquidation(&Ref::Leverage(&p), asset, p.collateral_amount,
             true, fee, fee, fee, 400_000, slot, 2_000).unwrap();
         let q = prepared.quote;
         let f = prepared.swap.as_ref().unwrap().quote.fee;
         let before = m.side(asset).reserves.cash_reserve;
-        let result = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, slot, 2_000, ProtocolAuctionSplit::default()).unwrap().unwrap();
-        let funding = if asset == MarketAsset::Base {result.quote_rebalance.interest_paid} else {result.base_rebalance.interest_paid};
-        assert!(funding > 0);
+        let pu_before = m.side(asset).fees.ledger.protocol_unpaid;
+        let (result, public_protocol) = m.apply_emergency_liquidation(&mut Mut::Leverage(&mut p), asset, &mut prepared, slot, 2_000, ProtocolAuctionSplit::default()).unwrap();
+        let result = result.unwrap();
+        let receipt = if asset == MarketAsset::Base {result.quote_rebalance} else {result.base_rebalance};
+        assert!(receipt.interest_paid > 0);
         assert!(q.loss.interest_canceled > 0);
         assert_eq!(q.loss.interest_paid, 0);
+        // A short recovery pays principal first: no interest and nothing to
+        // the protocol. Paid funding leaves cash only by its protocol share.
+        assert_eq!(public_protocol, 0);
+        assert!(receipt.protocol_paid <= receipt.interest_paid);
         let output_fee = if f.fee_asset == asset.code() { f.claimable_fee_debit + f.retained_surcharge } else {0};
         assert_eq!(m.side(asset).reserves.cash_reserve,
-            before + held_protocol - q.reward_debit - q.owner_debit - q.junior_fee_debit - q.revenue_fee_debit - output_fee - funding);
+            before - q.reward_debit - q.owner_debit - q.junior_fee_debit - q.revenue_fee_debit - output_fee - receipt.protocol_paid);
         assert_eq!(p.debt_shares, 0);
+        assert!(m.side(asset).fees.ledger.protocol_unpaid <= pu_before);
         m.assert_market_invariants().unwrap();
-        assert_eq!(m.side_mut(asset).fees.public_interest_advance.take_payment(0).unwrap(), (0, 0));
-        assert_eq!(m.side(asset).fees.public_interest_advance, crate::state::PublicInterestAdvance::default());
-    } } }
+    } }
 }
 
 fn bind_oracle(m: &mut Market, reference_price_nad: u64) {

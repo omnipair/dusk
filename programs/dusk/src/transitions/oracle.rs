@@ -97,7 +97,7 @@ impl Market {
         };
         let runtime = RuntimePricing::bind(policy, observation);
         let mut amm = *self.amm;
-        if revision != self.curve_revision && self.amm.initialized {
+        if revision != self.curve_revision && self.amm.initialized && !self.curve_wiped() {
             let curve = runtime.curve(
                 self.config.amm.concentrated_curve_parameters()?,
                 self.current_curve_center_price_nad()?,

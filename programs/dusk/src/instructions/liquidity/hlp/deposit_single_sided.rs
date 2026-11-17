@@ -172,10 +172,11 @@ impl<'info> DepositSingleSided<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
-            self.futarchy_authority.revenue_share.interest_bps,
+            &self.futarchy_authority,
         )?;
         reconcile_live_hlp_supply(&mut self.market, target_asset, self.target_hlp_mint.supply, false)?;
         self.market.assert_current_version()?;
+        self.market.require_no_interest_deficit()?;
         if self.market.base_side.reserves.live_reserve > 0 && self.market.quote_side.reserves.live_reserve > 0 {
             // As for srLP entries, a due and funded recenter deploys retained
             // surcharge to the holders of record before the vault mints srLP.
@@ -216,11 +217,6 @@ impl<'info> DepositSingleSided<'info> {
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
 
         let layout = HlpSwapAccountLayout::require_prefix(&ctx.accounts.market, ctx.remaining_accounts)?;
-        let eligibility = crate::transitions::HlpYieldEligibility {
-            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
-        };
 
         // Transfer the target asset and measure the reserve's net credit.
         let (target_reserve_vault, target_mint) = match target_asset {
@@ -271,46 +267,22 @@ impl<'info> DepositSingleSided<'info> {
 
         // Apply hLP accounting and checkpoint the immutable post-deposit curve.
         let current_slot = Clock::get()?.slot;
-        let mut receipt =
-            ctx.accounts
-                .market
-                .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
-        // Reserve cash also pays the transfer fee on any funding the entry
-        // settled. The final AMM transition below rebuilds the curve.
-        let fees = crate::instructions::leverage::settlement::interest_transfer_fees(
-            &ctx.accounts.market,
-            &ctx.accounts.base_mint.to_account_info(),
-            &ctx.accounts.quote_mint.to_account_info(),
-            Clock::get()?.epoch,
-        )?;
-        let [base_rebalance, quote_rebalance] = &mut receipt.rebalances;
-        ctx.accounts.market.pay_hlp_funding_transfer_fees(
-            [base_rebalance, quote_rebalance],
-            fees,
-            crate::transitions::FundingFeePayment::Required,
-        )?;
+        let receipt = ctx
+            .accounts
+            .market
+            .deposit_single_sided(target_asset, deposit_credit, args.min_hlp_amount)?;
         crate::instructions::leverage::settlement::settle_inline_hlp_accounts(
             &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
-            [
-                (
-                    ctx.accounts.base_mint.to_account_info(),
-                    ctx.accounts.base_reserve_vault.to_account_info(),
-                ),
-                (
-                    ctx.accounts.quote_mint.to_account_info(),
-                    ctx.accounts.quote_reserve_vault.to_account_info(),
-                ),
-            ],
-            &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             ctx.remaining_accounts,
             layout,
             receipt.rebalances[0],
             receipt.rebalances[1],
-            eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        ctx.accounts
+            .market
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
         ctx.accounts.base_reserve_vault.reload()?;
         ctx.accounts.quote_reserve_vault.reload()?;
         crate::instructions::accounting::emit_hlp_rebalanced(

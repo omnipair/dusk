@@ -167,7 +167,7 @@ impl<'info> InitializeYieldAccounts<'info> {
             market,
             Clock::get()?.slot,
             event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         let (base_swap, base_interest, quote_swap, quote_interest) =
             if let Some(contexts) = current_yield_contexts(market, lp_mint)? {
@@ -194,11 +194,9 @@ impl<'info> InitializeYieldAccounts<'info> {
                 (base_swap, base_interest, quote_swap, quote_interest)
             };
         if base_initialized {
-            market.checkpoint_holder_income(base_yield_account, 0, retired_junior.as_ref().map(|c| c.income_end))?;
             base_yield_account.accrue(0, base_swap, base_interest)?;
         }
         if quote_initialized {
-            market.checkpoint_holder_income(quote_yield_account, 0, retired_junior.as_ref().map(|c| c.income_end))?;
             quote_yield_account.accrue(0, quote_swap, quote_interest)?;
         }
         Ok(())

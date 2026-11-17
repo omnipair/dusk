@@ -53,74 +53,34 @@ impl ReferralPartner {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ReferralInterestQuote {
     pub interest_paid: u64,
-    pub interest_vault_credit: u64,
     pub protocol_interest_revenue: u64,
     pub interest_share_bps: u16,
     pub referral_amount: u64,
 }
 
 impl ReferralInterestQuote {
-    pub fn new(
-        interest_paid: u64,
-        interest_vault_credit: u64,
-        protocol_interest_bps: u16,
-        interest_share_bps: Option<u16>,
-    ) -> Result<Self> {
-        require_gte!(BPS_DENOMINATOR, protocol_interest_bps, ErrorCode::InvalidInterestFeeBps);
-
-        require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
-        let protocol_interest_revenue = proportional_bps(interest_vault_credit, protocol_interest_bps)?;
-        Self::with_protocol_revenue(
-            interest_paid,
-            interest_vault_credit,
-            protocol_interest_revenue,
-            interest_share_bps,
-        )
-    }
-
+    /// The referral share comes only from the protocol share of this
+    /// payment.
     pub(crate) fn with_protocol_revenue(
         interest_paid: u64,
-        interest_vault_credit: u64,
         protocol_interest_revenue: u64,
         interest_share_bps: Option<u16>,
     ) -> Result<Self> {
-        Self::with_funded_protocol_revenue(
-            interest_paid,
-            interest_vault_credit,
-            protocol_interest_revenue,
-            interest_vault_credit,
-            interest_share_bps,
-        )
-    }
-
-    /// Frozen fee ownership may release prior fractional custody alongside a
-    /// new payment. The caller authenticates the complete fee-custody budget.
-    pub(crate) fn with_funded_protocol_revenue(
-        interest_paid: u64,
-        interest_vault_credit: u64,
-        protocol_interest_revenue: u64,
-        available_fee_custody: u64,
-        interest_share_bps: Option<u16>,
-    ) -> Result<Self> {
-        require_gte!(interest_paid, interest_vault_credit, ErrorCode::FeeMathOverflow);
-        require_gte!(
-            available_fee_custody,
-            protocol_interest_revenue,
-            ErrorCode::FeeMathOverflow
-        );
+        require_gte!(interest_paid, protocol_interest_revenue, ErrorCode::FeeMathOverflow);
         let Some(interest_share_bps) = interest_share_bps else {
             return Ok(Self {
                 interest_paid,
-                interest_vault_credit,
                 protocol_interest_revenue,
                 ..Self::default()
             });
         };
         validate_interest_share_bps(interest_share_bps)?;
-        let referral_amount = proportional_bps(protocol_interest_revenue, interest_share_bps)?;
+        let referral_amount = u64::try_from(
+            u128::from(protocol_interest_revenue) * u128::from(interest_share_bps) / u128::from(BPS_DENOMINATOR),
+        )
+        .map_err(|_| ErrorCode::FeeMathOverflow)?;
         Ok(Self {
             interest_paid,
-            interest_vault_credit,
             protocol_interest_revenue,
             interest_share_bps,
             referral_amount,
@@ -135,14 +95,6 @@ fn validate_interest_share_bps(bps: u16) -> Result<()> {
         ErrorCode::InvalidReferralInterestShareBps
     );
     Ok(())
-}
-
-fn proportional_bps(amount: u64, bps: u16) -> Result<u64> {
-    let value = (amount as u128)
-        .checked_mul(bps as u128)
-        .and_then(|value| value.checked_div(BPS_DENOMINATOR as u128))
-        .ok_or(ErrorCode::FeeMathOverflow)?;
-    u64::try_from(value).map_err(|_| ErrorCode::FeeMathOverflow.into())
 }
 
 #[cfg(test)]

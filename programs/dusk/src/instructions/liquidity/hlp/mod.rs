@@ -8,8 +8,7 @@ use anchor_lang::prelude::*;
 use crate::{
     constants::{FUTARCHY_AUTHORITY_SEED_PREFIX, MARKET_V2_SEED_PREFIX, YIELD_ACCOUNT_SEED_PREFIX},
     errors::ErrorCode,
-    state::{FutarchyAuthority, Market, MarketAsset, ProtocolAuctionSplit, YieldTokenKind},
-    transitions::HlpYieldEligibility,
+    state::{FutarchyAuthority, Market, MarketAsset, YieldTokenKind},
 };
 
 pub use burn_retired_receipt::*;
@@ -112,110 +111,6 @@ pub(crate) fn reconcile_live_hlp_supply(
         *stored_supply = live_mint_supply;
     }
     Ok(())
-}
-
-pub(crate) fn record_hlp_interest_credit(
-    market: &mut Market,
-    borrowed_asset: MarketAsset,
-    actual_interest_credit: u64,
-    protocol_fee_bps: u16,
-    protocol_auction_split: ProtocolAuctionSplit,
-    eligibility: HlpYieldEligibility,
-) -> Result<()> {
-    if actual_interest_credit == 0 {
-        if market.side(borrowed_asset).fees.junior.initialized {
-            let quote = market.quote_interest_revenue_credit(borrowed_asset, true, 0)?;
-            market.record_receivable_income_credit(
-                borrowed_asset,
-                true,
-                0,
-                quote.protocol,
-                protocol_auction_split,
-                0,
-            )?;
-        }
-        return Ok(());
-    }
-
-    require_eq!(
-        market.base_side.shares.srlp_supply,
-        market.quote_side.shares.srlp_supply,
-        ErrorCode::BrokenInvariant
-    );
-    let frozen_non_hlp_supply = eligibility.non_hlp_srlp_supply()?;
-    let tranche_income = market.side(borrowed_asset).fees.junior.initialized;
-    if !tranche_income {
-        let current_non_hlp_supply = HlpYieldEligibility {
-            srlp_supply: market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
-        }
-        .non_hlp_srlp_supply()?;
-        require_eq!(
-            current_non_hlp_supply,
-            frozen_non_hlp_supply,
-            ErrorCode::BrokenInvariant
-        );
-    }
-
-    // Every predictive mint/burn checkpoints the ownership interval that
-    // precedes it. Flush any public-interest carry that materializes after
-    // those mutations against the current shares before publishing this
-    // source-specific credit; replaying frozen old shares here would
-    // over-credit a vault that already burned them.
-    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Base)?;
-    market.checkpoint_hlp_yield_from_srlp(MarketAsset::Quote)?;
-
-    if tranche_income {
-        let protocol = market
-            .quote_interest_revenue_credit(borrowed_asset, true, actual_interest_credit)?
-            .protocol;
-        market.record_receivable_income_credit(
-            borrowed_asset,
-            true,
-            actual_interest_credit,
-            protocol,
-            protocol_auction_split,
-            0,
-        )?;
-    } else {
-        market
-            .side_mut(borrowed_asset)
-            .record_hlp_funding_interest_credit_with_supply(
-                actual_interest_credit,
-                protocol_fee_bps,
-                protocol_auction_split,
-                frozen_non_hlp_supply,
-            )?;
-    }
-
-    // Advance both vaults across the hLP-funded index delta without crediting
-    // either one. Zero eligible shares preserves their already-earned
-    // sub-atom remainders while preventing self- and cross-rebates.
-    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, 0)?;
-    market.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, 0)
-}
-
-/// Publish one inline hLP interest-vault credit against ownership captured
-/// before predictive or post-trade rebalancing. Funding interest publishes
-/// only to the ordinary-plus-MIN lane; frozen hLP balances are excluded even
-/// if the operation mints or burns vault-owned srLP before token settlement.
-pub(crate) fn record_inline_hlp_interest_credit(
-    market: &mut Market,
-    borrowed_asset: MarketAsset,
-    actual_interest_credit: u64,
-    protocol_fee_bps: u16,
-    protocol_auction_split: ProtocolAuctionSplit,
-    eligibility: HlpYieldEligibility,
-) -> Result<()> {
-    record_hlp_interest_credit(
-        market,
-        borrowed_asset,
-        actual_interest_credit,
-        protocol_fee_bps,
-        protocol_auction_split,
-        eligibility,
-    )
 }
 
 #[cfg(test)]

@@ -88,8 +88,6 @@ impl BurnRetiredJunior<'_> {
                 a.market.side(asset).asset_mint,
                 YieldTokenKind::Junior,
             )?;
-            a.market
-                .checkpoint_holder_income(claim, a.owner_junior.amount, Some(a.cohort.income_end))?;
             let (swap, interest) = a.cohort.yield_indexes(asset);
             claim.accrue(a.owner_junior.amount, swap, interest)?;
             claim.escrow_balance = 0;

@@ -117,16 +117,16 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                     reserve_credit: 100 * CALIBRATION_UNIT,
                     protocol_fee_bps: 0,
                 }
-                .prepare(&mut market, &Default::default())
+                .prepare(&mut market)
                 .unwrap();
                 let state = market.integrated_curve_state_nad().unwrap();
                 let reserves = market.curve_reserves_nad().unwrap();
                 assert_eq!(
-                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt - state.base_unpaid_interest,
+                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt,
                     reserves.base
                 );
                 assert_eq!(
-                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt - state.quote_unpaid_interest,
+                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt,
                     reserves.quote
                 );
                 let base_debt =
@@ -153,13 +153,14 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                 assert_eq!(finalized.base_rebalance.interest_paid, base_interest);
                 assert_eq!(finalized.quote_rebalance.interest_paid, quote_interest);
                 // Physical cash moves once for trader input/output, fee
-                // compounding and each hLP's funding payment. Refinancing
+                // compounding and the protocol share of each hLP's funding
+                // payment; paid funding stays in reserve cash. Refinancing
                 // synthetic debt cannot manufacture spendable tokens.
                 for side in [MarketAsset::Base, MarketAsset::Quote] {
-                    let interest = if side == MarketAsset::Base {
-                        quote_interest
+                    let protocol = if side == MarketAsset::Base {
+                        finalized.quote_rebalance.protocol_paid
                     } else {
-                        base_interest
+                        finalized.base_rebalance.protocol_paid
                     };
                     let expected = before.side(side).reserves.cash_reserve as i128
                         + if side == asset {
@@ -172,7 +173,7 @@ fn native_hlp_start_and_settlement_conserve_recorded_debt_and_funding() {
                         } else {
                             0
                         }
-                        - interest as i128;
+                        - protocol as i128;
                     assert_eq!(market.side(side).reserves.cash_reserve as i128, expected);
                 }
                 market.assert_market_invariants().unwrap();
@@ -195,7 +196,7 @@ fn native_hlp_still_rejects_unexplained_reserve_changes() {
         reserve_credit: 100 * CALIBRATION_UNIT,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut market, &Default::default())
+    .prepare(&mut market)
     .unwrap();
     market.base_side.reserves.live_reserve += 4;
     let error = prepared

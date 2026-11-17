@@ -9,7 +9,6 @@ pub(crate) mod recovery;
 pub(crate) mod solver;
 
 pub use engine::*;
-pub(crate) use harvest::HlpNewInterestSettlement;
 pub(crate) use integrated::*;
 pub(crate) use recovery::*;
 pub(crate) use solver::*;
@@ -27,27 +26,6 @@ use crate::{constants::*, math::*, state::*};
 /// a meaningful constrained gap.
 const HLP_REBALANCE_DUST_MAX_NAD: u128 = 10_000;
 const HLP_REBALANCE_DUST_NAV_DENOMINATOR: u128 = 1_000_000;
-
-impl HlpYieldEligibility {
-    /// srLP supply eligible for interest paid by an hLP funding position.
-    ///
-    /// Both hLP vault balances are excluded. The permanently burned
-    /// `MIN_LIQUIDITY` shares remain in this denominator, so funding interest
-    /// has a deterministic sink when no ordinary srLP holder exists and cannot
-    /// be captured by a later deposit.
-    pub fn non_hlp_srlp_supply(self) -> Result<u64> {
-        let hlp_srlp_shares = self
-            .base_hlp_srlp_shares
-            .checked_add(self.quote_hlp_srlp_shares)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let supply = self
-            .srlp_supply
-            .checked_sub(hlp_srlp_shares)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        require_gte!(supply, MIN_LIQUIDITY, ErrorCode::BrokenInvariant);
-        Ok(supply)
-    }
-}
 
 impl HlpVault {
     pub fn initialize(&mut self, srlp_vault: Pubkey) {
@@ -144,37 +122,25 @@ impl HlpVault {
         Debt::repayment_for_max(self.debt_shares, self.debt_shares, borrow_index_nad, max_repay_amount)
     }
 
+    /// Pass the srLP swap-fee growth of vault-held shares through to hLP
+    /// holders. Interest reaches hLP holders directly at accrual.
     pub fn checkpoint_yield_from_srlp_shares(
         &mut self,
-        base_side: &MarketSide,
-        quote_side: &MarketSide,
+        swap_fee_growth_indexes_q64: [u128; 2],
         eligible_srlp_shares: u64,
     ) -> Result<()> {
         let (base_swap_fee_amount, base_swap_fee_remainder_q64) = accrue_fee_liability_with_remainder(
             eligible_srlp_shares,
-            base_side.fees.swap_fee_growth_index_q64,
+            swap_fee_growth_indexes_q64[0],
             self.base_swap_fee_checkpoint_q64,
             self.base_swap_fee_remainder_q64,
         )?;
-        let (base_interest_amount, base_interest_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_srlp_shares,
-            base_side.fees.interest_growth_index_q64,
-            self.base_interest_checkpoint_q64,
-            self.base_interest_remainder_q64,
-        )?;
         let (quote_swap_fee_amount, quote_swap_fee_remainder_q64) = accrue_fee_liability_with_remainder(
             eligible_srlp_shares,
-            quote_side.fees.swap_fee_growth_index_q64,
+            swap_fee_growth_indexes_q64[1],
             self.quote_swap_fee_checkpoint_q64,
             self.quote_swap_fee_remainder_q64,
         )?;
-        let (quote_interest_amount, quote_interest_remainder_q64) = accrue_fee_liability_with_remainder(
-            eligible_srlp_shares,
-            quote_side.fees.interest_growth_index_q64,
-            self.quote_interest_checkpoint_q64,
-            self.quote_interest_remainder_q64,
-        )?;
-
         credit_hlp_growth(
             self.hlp_supply,
             &mut self.unallocated_base_swap_fee_amount,
@@ -184,34 +150,15 @@ impl HlpVault {
         )?;
         credit_hlp_growth(
             self.hlp_supply,
-            &mut self.unallocated_base_interest_amount,
-            &mut self.base_interest_growth_index_q64,
-            &mut self.base_interest_growth_remainder_scaled,
-            base_interest_amount,
-        )?;
-        credit_hlp_growth(
-            self.hlp_supply,
             &mut self.unallocated_quote_swap_fee_amount,
             &mut self.quote_swap_fee_growth_index_q64,
             &mut self.quote_swap_fee_growth_remainder_scaled,
             quote_swap_fee_amount,
         )?;
-        credit_hlp_growth(
-            self.hlp_supply,
-            &mut self.unallocated_quote_interest_amount,
-            &mut self.quote_interest_growth_index_q64,
-            &mut self.quote_interest_growth_remainder_scaled,
-            quote_interest_amount,
-        )?;
-
-        self.base_swap_fee_checkpoint_q64 = base_side.fees.swap_fee_growth_index_q64;
-        self.base_interest_checkpoint_q64 = base_side.fees.interest_growth_index_q64;
-        self.quote_swap_fee_checkpoint_q64 = quote_side.fees.swap_fee_growth_index_q64;
-        self.quote_interest_checkpoint_q64 = quote_side.fees.interest_growth_index_q64;
+        self.base_swap_fee_checkpoint_q64 = swap_fee_growth_indexes_q64[0];
+        self.quote_swap_fee_checkpoint_q64 = swap_fee_growth_indexes_q64[1];
         self.base_swap_fee_remainder_q64 = base_swap_fee_remainder_q64;
-        self.base_interest_remainder_q64 = base_interest_remainder_q64;
         self.quote_swap_fee_remainder_q64 = quote_swap_fee_remainder_q64;
-        self.quote_interest_remainder_q64 = quote_interest_remainder_q64;
         Ok(())
     }
 
@@ -268,9 +215,7 @@ pub(crate) fn drain_hlp_vault_unallocated_yield(
         (vault.base_swap_fee_remainder_q64 as u128)
             .checked_add(vault.base_swap_fee_growth_remainder_scaled as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?,
-        (vault.base_interest_remainder_q64 as u128)
-            .checked_add(vault.base_interest_growth_remainder_scaled as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
+        vault.base_interest_growth_remainder_scaled as u128,
     )?;
     quote_yield_account.credit_unallocated(
         vault.unallocated_quote_swap_fee_amount,
@@ -278,18 +223,14 @@ pub(crate) fn drain_hlp_vault_unallocated_yield(
         (vault.quote_swap_fee_remainder_q64 as u128)
             .checked_add(vault.quote_swap_fee_growth_remainder_scaled as u128)
             .ok_or(ErrorCode::MarketMathOverflow)?,
-        (vault.quote_interest_remainder_q64 as u128)
-            .checked_add(vault.quote_interest_growth_remainder_scaled as u128)
-            .ok_or(ErrorCode::MarketMathOverflow)?,
+        vault.quote_interest_growth_remainder_scaled as u128,
     )?;
     vault.unallocated_base_swap_fee_amount = 0;
     vault.unallocated_base_interest_amount = 0;
     vault.unallocated_quote_swap_fee_amount = 0;
     vault.unallocated_quote_interest_amount = 0;
     vault.base_swap_fee_remainder_q64 = 0;
-    vault.base_interest_remainder_q64 = 0;
     vault.quote_swap_fee_remainder_q64 = 0;
-    vault.quote_interest_remainder_q64 = 0;
     vault.base_swap_fee_growth_remainder_scaled = 0;
     vault.base_interest_growth_remainder_scaled = 0;
     vault.quote_swap_fee_growth_remainder_scaled = 0;

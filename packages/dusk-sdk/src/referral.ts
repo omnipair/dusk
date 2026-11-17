@@ -25,7 +25,6 @@ export type IntegerLike = bigint | number | string | { toString(): string };
 
 export interface ReferralInterestQuote {
   interestPaid: bigint;
-  interestVaultCredit: bigint;
   protocolInterestRevenue: bigint;
   interestShareBps: number;
   referralAmount: bigint;
@@ -42,32 +41,28 @@ export function referralBindingInterestShareBps(params: {
   return Math.min(params.configuredShareBps, params.maxShareBps);
 }
 
+/** Mirror of the program's referral quote for one interest payment.
+ * `protocolInterestRevenue` is the protocol share of that payment, which the
+ * program takes pro rata from the asset's unpaid protocol interest
+ * (`quoteProtocolInterestShare`); the partner receives its capped share of
+ * it, rounded down. */
 export function quoteReferralInterestShare(params: {
   interestPaid: IntegerLike;
-  interestVaultCredit?: IntegerLike;
-  protocolInterestBps: number;
+  protocolInterestRevenue: IntegerLike;
   interestShareBps: number;
 }): ReferralInterestQuote {
-  assertBps(params.protocolInterestBps, "protocol interest share");
   assertReferralInterestShareBps(params.interestShareBps);
   const interestPaid = BigInt(params.interestPaid.toString());
   if (interestPaid < 0n) throw new Error("interestPaid must be non-negative");
-  const interestVaultCredit = BigInt(
-    (params.interestVaultCredit ?? params.interestPaid).toString()
-  );
-  if (interestVaultCredit < 0n || interestVaultCredit > interestPaid) {
-    throw new Error("interestVaultCredit must be between 0 and interestPaid");
+  const protocolInterestRevenue = BigInt(params.protocolInterestRevenue.toString());
+  if (protocolInterestRevenue < 0n || protocolInterestRevenue > interestPaid) {
+    throw new Error("protocolInterestRevenue must be between 0 and interestPaid");
   }
-
-  const protocolInterestRevenue =
-    (interestVaultCredit * BigInt(params.protocolInterestBps)) /
-    BigInt(REFERRAL_BPS_DENOMINATOR);
   const referralAmount =
     (protocolInterestRevenue * BigInt(params.interestShareBps)) /
     BigInt(REFERRAL_BPS_DENOMINATOR);
   return {
     interestPaid,
-    interestVaultCredit,
     protocolInterestRevenue,
     interestShareBps: params.interestShareBps,
     referralAmount,

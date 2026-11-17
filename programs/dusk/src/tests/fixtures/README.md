@@ -34,8 +34,21 @@ curves per side as unconfigured. Lane defaults and recipients are preserved in
 omitted. Tests use that derived authority, while the raw capture remains intact.
 
 The two hLP funding pricing offsets start at zero; historical payments are
-not inferred. Each income book starts a new drain run at its captured epoch,
-because every captured epoch began at genesis or an archived roll. Funding settlement in the replay records the separation.
+not inferred. Funding settlement in the replay records the separation.
+
+The layout-19 Market fixtures (`*-layout19.bin`) are the layout-18 derivations
+with the retired income state dropped: the income receivable books, each
+side's interest vault key, public interest advance, interest vault balance and
+liabilities, funding-interest remainder and revenue interest liability, and
+each hLP vault's interest checkpoints and remainders. Every other byte is
+copied unchanged. The accrued-interest ledger starts empty (including a zero
+interest deficit and no interest held by a frozen hLP vault), so the replay's
+first accrual recognizes the captured outstanding interest and credits it to
+the holders of record. `derive_operator_fixtures.cjs` produces the same bytes
+directly from the layout-13 inputs, together with the SDK's
+`virtual-book-batch-layout19.json`; the FutarchyAuthority layout is unchanged,
+so the authority fixture stays `vob-authority-layout18.bin`. The layout-18
+Market fixtures remain as the inputs of that step; no test reads them.
 
 Historical reserve, debt, price and observation inputs otherwise remain
 unchanged. These are test-data conversions, not deployed-account migrations.
@@ -46,6 +59,9 @@ unchanged. These are test-data conversions, not deployed-account migrations.
 | `hlp-entry-layout18.bin` | `eb0a5abbf7a4cd4fb97923bb9b1587302793f8f0c7e2504c3995b56fdfa49db1` |
 | `vob-market-layout18.bin` | `a34a83f434faeb198e08bce86e401eea7530b8932c279ceb0899f61805286150` |
 | `hlp-entry-funding-layout18.bin` | `4b8f2d79d57dc8c0e2c2aa204077d3f56bee2b4d60344b67531082dd10c8aede` |
+| `hlp-entry-layout19.bin` | `e59093281c392ff5466ef0e02173b4b266f4201f9175c38e8ba11cb1b7011b1c` |
+| `vob-market-layout19.bin` | `654868b6d03cb7463a9f2e16d68800ed29718aa95745e69918f80008a95f04a7` |
+| `hlp-entry-funding-layout19.bin` | `4c82944234e92dbc8b7e5eb9b1a49791543d49b90c3f7bbffb46db04d07907df` |
 
 ## Indexed-funding hLP entry snapshot
 
@@ -54,6 +70,6 @@ unchanged. These are test-data conversions, not deployed-account migrations.
 519889239 after the November 2026 operator release. It includes the account
 discriminator and contains no wallet keys. The base vault is empty; the quote
 vault has nine hLP tokens and accrued funding that requires settlement. Tests
-use the derived `hlp-entry-funding-layout18.bin`, accrue that exact slot and
-exercise both first and repeat deposits, coupon ownership, share-value
+use the derived `hlp-entry-funding-layout19.bin`, accrue that exact slot and
+exercise both first and repeat deposits, credited-interest ownership, share-value
 protection and the post-entry hedge.

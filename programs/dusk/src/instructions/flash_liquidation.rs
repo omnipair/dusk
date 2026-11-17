@@ -55,8 +55,6 @@ pub struct FlashLiquidationAccounts<'info> {
     #[account(mut)]
     pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
     pub buyer_collateral_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub buyer_refund_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -157,11 +155,8 @@ impl FlashLiquidationAccounts<'_> {
             ErrorCode::InvalidMint
         );
         require_keys_eq!(self.reserve_vault.key(), side.reserve_vault, ErrorCode::InvalidVault);
-        require_keys_eq!(self.interest_vault.key(), side.interest_vault, ErrorCode::InvalidVault);
-        for account in [&self.reserve_vault, &self.interest_vault] {
-            require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
-            require_keys_eq!(account.mint, self.debt_mint.key(), ErrorCode::InvalidMint);
-        }
+        require_keys_eq!(self.reserve_vault.owner, self.market.key(), ErrorCode::InvalidVault);
+        require_keys_eq!(self.reserve_vault.mint, self.debt_mint.key(), ErrorCode::InvalidMint);
         let expected_collateral = match self.position()? {
             LiquidationPositionRef::Borrow(p) => {
                 require_keys_eq!(p.market, self.market.key(), ErrorCode::InvalidBorrowPosition);
@@ -348,7 +343,7 @@ impl<'info> BeginFlashLiquidation<'info> {
             &mut a.market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
-            a.futarchy_authority.revenue_share.interest_bps,
+            &a.futarchy_authority,
         )?;
         a.market.update()?;
         a.validate(asset)?;
@@ -620,16 +615,18 @@ impl<'info> SettleFlashLiquidation<'info> {
         require_gte!(received, session.quote.payment, ErrorCode::InsufficientAmount);
         let (partner, share) = a.referral(asset)?;
         let reserve_before = a.reserve_vault.amount;
-        let interest_before = a.interest_vault.amount;
         let owner_before = a.owner_debt_account.amount;
         let payment_seeds: &[&[u8]] = &[LIQUIDATION_SESSION_SEED, session.position.as_ref(), &[session.bump]];
         // Repayment custody is unique to this position/debt mint. Only its
         // spendable increase is accepted; unrelated reserve transfers never
-        // satisfy the buyer's obligation.
+        // satisfy the buyer's obligation. The repayment and both liquidation
+        // fees reach the reserve vault in one transfer.
+        let reserve_credit = repaid
+            .checked_add(fee.junior)
+            .and_then(|value| value.checked_add(fee.protocol))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         for (destination, net) in [
-            (a.reserve_vault.to_account_info(), repaid),
-            (a.interest_vault.to_account_info(), fee.junior),
-            (a.interest_vault.to_account_info(), fee.protocol),
+            (a.reserve_vault.to_account_info(), reserve_credit),
             (a.owner_debt_account.to_account_info(), owner_surplus),
         ] {
             if net == 0 {
@@ -648,22 +645,13 @@ impl<'info> SettleFlashLiquidation<'info> {
             )?;
         }
         a.reserve_vault.reload()?;
-        a.interest_vault.reload()?;
         a.owner_debt_account.reload()?;
         require_eq!(
             a.reserve_vault
                 .amount
                 .checked_sub(reserve_before)
                 .ok_or(ErrorCode::BrokenInvariant)?,
-            repaid,
-            ErrorCode::BrokenInvariant
-        );
-        require_eq!(
-            a.interest_vault
-                .amount
-                .checked_sub(interest_before)
-                .ok_or(ErrorCode::BrokenInvariant)?,
-            fee.protocol + fee.junior,
+            reserve_credit,
             ErrorCode::BrokenInvariant
         );
         require_eq!(
@@ -674,7 +662,7 @@ impl<'info> SettleFlashLiquidation<'info> {
             owner_surplus,
             ErrorCode::BrokenInvariant
         );
-        let loss = {
+        let (loss, protocol_paid) = {
             let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
                 (Some(p), None) => LiquidationPositionMut::Borrow(p),
                 (None, Some(p)) => LiquidationPositionMut::Leverage(p),
@@ -692,37 +680,21 @@ impl<'info> SettleFlashLiquidation<'info> {
         };
         // New underwriting income follows loss settlement; it cannot fund
         // this liquidation's preexisting coverage budget.
-        if fee.junior > 0 {
-            a.market.side_mut(asset).record_junior_liquidation_credit(fee.junior)?;
-        }
-        a.interest_vault.reload()?;
-        let eligibility = crate::transitions::HlpYieldEligibility {
-            srlp_supply: a.market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
-        };
+        a.market.record_junior_liquidation_credit(asset, fee.junior)?;
         a.market
             .side_mut(asset)
             .record_liquidation_protocol_credit(fee.protocol, a.futarchy_authority.protocol_auction_split)?;
-        let referral_receipt = crate::instructions::leverage::settlement::record_leverage_interest(
+        let referral_receipt = crate::instructions::leverage::settlement::record_interest_paid(
             &mut a.market,
             asset,
             &a.debt_mint,
-            &mut a.reserve_vault,
-            &mut a.interest_vault,
-            &a.token_program,
-            &a.token_2022_program,
             &a.futarchy_authority,
             partner,
             share,
             a.referral_partner.as_deref(),
             a.referral_accrual.as_deref_mut(),
             loss.interest_paid,
-            None,
-            eligibility,
-            ctx.remaining_accounts,
-            ctx.accounts.event_authority.to_account_info(),
-            None,
+            protocol_paid,
         )?;
         emit_liquidation_interest(
             a,
@@ -731,10 +703,6 @@ impl<'info> SettleFlashLiquidation<'info> {
             ctx.accounts.event_authority.to_account_info(),
             clock.slot,
         )?;
-        a.market
-            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
-        a.market
-            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
         ctx.accounts.repayment_vault.reload()?;
         // Return the whole balance. Tokens that reached the vault outside a
         // session never count as payment and have no other way out.
@@ -753,13 +721,7 @@ impl<'info> SettleFlashLiquidation<'info> {
             )?;
         }
         a.reserve_vault.reload()?;
-        a.interest_vault.reload()?;
         require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
-        require_gte!(
-            a.interest_vault.amount,
-            a.market.side(asset).fees.interest_vault_balance,
-            ErrorCode::UnbackedFeeLiability
-        );
         match (&mut a.borrow_position, &mut a.leverage_position) {
             (Some(p), None) => p.active_liquidation_session = Pubkey::default(),
             (None, Some(p)) => p.active_liquidation_session = Pubkey::default(),

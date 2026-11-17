@@ -60,14 +60,14 @@ test("incoming gross-up is minimal under the actual SPL transfer-fee formula", (
 
 test("atomic builder binds the exact settle index, custom program and owner-owned payout", async () => {
   const keys = Array.from({ length: 14 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
-  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, baseInterest, quoteInterest, routeProgram] = keys;
+  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, , , routeProgram] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) }, wallet: { publicKey: buyer }, publicKey: buyer,
   });
   const inactiveHlp = { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0) };
   program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, srlpMint: routeProgram,
-    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral, interestVault: baseInterest },
-    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral, interestVault: quoteInterest },
+    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral },
+    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral },
     baseHlpVault: { ...inactiveHlp, srlpVault: owner }, quoteHlpVault: { ...inactiveHlp, srlpVault: position },
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });
@@ -162,15 +162,15 @@ test("atomic builder binds the exact settle index, custom program and owner-owne
 
 test("external flash settlement carries the active-hLP prefix by default", async () => {
   const keys = Array.from({ length: 16 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 40)).publicKey);
-  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, baseInterest, quoteInterest, srlpMint, baseSrlpVault, quoteSrlpVault] = keys;
+  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, , , srlpMint, baseSrlpVault, quoteSrlpVault] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) }, wallet: { publicKey: buyer }, publicKey: buyer,
   });
   const hlp = (supply, srlpVault) => ({ hlpSupply: new anchor.BN(supply), residualExposure: new anchor.BN(0), srlpVault });
   let baseSupply = 100;
   program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, srlpMint,
-    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral, interestVault: baseInterest },
-    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral, interestVault: quoteInterest },
+    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral },
+    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral },
     baseHlpVault: hlp(baseSupply, baseSrlpVault), quoteHlpVault: hlp(0, quoteSrlpVault),
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });
@@ -182,9 +182,8 @@ test("external flash settlement carries the active-hLP prefix by default", async
     return accounts.reduce((count, account) => count + (account.accounts ? leaves(account.accounts) : 1), 0);
   })(program.idl.instructions.find((ix) => ix.name === "settleFlashLiquidation").accounts);
   const prefix = await client.write.hlpRemainingAccounts(market);
-  assert.equal(prefix.length, 9);
-  assert.deepEqual(prefix.slice(0, 5).map((meta) => meta.pubkey),
-    [srlpMint, baseSrlpVault, quoteSrlpVault, baseInterest, quoteInterest]);
+  assert.equal(prefix.length, 3);
+  assert.deepEqual(prefix.map((meta) => meta.pubkey), [srlpMint, baseSrlpVault, quoteSrlpVault]);
 
   const external = await client.buildFlash(request);
   assert.deepEqual(external.settleInstruction.keys.slice(fixed), prefix);
@@ -202,7 +201,7 @@ test("external flash settlement carries the active-hLP prefix by default", async
 
 test("external flash routes get the gross transfer a fee-bearing debt mint needs", async () => {
   const keys = Array.from({ length: 13 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 80)).publicKey);
-  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral, baseInterest, quoteInterest] = keys;
+  const [programId, market, position, owner, buyer, baseMint, quoteMint, baseReserve, quoteReserve, baseCollateral, quoteCollateral] = keys;
   // A Token-2022 debt mint charging 2.5% now, with a 90% fee announced for epoch 12.
   const effective = { epoch: 0n, transferFeeBasisPoints: 250, maximumFee: 1_000_000n };
   const announced = { epoch: 12n, transferFeeBasisPoints: 9_000, maximumFee: 1_000_000n };
@@ -231,8 +230,8 @@ test("external flash routes get the gross transfer a fee-bearing debt mint needs
   });
   const inactiveHlp = { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0) };
   program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION, srlpMint: owner,
-    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral, interestVault: baseInterest },
-    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral, interestVault: quoteInterest },
+    baseSide: { assetMint: baseMint, reserveVault: baseReserve, collateralVault: baseCollateral },
+    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, collateralVault: quoteCollateral },
     baseHlpVault: { ...inactiveHlp, srlpVault: owner }, quoteHlpVault: { ...inactiveHlp, srlpVault: position },
   });
   program.account.leveragePosition.fetch = async () => ({ market, owner, debtAsset: 1, referralPartner: SystemProgram.programId });

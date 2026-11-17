@@ -2,9 +2,8 @@
 //! must authenticate ownership and settle custody around these checked updates.
 
 pub use crate::state::{
-    IncomeExposureEnd, IncomeReceivableBook, IncomeReceivableClaim, JuniorExitConfig, JuniorExitTicket,
-    LazyIncomeBooks, MarketIncomeBooks, ReceivableGrowth, RiskRateBook, RiskRateConfig, RiskRateOverrides,
-    RiskRateSide, RiskRateUpdate, TrancheCapital, TrancheIncome, TranchePolicy, TrancheRevenueCarry,
+    JuniorExitConfig, JuniorExitTicket, RiskRateBook, RiskRateConfig, RiskRateOverrides, RiskRateSide, RiskRateUpdate,
+    TrancheCapital, TrancheIncome, TranchePolicy, TrancheRevenueCarry,
 };
 
 mod junior_exit;
@@ -21,10 +20,4 @@ mod market;
 
 mod tranche_income;
 
-mod income_receivable;
-
-mod market_income;
-pub(crate) use market_income::FundingFeePayment;
 mod seed;
-
-mod lazy_income;

@@ -52,7 +52,6 @@ export const SEEDS = {
   MARKET_V2: Buffer.from("market_v2"),
   MARKET_RESERVE_VAULT: Buffer.from("market_reserve"),
   MARKET_COLLATERAL_VAULT: Buffer.from("market_collateral"),
-  MARKET_INTEREST_VAULT: Buffer.from("market_interest"),
   BORROW_POSITION: Buffer.from("borrow_position_v2"),
   LEVERAGE_POSITION: Buffer.from("leverage_position_v2"),
   LEVERAGE_COLLATERAL_VAULT: Buffer.from("leverage_collateral"),
@@ -211,20 +210,6 @@ export function deriveMarketCollateralVaultAddress(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [SEEDS.MARKET_COLLATERAL_VAULT, market.toBuffer(), collateralMint.toBuffer()],
-    programId
-  );
-}
-
-/**
- * Derive market interest vault PDA address
- */
-export function deriveMarketInterestVaultAddress(
-  market: PublicKey,
-  interestMint: PublicKey,
-  programId: PublicKey = DUSK_PROGRAM_ID
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.MARKET_INTEREST_VAULT, market.toBuffer(), interestMint.toBuffer()],
     programId
   );
 }
@@ -696,16 +681,6 @@ export function deriveJuniorCohortAddress(market: PublicKey, mint: PublicKey, pr
 export function deriveJuniorExitAddress(market: PublicKey, owner: PublicKey, mint: PublicKey, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([Buffer.from("junior_exit"), market.toBuffer(), owner.toBuffer(), mint.toBuffer()], programId);
 }
-
-export function deriveIncomeEpochAddress(market: PublicKey, bookIndex: number, epoch: U64SeedLike, programId: PublicKey = DUSK_PROGRAM_ID): [PublicKey, number] {
-  if (!Number.isInteger(bookIndex) || bookIndex < 0 || bookIndex > 3) throw new Error("bookIndex must be 0–3");
-  return PublicKey.findProgramAddressSync([Buffer.from("income_epoch"), market.toBuffer(), Buffer.from([bookIndex]), u64Seed(epoch, "epoch")], programId);
-}
-
-
-
-
-
 
 export const OPERATOR_POLICY_VERSION = 2;
 export const OPERATOR_PENDING_LIMIT = 1;

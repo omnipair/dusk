@@ -528,7 +528,6 @@ impl Market {
             ..Debt::default()
         };
         self.tranches = TrancheCapital::default();
-        self.income = Default::default();
         self.junior_exit_config = JuniorExitConfig::default();
         self.tranche_policy = crate::state::TranchePolicy::default();
         self.junior_mint = Pubkey::default();
@@ -763,7 +762,6 @@ impl Market {
         let previous_debt = self.debt;
         let previous_base_hlp_vault = self.base_hlp_vault;
         let previous_quote_hlp_vault = self.quote_hlp_vault;
-        let previous_income = self.income.clone();
         let previous_risk = self.risk;
         let previous_tranche_policy = self.tranche_policy;
         let previous_junior_exit_config = self.junior_exit_config;
@@ -884,7 +882,6 @@ impl Market {
             self.debt = previous_debt;
             self.base_hlp_vault = previous_base_hlp_vault;
             self.quote_hlp_vault = previous_quote_hlp_vault;
-            self.income = previous_income;
             self.risk = previous_risk;
             self.tranche_policy = previous_tranche_policy;
             self.junior_exit_config = previous_junior_exit_config;

@@ -153,7 +153,6 @@ fn invariant_market(base_cash: u64, quote_cash: u64) -> Market {
     quote_side.shares.srlp_supply = srlp_supply;
     let mut market = Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -250,6 +249,7 @@ fn add_accrued_cash_backed_interest_to_live_reserve(
     let accrued_interest = u64::try_from(accrued_interest).unwrap();
     let side = market.side_mut(asset);
     side.reserves.live_reserve = side.reserves.live_reserve.checked_add(u128::from(accrued_interest)).unwrap();
+    market.recognize_accrued_interest(asset).unwrap();
     accrued_interest
 }
 
@@ -536,12 +536,12 @@ proptest! {
             MarketAsset::Base => market.debt.fixed_base_debt().unwrap(),
             MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
         };
-        let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
         let debt_reduction = receipt.debt_delta.unsigned_abs();
         let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
-        let live_debit = aggregate_debt_reduction.checked_sub(principal_paid).unwrap();
-        prop_assert_eq!(live_after, live_before - u128::from(live_debit));
-        prop_assert_eq!(cash_after, cash_before + principal_paid);
+        // Paid interest stays in reserve cash; with no protocol markup nothing
+        // leaves it and the live reserve is unchanged.
+        prop_assert_eq!(live_after, live_before);
+        prop_assert_eq!(cash_after, cash_before + repay_credit);
         prop_assert!(receipt.interest_paid <= repay_credit);
         prop_assert!(repay_credit <= max_repay_credit);
         prop_assert!(debt_reduction.abs_diff(u128::from(repay_credit)) <= 1);
@@ -579,12 +579,12 @@ fn partial_repay_charges_the_aggregate_delta_without_rounding_writeoff() {
 
     let (live_after, cash_after) = reserve_pair(&market, repay_asset);
     let aggregate_debt_after = market.debt.fixed_quote_debt().unwrap();
-    let principal_paid = repay_credit.checked_sub(receipt.interest_paid).unwrap();
     let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
     assert_eq!(receipt.cash_repaid, repay_credit);
+    assert!(receipt.interest_paid > 0);
     assert_eq!(aggregate_debt_reduction, repay_credit);
-    assert_eq!(live_after, live_before - u128::from(aggregate_debt_reduction - principal_paid));
-    assert_eq!(cash_after, cash_before + principal_paid);
+    assert_eq!(live_after, live_before);
+    assert_eq!(cash_after, cash_before + repay_credit);
     market.assert_market_invariants().unwrap();
 }
 
@@ -1272,7 +1272,7 @@ proptest! {
 }
 
 #[test]
-fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
+fn repay_keeps_interest_cash_in_reserve_without_breaking_virtual_reserve_invariant() {
     let mut market = invariant_market(900, 1_000);
     market.base_side.reserves.live_reserve = 1_010;
     market.base_side.shares.srlp_supply = 1_010;
@@ -1282,6 +1282,7 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
     market.debt.base_borrow_index_nad = (NAD as u128) * 11 / 10;
     market.debt.fixed_base_shares = 100;
     market.debt.fixed_base_principal = 100;
+    market.recognize_accrued_interest(MarketAsset::Base).unwrap();
     let mut borrow_position = BorrowPosition {
         active_liquidation_session: Pubkey::default(),
 
@@ -1311,9 +1312,12 @@ fn repay_routes_interest_out_without_breaking_virtual_reserve_invariant() {
 
     let receipt = market.repay(&mut borrow_position, MarketAsset::Base, 110).unwrap();
 
+    // Paid interest stays in reserve cash for the credited holders; with no
+    // protocol markup nothing leaves cash and the curve does not move.
     assert_eq!(receipt.interest_paid, 10);
-    assert_eq!(market.base_side.reserves.live_reserve, 1_000);
-    assert_eq!(market.base_side.reserves.cash_reserve, 1_000);
+    assert_eq!(market.base_side.reserves.live_reserve, 1_010);
+    assert_eq!(market.base_side.reserves.cash_reserve, 1_010);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), 1_000);
     assert_eq!(market.debt.fixed_base_debt().unwrap(), 0);
     assert_eq!(borrow_position.base_referral_partner, Pubkey::default());
     assert_eq!(borrow_position.base_referral_interest_share_bps, 0);

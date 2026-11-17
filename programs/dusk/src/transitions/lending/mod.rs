@@ -287,6 +287,10 @@ impl Market {
     }
 
     pub(crate) fn current_risk_at_slot(&self, current_slot: u64) -> Result<Risk> {
+        if self.curve_wiped() {
+            // No curve remains to observe; risk keeps its last prices.
+            return Ok(self.risk);
+        }
         let price_nad = self
             .current_concentrated_spot_price_nad()?
             .ok_or(ErrorCode::BrokenInvariant)?;
@@ -365,6 +369,9 @@ impl Market {
     /// changing time constants so the entire elapsed interval is integrated
     /// under the configuration that was active during that interval.
     pub(crate) fn refresh_risk_at_slot(&mut self, current_slot: u64) -> Result<()> {
+        if self.curve_wiped() {
+            return self.observe_wiped_curve(current_slot);
+        }
         let curve_reserves = self.curve_reserves_nad()?;
         if curve_reserves.base == 0 || curve_reserves.quote == 0 {
             require!(
@@ -1066,6 +1073,7 @@ impl DailyBorrowBucket {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct InterestAccrualReceipt {
+    pub credit: crate::transitions::InterestCredit,
     pub asset: MarketAsset,
     pub from_slot: u64,
     pub to_slot: u64,
@@ -1106,10 +1114,6 @@ pub(crate) fn accrue_side<const REPORT: bool>(
         MarketAsset::Base => market.quote_hlp_vault.debt_shares,
         MarketAsset::Quote => market.base_hlp_vault.debt_shares,
     };
-    if fixed_shares != 0 || isolated_shares != 0 || hlp_shares != 0 {
-        market.sync_income_receivable(asset, false, 0)?;
-        market.sync_income_receivable(asset, true, 0)?;
-    }
     if fixed_shares == 0 && isolated_shares == 0 && hlp_shares == 0 {
         let next_borrow_apr = borrow_apr;
         match asset {
@@ -1126,9 +1130,16 @@ pub(crate) fn accrue_side<const REPORT: bool>(
                 market.debt.quote_borrow_index_nad = NAD as u128;
             }
         }
+        let ledger = market.side(asset).fees.ledger;
+        if ledger.public_recognized != 0 || ledger.funding_recognized != 0 {
+            market.recognize_interest(asset)?;
+        }
         return Ok(None);
     }
     if current_slot == last_accrual_slot {
+        // Debt-share rounding and hLP plans can change outstanding interest
+        // within a slot; recognize it without new time.
+        market.recognize_interest(asset)?;
         return Ok(None);
     }
     let dt_ms = slots_to_ms(last_accrual_slot, current_slot).ok_or(ErrorCode::MarketMathOverflow)?;
@@ -1225,14 +1236,12 @@ pub(crate) fn accrue_side<const REPORT: bool>(
             market.debt.quote_last_accrual_slot = current_slot;
         }
     }
-    if fixed_shares != 0 || isolated_shares != 0 || hlp_shares != 0 {
-        market.sync_income_receivable(asset, false, 0)?;
-        market.sync_income_receivable(asset, true, 0)?;
-    }
+    let credit = market.recognize_accrued_interest(asset)?;
     if !REPORT {
         return Ok(None);
     }
     let receipt = InterestAccrualReceipt {
+        credit,
         asset,
         from_slot: last_accrual_slot,
         to_slot: current_slot,
@@ -1308,7 +1317,8 @@ impl Market {
     pub fn prepare_position_protection_snapshot(&mut self, current_slot: u64) -> Result<()> {
         self.assert_current_version()?;
         self.accrue_interest_to_slot(current_slot)?;
-        if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
+        if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 && !self.curve_wiped()
+        {
             self.advance_amm_clock(current_slot)?;
             self.freeze_negative_hlp_vaults()?;
         }
@@ -1325,7 +1335,10 @@ impl Market {
     pub fn update_for_liquidity_change(&mut self) -> Result<()> {
         self.assert_current_version()?;
         let current_slot = Clock::get()?.slot;
-        if self.amm.initialized && self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0
+        if self.amm.initialized
+            && self.base_side.reserves.live_reserve > 0
+            && self.quote_side.reserves.live_reserve > 0
+            && !self.curve_wiped()
         {
             self.accrue_interest_to_slot(current_slot)?;
             self.prepare_amm_for_swap(current_slot)?;
@@ -1347,6 +1360,9 @@ impl Market {
         // debt, custody and hLP checks rather than treating dust as new risk.
         if !self.amm.initialized && self.base_side.shares.srlp_supply == crate::constants::MIN_LIQUIDITY {
             return self.finalize_amm_transition_and_observe_risk(current_slot);
+        }
+        if self.curve_wiped() {
+            return self.observe_wiped_curve(current_slot);
         }
         if self.base_side.reserves.live_reserve > 0 && self.quote_side.reserves.live_reserve > 0 {
             // hLP exposure is checkpointed from actual state. New hLP entry
@@ -1372,19 +1388,24 @@ impl Market {
         // Most scratch quotes share the already-closed slot. Avoid two full
         // debt-kernel calls while preserving their backward-slot checks.
         if self.debt.base_last_accrual_slot == current_slot && self.debt.quote_last_accrual_slot == current_slot {
-            // Debt-share rounding and synthetic hedge changes can alter a
-            // receivable within a slot, even though no new time has elapsed.
+            // Debt-share rounding and synthetic hedge changes can alter
+            // outstanding interest within a slot, even though no new time has
+            // elapsed. Recognition is a compare when nothing changed.
             if self.debt.fixed_base_shares != 0
                 || self.debt.isolated_base_shares != 0
                 || self.quote_hlp_vault.debt_shares != 0
+                || self.base_side.fees.ledger.public_recognized != 0
+                || self.base_side.fees.ledger.funding_recognized != 0
             {
-                accrue_side::<false>(self, MarketAsset::Base, current_slot, Default::default())?;
+                self.recognize_interest(MarketAsset::Base)?;
             }
             if self.debt.fixed_quote_shares != 0
                 || self.debt.isolated_quote_shares != 0
                 || self.base_hlp_vault.debt_shares != 0
+                || self.quote_side.fees.ledger.public_recognized != 0
+                || self.quote_side.fees.ledger.funding_recognized != 0
             {
-                accrue_side::<false>(self, MarketAsset::Quote, current_slot, Default::default())?;
+                self.recognize_interest(MarketAsset::Quote)?;
             }
             return Ok(());
         }
@@ -1463,6 +1484,13 @@ impl Market {
     ) -> Result<CollateralReceipt> {
         borrow_position.require_idle()?;
         require!(collateral_debit > 0, ErrorCode::AmountZero);
+        // A wiped market's risk is frozen at its last observation: a position
+        // that still owes either asset cannot raise its loan-to-value against
+        // that price. Debt-free positions withdraw; repay first otherwise.
+        require!(
+            !self.curve_wiped() || (borrow_position.fixed_base_shares == 0 && borrow_position.fixed_quote_shares == 0),
+            ErrorCode::InterestDeficit
+        );
         let projected_collateral = borrow_position
             .collateral(market_asset)
             .checked_sub(collateral_debit)
@@ -1568,6 +1596,9 @@ impl Market {
         min_liquidation_cf_bps: u16,
         current_slot: u64,
     ) -> Result<DebtReceipt> {
+        // A wiped market's risk is frozen at its last observation; it
+        // extends no new credit against that price.
+        self.require_no_interest_deficit()?;
         if self.oracle.policy.lambda_bps > 0 {
             self.bounded_curve()?;
         }
@@ -1643,7 +1674,7 @@ impl Market {
                     .ok_or(ErrorCode::DebtMathOverflow)?;
             }
         }
-        self.check_borrow_income_capacity(borrow_asset, &projected_debt)?;
+        self.check_borrow_debt_domain(borrow_asset, &projected_debt)?;
         let daily_borrow_limit = self.daily_limit_for_side(borrow_asset, self.config.max_daily_borrow_bps)?;
         self.side_mut(borrow_asset).daily_borrow_bucket.record_borrow(
             borrow_amount,
@@ -1699,6 +1730,8 @@ impl Market {
             .principal(borrow_asset)
             .checked_add(borrow_amount)
             .ok_or(ErrorCode::DebtMathOverflow)?;
+        // Share rounding can put new debt an atom above its principal.
+        self.recognize_interest(borrow_asset)?;
         self.reconcile_global_health_contribution(borrow_position, borrow_asset, target_contribution)?;
         borrow_position.set_liquidation_cf_bps(borrow_asset, terms.liquidation_cf_bps);
         let market_health = self.market_health()?;
@@ -1748,8 +1781,8 @@ impl Market {
     }
 
     /// Native repayment finalizes the curve once, before calculating its final
-    /// health contribution. Interest-vault distribution changes only yield
-    /// ledgers, so it needs no second curve/risk evaluation.
+    /// health contribution. Interest stays in reserve cash; the protocol share
+    /// moves to `protocol_pending` and needs no second curve/risk evaluation.
     pub(crate) fn repay_with_finalization_and_fee(
         &mut self,
         borrow_position: &mut BorrowPosition,
@@ -1759,7 +1792,6 @@ impl Market {
         finalize_at_slot: Option<u64>,
     ) -> Result<DebtReceipt> {
         let curve_reserves_before = self.curve_reserves_nad()?;
-        let unpaid_before = self.public_unpaid_interest(repay_asset)?;
         let repayment = self.fixed_repayment_for_max(borrow_position, repay_asset, repay_credit)?;
         // Instruction handlers preview this amount before moving tokens. Keep
         // the state boundary exact so no transferred atom can become an
@@ -1776,9 +1808,6 @@ impl Market {
             repayment.shares_to_burn,
             aggregate_debt_reduction,
         )?;
-        let live_debit = aggregate_debt_reduction
-            .checked_sub(principal_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         self.side_mut(repay_asset)
             .daily_borrow_bucket
             .record_repayment(principal_credit);
@@ -1806,7 +1835,8 @@ impl Market {
                     .ok_or(ErrorCode::MarketMathOverflow)?;
             }
         }
-        self.settle_public_debt_reserves(repay_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
+        let (protocol_paid, _) =
+            self.settle_public_debt(repay_asset, repay_credit, interest_paid, aggregate_debt_reduction)?;
         let debt_delta = -i128::from(repayment.position_debt_reduced);
         if let Some(slot) = finalize_at_slot {
             self.finalize_debt_repayment(slot, curve_reserves_before)?;
@@ -1832,14 +1862,16 @@ impl Market {
             collateral_fee.unwind_credit(collateral_amount)?,
         )?;
         let market_health = self.market_health()?;
-        DebtReceipt::from_market(
+        let mut receipt = DebtReceipt::from_market(
             self,
             borrow_position,
             debt_delta,
             repayment.cash_repaid,
             interest_paid,
             &market_health,
-        )
+        )?;
+        receipt.protocol_paid = protocol_paid;
+        Ok(receipt)
     }
 
     pub fn fixed_repayment_for_max(

@@ -1,11 +1,7 @@
 use anchor_lang::prelude::*;
 
-use crate::transitions::{
-    lending::total_cash_backed_borrowed,
-    revenue::{split_protocol_auction_fee, split_revenue},
-    SwapFeeBreakdown,
-};
-use crate::{constants::*, errors::ErrorCode, math::*, state::*};
+use crate::transitions::{lending::total_cash_backed_borrowed, revenue::split_protocol_auction_fee, SwapFeeBreakdown};
+use crate::{errors::ErrorCode, math::*, state::*};
 
 impl ReserveShares {
     pub fn shares_for_deposit(&self, reserve_before: u128, deposit_amount: u64) -> Result<u64> {
@@ -80,14 +76,12 @@ impl FeesReceipt {
             swap_fee_growth_index_q64: fees.swap_fee_growth_index_q64,
             interest_growth_index_q64: fees.interest_growth_index_q64,
             swap_fee_liability: fees.swap_fee_liability,
-            interest_liability: fees.interest_liability,
+            credited: fees.ledger.credited,
             unallocated_swap_fee_liability: fees.unallocated_swap_fee_liability,
-            unallocated_interest_liability: fees.unallocated_interest_liability,
             referral_interest_liability: fees.referral_interest_liability,
             protocol_fee_liability: fees.protocol_fee_liability()?,
             buyback_fee_liability: fees.buyback_fee_liability()?,
             swap_fee_custody_balance: fees.swap_fee_custody_balance,
-            interest_vault_balance: fees.interest_vault_balance,
         })
     }
 }
@@ -117,28 +111,6 @@ impl MarketAsset {
 }
 
 impl MarketSide {
-    /// Collected junior underwriting revenue. Existing
-    /// protocol and executor allocations have already been deducted.
-    pub fn record_junior_liquidation_credit(&mut self, credit: u64) -> Result<()> {
-        require!(self.fees.junior.initialized, ErrorCode::BrokenInvariant);
-        let senior = self.fees.junior.allocate(
-            credit,
-            crate::transitions::tranches::TrancheRevenueSource::LiquidationCoverage,
-        )?;
-        require_eq!(senior, 0, ErrorCode::BrokenInvariant);
-        self.fees.interest_vault_balance = self
-            .fees
-            .interest_vault_balance
-            .checked_add(credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_liability = self
-            .fees
-            .interest_liability
-            .checked_add(credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.assert_backed()
-    }
-
     /// Book the already-selected protocol share without another LP deduction.
     pub(crate) fn record_liquidation_protocol_credit(
         &mut self,
@@ -146,11 +118,6 @@ impl MarketSide {
         split: ProtocolAuctionSplit,
     ) -> Result<()> {
         let (fee, buyback) = split_protocol_auction_fee(protocol, &split)?;
-        self.fees.interest_vault_balance = self
-            .fees
-            .interest_vault_balance
-            .checked_add(protocol)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
         self.fees.interest_protocol_fee_liability = self
             .fees
             .interest_protocol_fee_liability
@@ -161,7 +128,7 @@ impl MarketSide {
             .interest_buyback_fee_liability
             .checked_add(buyback)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        self.fees.assert_backed()
+        Ok(())
     }
 
     #[inline(always)]
@@ -172,12 +139,42 @@ impl MarketSide {
         Ok(())
     }
 
+    /// `live_reserve + funding_recognized + deficit − credited −
+    /// protocol_unpaid`: the LP principal backing (PLAN's `P`), floored at
+    /// zero. A pool loss beyond LP capital leaves it at zero until the
+    /// unabsorbed part is recorded as the deficit.
+    pub fn curve_reserve(&self) -> Result<u64> {
+        let (backing, owed) = self.interest_backing_and_claims()?;
+        u64::try_from(backing.saturating_sub(owed)).map_err(|_| ErrorCode::MarketMathOverflow.into())
+    }
+
+    /// Credited interest and the protocol's unpaid share in excess of
+    /// everything the pool holds or is owed, beyond the recorded deficit.
+    pub(crate) fn unrecorded_interest_deficit(&self) -> Result<u128> {
+        let (backing, owed) = self.interest_backing_and_claims()?;
+        Ok(owed.saturating_sub(backing))
+    }
+
+    fn interest_backing_and_claims(&self) -> Result<(u128, u128)> {
+        let ledger = &self.fees.ledger;
+        let backing = self
+            .reserves
+            .live_reserve
+            .checked_add(ledger.funding_recognized)
+            .and_then(|value| value.checked_add(ledger.deficit))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let owed = ledger
+            .credited
+            .checked_add(ledger.protocol_unpaid)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        Ok((backing, owed))
+    }
+
     pub fn srlp_exchange_rate_nad(&self) -> Result<u128> {
         if self.shares.srlp_supply == 0 {
             return Ok(0);
         }
-        self.reserves
-            .live_reserve
+        u128::from(self.curve_reserve()?)
             .checked_mul(crate::constants::NAD as u128)
             .and_then(|value| value.checked_div(self.shares.srlp_supply as u128))
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
@@ -234,7 +231,18 @@ impl MarketSide {
             require_eq!(compounded_dynamic_surcharge_credit, 0, ErrorCode::BrokenInvariant);
             return FeesReceipt::from_side(self);
         }
-        let (protocol_fee, base_lp_fee) = split_revenue(base_fee_credit, protocol_fee_bps)?;
+        require_gte!(
+            crate::constants::BPS_DENOMINATOR,
+            protocol_fee_bps,
+            ErrorCode::InvalidMarketConfig
+        );
+        let protocol_fee = u64::try_from(
+            u128::from(base_fee_credit) * u128::from(protocol_fee_bps) / u128::from(crate::constants::BPS_DENOMINATOR),
+        )
+        .map_err(|_| ErrorCode::FeeMathOverflow)?;
+        let base_lp_fee = base_fee_credit
+            .checked_sub(protocol_fee)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         require_gte!(base_lp_fee, compounded_base_fee_credit, ErrorCode::BrokenInvariant);
         require_gte!(
             distributed_dynamic_surcharge_credit,
@@ -278,81 +286,14 @@ impl MarketSide {
         FeesReceipt::from_side(self)
     }
 
-    /// Record interest paid by an hLP funding position. Its LP share is
-    /// indexed over ordinary srLP plus the permanently burned minimum shares,
-    /// using a source-specific carry so public-interest rounding cannot cross
-    /// into or out of this distribution lane.
-    pub fn record_hlp_funding_interest_credit_with_supply(
-        &mut self,
-        interest_credit: u64,
-        protocol_fee_bps: u16,
-        protocol_auction_split: ProtocolAuctionSplit,
-        eligible_srlp_supply: u64,
-    ) -> Result<FeesReceipt> {
-        if interest_credit == 0 {
-            return FeesReceipt::from_side(self);
-        }
-        require!(eligible_srlp_supply > 0, ErrorCode::BrokenInvariant);
-        let (protocol_fee, lp_interest) = split_revenue(interest_credit, protocol_fee_bps)?;
-        let (fee_auction_amount, buyback_auction_amount) =
-            split_protocol_auction_fee(protocol_fee, &protocol_auction_split)?;
-        let senior = self.fees.junior.allocate(
-            lp_interest,
-            crate::transitions::tranches::TrancheRevenueSource::BorrowInterest,
-        )?;
-        let eligible_srlp_supply = self.fees.junior.senior_supply(eligible_srlp_supply)?;
-        let (growth_delta, remainder_scaled) = distribute_growth_q64(
-            senior,
-            eligible_srlp_supply,
-            self.fees.hlp_funding_interest_growth_remainder_scaled,
-        )?;
-
-        self.fees.interest_vault_balance = self
-            .fees
-            .interest_vault_balance
-            .checked_add(interest_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_protocol_fee_liability = self
-            .fees
-            .interest_protocol_fee_liability
-            .checked_add(fee_auction_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_buyback_fee_liability = self
-            .fees
-            .interest_buyback_fee_liability
-            .checked_add(buyback_auction_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_growth_index_q64 = self
-            .fees
-            .interest_growth_index_q64
-            .checked_add(growth_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_liability = self
-            .fees
-            .interest_liability
-            .checked_add(lp_interest)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        // With no ordinary holder, burned MIN_LIQUIDITY is the complete sink.
-        // Discard its sub-Q64 carry as well so a later depositor cannot inherit
-        // any fraction of already-published funding interest.
-        self.fees.hlp_funding_interest_growth_remainder_scaled = if eligible_srlp_supply == MIN_LIQUIDITY {
-            0
-        } else {
-            remainder_scaled
-        };
-        self.fees.assert_backed()?;
-        FeesReceipt::from_side(self)
-    }
-
-    pub fn settle_referral_interest_claim(&mut self, amount: u64, interest_vault_balance: u64) -> Result<()> {
+    pub fn settle_referral_interest_claim(&mut self, amount: u64) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountZero);
         self.fees.referral_interest_liability = self
             .fees
             .referral_interest_liability
             .checked_sub(amount)
             .ok_or(ErrorCode::FeeMathOverflow)?;
-        self.fees.interest_vault_balance = interest_vault_balance;
-        self.fees.assert_backed()
+        Ok(())
     }
 
     pub fn carry_forward_swap_fees(&mut self) -> Result<()> {
@@ -392,113 +333,50 @@ impl MarketSide {
         Ok(())
     }
 
-    pub fn carry_forward_interest(&mut self) -> Result<()> {
-        self.carry_forward_interest_with_supply(self.shares.srlp_supply)
-    }
-
-    pub fn carry_forward_interest_with_supply(&mut self, supply: u64) -> Result<()> {
-        if supply == 0
-            || (self.fees.unallocated_interest_liability == 0 && self.fees.interest_growth_remainder_scaled == 0)
-        {
-            return Ok(());
-        }
-        let allocated = self.fees.unallocated_interest_liability;
-        let senior = self.fees.junior.allocate(
-            allocated,
-            crate::transitions::tranches::TrancheRevenueSource::BorrowInterest,
-        )?;
-        let supply = self.fees.junior.senior_supply(supply)?;
-        let (growth_delta, remainder_scaled) =
-            distribute_growth_q64(senior, supply, self.fees.interest_growth_remainder_scaled)?;
-        self.fees.interest_growth_index_q64 = self
-            .fees
-            .interest_growth_index_q64
-            .checked_add(growth_delta)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_liability = self
-            .fees
-            .interest_liability
-            .checked_add(allocated)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.unallocated_interest_liability = self
-            .fees
-            .unallocated_interest_liability
-            .checked_sub(allocated)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_growth_remainder_scaled = remainder_scaled;
-        Ok(())
-    }
-
-    pub fn prepare_yield_claim(
-        &mut self,
-        yield_account: &mut YieldAccount,
-        swap_fee_custody_balance: u64,
-        interest_vault_balance: u64,
-        holder_balance: u64,
-    ) -> Result<YieldClaimReceipt> {
+    /// Materialize a holder's swap fees and credited interest from the srLP
+    /// growth indexes.
+    pub fn prepare_yield_claim(&mut self, yield_account: &mut YieldAccount, holder_balance: u64) -> Result<()> {
         self.carry_forward_swap_fees()?;
-        self.carry_forward_interest()?;
         yield_account.accrue(
             holder_balance,
             self.fees.swap_fee_growth_index_q64,
             self.fees.interest_growth_index_q64,
-        )?;
-        let claim_amount = yield_account.claimable_amount()?;
-        require!(claim_amount > 0, ErrorCode::AmountZero);
-        require_gte!(
-            swap_fee_custody_balance,
-            yield_account.accrued_swap_fee_amount,
-            ErrorCode::UnbackedFeeLiability
-        );
-        require_gte!(
-            interest_vault_balance,
-            yield_account.accrued_interest_amount,
-            ErrorCode::UnbackedFeeLiability
-        );
-        Ok(YieldClaimReceipt {
-            claim_amount,
-            swap_fee_amount: yield_account.accrued_swap_fee_amount,
-            interest_amount: yield_account.accrued_interest_amount,
-            remaining_swap_fee_liability: self.fees.swap_fee_liability,
-            remaining_interest_liability: self.fees.interest_liability,
-        })
+        )
     }
 
-    pub fn settle_yield_claim(
-        &mut self,
-        yield_account: &mut YieldAccount,
-        claim_amount: u64,
-        swap_fee_amount: u64,
-        interest_amount: u64,
-    ) -> Result<YieldClaimReceipt> {
+    /// Pay a holder's claim: swap fees in full from swap-fee custody, credited
+    /// interest from reserve cash as it allows. Unpaid interest stays
+    /// claimable on the holder's account.
+    pub fn settle_yield_claim(&mut self, yield_account: &mut YieldAccount) -> Result<YieldClaimReceipt> {
+        let swap_fee_amount = yield_account.accrued_swap_fee_amount;
+        require_gte!(
+            self.fees.swap_fee_custody_balance,
+            swap_fee_amount,
+            ErrorCode::UnbackedFeeLiability
+        );
+        let interest_amount = self.pay_interest(yield_account.accrued_interest_amount)?;
+        let claim_amount = swap_fee_amount
+            .checked_add(interest_amount)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        require!(claim_amount > 0, ErrorCode::AmountZero);
         self.fees.swap_fee_liability = self
             .fees
             .swap_fee_liability
             .checked_sub(swap_fee_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_liability = self
-            .fees
-            .interest_liability
-            .checked_sub(interest_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         self.fees.swap_fee_custody_balance = self
             .fees
             .swap_fee_custody_balance
             .checked_sub(swap_fee_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_vault_balance = self
-            .fees
-            .interest_vault_balance
-            .checked_sub(interest_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        yield_account.clear_claimed();
+        yield_account.clear_claimed(interest_amount)?;
         self.fees.assert_backed()?;
         Ok(YieldClaimReceipt {
             claim_amount,
             swap_fee_amount,
             interest_amount,
+            interest_remaining: yield_account.accrued_interest_amount,
             remaining_swap_fee_liability: self.fees.swap_fee_liability,
-            remaining_interest_liability: self.fees.interest_liability,
         })
     }
 }
@@ -529,6 +407,7 @@ impl Market {
         self.quote_side.assert_share_backing()?;
         self.base_side.fees.assert_backed()?;
         self.quote_side.fees.assert_backed()?;
+        self.assert_interest_ledgers()?;
         if self.base_hlp_vault.hlp_supply == 0 {
             require_eq!(
                 self.base_side.reserves.base_hlp_backing_inventory,
@@ -619,23 +498,23 @@ pub struct FeesReceipt {
     pub swap_fee_growth_index_q64: u128,
     pub interest_growth_index_q64: u128,
     pub swap_fee_liability: u64,
-    pub interest_liability: u64,
+    pub credited: u128,
     pub unallocated_swap_fee_liability: u64,
-    pub unallocated_interest_liability: u64,
     pub referral_interest_liability: u64,
     pub protocol_fee_liability: u64,
     pub buyback_fee_liability: u64,
     pub swap_fee_custody_balance: u64,
-    pub interest_vault_balance: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct YieldClaimReceipt {
     pub claim_amount: u64,
     pub swap_fee_amount: u64,
+    /// Interest paid now, limited by reserve cash.
     pub interest_amount: u64,
+    /// Credited interest still claimable by the holder.
+    pub interest_remaining: u64,
     pub remaining_swap_fee_liability: u64,
-    pub remaining_interest_liability: u64,
 }
 
 #[cfg(test)]

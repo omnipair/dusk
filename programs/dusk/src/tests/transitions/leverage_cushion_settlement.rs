@@ -27,7 +27,7 @@ pub(super) fn sale(market: &Market, asset: MarketAsset, amount: u64, slot: u64) 
         reserve_credit: amount,
         protocol_fee_bps: 0,
     }
-    .prepare(&mut trial, &Default::default())?;
+    .prepare(&mut trial)?;
     let output = prepared.quote.amount_out;
     prepared.finalize_state(&mut trial, slot, 0, ProtocolAuctionSplit::default())?;
     Ok((trial, output))
@@ -193,7 +193,7 @@ pub(super) fn settle(
     }
     let protocol = fill.contribution / 5;
     trial.side_mut(debt_asset).record_liquidation_protocol_credit(protocol, ProtocolAuctionSplit::default())?;
-    trial.side_mut(debt_asset).record_junior_liquidation_credit(fill.contribution - protocol)?;
+    trial.record_junior_liquidation_credit(debt_asset, fill.contribution - protocol)?;
     trial.assert_market_invariants()?;
     require_eq!(trial.base_hlp_vault.residual_exposure, 0, ErrorCode::BrokenInvariant);
     require_eq!(trial.quote_hlp_vault.residual_exposure, 0, ErrorCode::BrokenInvariant);

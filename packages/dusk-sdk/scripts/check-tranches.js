@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RISK_RATE_DEFAULTS, riskCoverageSignalNad } from "../dist/risk-pricing.js";
-import { deriveIncomeEpochAddress, deriveJuniorMintAddress, deriveJuniorExitAddress, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
+import { deriveJuniorMintAddress, deriveJuniorExitAddress, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
 import { PublicKey } from "@solana/web3.js";
 import anchor from "@coral-xyz/anchor";
 import IDL from "../dist/idl_v2.js";
@@ -52,14 +52,11 @@ test("creation defaults retain the approved half-life and explicit uncapped rate
   assert.equal("maximumAprNad" in RISK_RATE_DEFAULTS, false);
 });
 
-test("junior generations and archived income sources cannot share addresses", () => {
+test("junior generations cannot share addresses", () => {
   const market = new PublicKey(new Uint8Array(32).fill(21));
   const owner = new PublicKey(new Uint8Array(32).fill(22));
   const [first] = deriveJuniorMintAddress(market, 0n);
   const [second] = deriveJuniorMintAddress(market, 1n);
   assert(!first.equals(second));
   assert(!deriveJuniorExitAddress(market, owner, first)[0].equals(deriveJuniorExitAddress(market, owner, second)[0]));
-  const addresses = [0, 1, 2, 3].flatMap(book => [0n, 1n].map(epoch => deriveIncomeEpochAddress(market, book, epoch)[0].toBase58()));
-  assert.equal(new Set(addresses).size, 8);
-  assert.throws(() => deriveIncomeEpochAddress(market, 4, 0n));
 });

@@ -67,12 +67,12 @@ impl Market {
             .checked_sub(repayment)
             .and_then(|v| v.checked_sub(fee.total))
             .ok_or(ErrorCode::BrokenInvariant)?;
-        let junior_fee_debit = debt_fee.effective_gross_for_credit(fee.junior)?;
-        let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.protocol)?;
+        // Junior and protocol fees stay in the reserve vault; only the owner
+        // surplus is transferred out and carries a transfer fee.
         let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
         let obligation = repayment
-            .checked_add(junior_fee_debit)
-            .and_then(|v| v.checked_add(revenue_fee_debit))
+            .checked_add(fee.junior)
+            .and_then(|v| v.checked_add(fee.protocol))
             .and_then(|v| v.checked_add(owner_debit))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         Ok(FlashAmmSettlementTerms {
@@ -142,9 +142,10 @@ impl Market {
     }
 
     /// Apply a measured external recovery after the physical repayment and
-    /// debt transfers have succeeded. Token handlers separately move paid
-    /// interest and fees into their custody accounts. No unpaid interest earns
-    /// a fee or referral entitlement.
+    /// debt transfers have succeeded. Recovery pays principal first; paid
+    /// interest stays in reserve cash and its protocol share leaves cash for
+    /// `protocol_pending`. No unpaid interest earns a fee or referral
+    /// entitlement. Returns the loss allocation and the protocol share paid.
     pub(crate) fn settle_flash_recovery(
         &mut self,
         position: &mut LiquidationPositionMut<'_>,
@@ -154,12 +155,11 @@ impl Market {
         sale_recovery: u64,
         full: bool,
         slot: u64,
-    ) -> Result<LiquidationLossAllocation> {
+    ) -> Result<(LiquidationLossAllocation, u64)> {
         let current = self.liquidation_debt_allocation(&position.as_ref(), asset, allocation.shares)?;
         require!(current == allocation, ErrorCode::InvalidLiquidationSession);
         let before_curve = self.curve_reserves_nad()?;
         let inventory_before = self.ordinary_inventory_point_nad()?;
-        let unpaid_before = self.public_unpaid_interest(asset)?;
         let collateral_before = position.as_ref().collateral(asset);
         require!(
             collateral_debit > 0 && collateral_debit <= collateral_before,
@@ -177,11 +177,10 @@ impl Market {
         }
         let debt_principal = allocation.principal.min(allocation.debt);
         let loss = LiquidationLossAllocation::quote(debt_principal, allocation.debt, sale_recovery)?;
-        let principal_credit = loss.principal_repaid;
-        let live_debit = allocation
-            .debt
-            .checked_sub(principal_credit)
-            .ok_or(ErrorCode::ReserveUnderflow)?;
+        let cash_repaid = loss
+            .principal_repaid
+            .checked_add(loss.interest_paid)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         let (aggregate_shares, aggregate_principal) =
             match (matches!(position, LiquidationPositionMut::Leverage(_)), asset) {
                 (false, MarketAsset::Base) => (&mut self.debt.fixed_base_shares, &mut self.debt.fixed_base_principal),
@@ -203,16 +202,16 @@ impl Market {
         *aggregate_principal = aggregate_principal
             .checked_sub(allocation.principal)
             .ok_or(ErrorCode::DebtMathOverflow)?;
-        let advanced =
-            self.settle_public_debt_reserves(asset, unpaid_before, loss.interest_paid, live_debit, principal_credit)?;
+        let (protocol_paid, pool_loss) =
+            self.settle_public_debt(asset, cash_repaid, loss.interest_paid, allocation.debt)?;
         self.apply_liquidation_position(position, asset, allocation, collateral_debit, full)?;
-        if loss.principal_written_off > 0 || advanced.canceled > advanced.revenue_returned {
+        if pool_loss > 0 {
             self.finalize_amm_socialized_loss_and_observe_risk(slot, inventory_before)?;
         } else {
             self.finalize_debt_repayment(slot, before_curve)?;
         }
         self.reconcile_liquidation_position(position, asset, allocation.remaining_debt)?;
-        Ok(loss)
+        Ok((loss, protocol_paid))
     }
 
     /// The shared position half of settlement. The caller has already removed

@@ -3,7 +3,7 @@ pub(crate) mod amm_liquidation;
 mod amounts;
 pub(crate) mod flash_liquidation;
 pub(crate) mod flash_settlement;
-pub(crate) mod interest_advance;
+pub(crate) mod interest_ledger;
 pub(crate) mod ledger;
 pub(crate) mod lending;
 mod leverage;
@@ -31,7 +31,4 @@ pub mod tranches;
 
 mod curve_ramp;
 
-mod operator_revenue;
-pub use crate::state::InterestRevenueBook;
-pub(crate) use operator_revenue::InterestRevenueCredit;
-pub(crate) use tranches::FundingFeePayment;
+pub(crate) use interest_ledger::{HeldInterestUse, InterestCredit, InterestSource, ProtocolCash};

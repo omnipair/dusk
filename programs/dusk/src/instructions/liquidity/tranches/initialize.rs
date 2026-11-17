@@ -76,11 +76,10 @@ impl InitializeJunior<'_> {
             market.checkpoint_junior_seed()?;
             old.final_income = [market.base_side.fees.junior, market.quote_side.fees.junior];
             old.retired = true;
-            old.income_end = market.income.get()?.junior_end;
-            market.income.get_mut()?.junior_end = Default::default();
             market.tranches.retire_wiped_generation()?;
             // Active reconciliation tracks only receipts of the replacement mint.
-            // Retired receipt owners retain their original mint and income claims.
+            // Retired receipt owners keep their original mint and harvest
+            // credited interest from the frozen final indexes.
 
             let income_share_bps = market.tranche_policy.junior_income_share_bps;
             for asset in [crate::state::MarketAsset::Base, crate::state::MarketAsset::Quote] {

@@ -11,21 +11,19 @@ use anchor_lang::prelude::*;
 const SEED_COMPOUND_MAX_PRICE_DISTANCE_NAD: u128 = crate::constants::NAD as u128 / 10_000;
 
 impl Market {
-    pub fn fund_junior_seed(&mut self, asset: MarketAsset, debit: u64, credit: u64) -> Result<()> {
-        require_gte!(debit, credit, ErrorCode::BrokenInvariant);
-        let fees = &mut self.side_mut(asset).fees;
+    /// Move the seed's credited interest that reserve cash can pay into
+    /// swap-fee custody, where `compound_junior_seed` reinvests it. The atoms
+    /// stay in the reserve vault; no token transfer is involved. Returns the
+    /// amount moved.
+    pub fn fund_junior_seed(&mut self, asset: MarketAsset) -> Result<u64> {
+        self.checkpoint_junior_seed()?;
+        let side = self.side_mut(asset);
+        let credit = side.pay_interest(side.fees.junior.seed_interest_amount)?;
+        let fees = &mut side.fees;
         fees.junior.seed_interest_amount = fees
             .junior
             .seed_interest_amount
-            .checked_sub(debit)
-            .ok_or(ErrorCode::UnbackedFeeLiability)?;
-        fees.interest_liability = fees
-            .interest_liability
-            .checked_sub(debit)
-            .ok_or(ErrorCode::UnbackedFeeLiability)?;
-        fees.interest_vault_balance = fees
-            .interest_vault_balance
-            .checked_sub(debit)
+            .checked_sub(credit)
             .ok_or(ErrorCode::UnbackedFeeLiability)?;
         fees.junior.seed_swap_amount = fees
             .junior
@@ -40,7 +38,8 @@ impl Market {
             .swap_fee_custody_balance
             .checked_add(credit)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        fees.assert_backed()
+        fees.assert_backed()?;
+        Ok(credit)
     }
 
     /// Reinvest a balanced slice without granting any senior tokens. The

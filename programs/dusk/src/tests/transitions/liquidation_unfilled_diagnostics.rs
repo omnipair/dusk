@@ -54,7 +54,7 @@ fn diagnose_unfilled(
                 reserve_credit: input,
                 protocol_fee_bps: 0,
             }
-            .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote, &Default::default());
+            .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote);
             if let Ok(swap) = swap {
                 println!(
                     "UNFILLED_COST,{id},{base_only},{bps},{input},{},{},{},{},{}",

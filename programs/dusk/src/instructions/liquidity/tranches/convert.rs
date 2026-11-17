@@ -80,7 +80,7 @@ impl<'info> ConvertTranche<'info> {
             &mut a.market,
             slot,
             a.event_authority.to_account_info(),
-            a.futarchy_authority.revenue_share.interest_bps,
+            &a.futarchy_authority,
         )?;
         a.market.reconcile_junior_receipts(a.junior_mint.supply)?;
         a.market.checkpoint_junior_seed()?;
@@ -144,8 +144,6 @@ impl<'info> ConvertTranche<'info> {
                 a.exit.ticket.receipts,
                 ErrorCode::BrokenInvariant
             );
-            a.market.checkpoint_holder_income(senior, a.owner_senior.amount, None)?;
-            a.market.checkpoint_holder_income(junior, a.owner_junior.amount, None)?;
             let fees = &a.market.side(asset).fees;
             senior.accrue(
                 a.owner_senior.amount,

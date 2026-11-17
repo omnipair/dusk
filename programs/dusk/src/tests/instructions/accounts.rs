@@ -377,34 +377,21 @@ fn reserve_custody_covers_cash_fees_and_hlp_backing_without_rejecting_donations(
 }
 
 #[test]
-fn interest_asset_extension_does_not_shift_delegate_callback_accounts() {
+fn hlp_prefix_is_three_accounts_and_callbacks_follow_it() {
     let mut market = Market::current_layout();
     market.base_hlp_vault.hlp_supply = 1;
     market.srlp_mint = Pubkey::new_unique();
     market.base_hlp_vault.srlp_vault = Pubkey::new_unique();
     market.quote_hlp_vault.srlp_vault = Pubkey::new_unique();
-    market.base_side.interest_vault = Pubkey::new_unique();
-    market.quote_side.interest_vault = Pubkey::new_unique();
-    market.base_side.asset_mint = Pubkey::new_unique();
-    market.quote_side.asset_mint = Pubkey::new_unique();
-    market.base_side.reserve_vault = Pubkey::new_unique();
-    market.quote_side.reserve_vault = Pubkey::new_unique();
     let info = |key| AccountInfo::new(Box::leak(Box::new(key)), false, true,
         Box::leak(Box::new(1)), Box::leak(Vec::new().into_boxed_slice()),
         Box::leak(Box::new(Token2022::id())), false, 0);
     let prefix = [market.srlp_mint, market.base_hlp_vault.srlp_vault,
-        market.quote_hlp_vault.srlp_vault, market.base_side.interest_vault,
-        market.quote_side.interest_vault].map(info);
-    let assets = [market.base_side.asset_mint, market.quote_side.asset_mint,
-        market.base_side.reserve_vault, market.quote_side.reserve_vault].map(info);
+        market.quote_hlp_vault.srlp_vault].map(info);
     let callback = info(Pubkey::new_unique());
-    for with_extension in [false, true] {
-        let mut accounts = prefix.to_vec();
-        if with_extension { accounts.extend(assets.iter().cloned()); }
-        accounts.push(callback.clone());
-        if !with_extension { accounts.extend(assets.iter().cloned()); }
-        let layout = HlpSwapAccountLayout::try_from((&market, accounts.as_slice())).unwrap();
-        assert_eq!(layout.hook_accounts(&accounts)[0].key(), callback.key());
-        assert_eq!(layout.prefix_len, if with_extension { 9 } else { 5 });
-    }
+    let mut accounts = prefix.to_vec();
+    accounts.push(callback.clone());
+    let layout = HlpSwapAccountLayout::try_from((&market, accounts.as_slice())).unwrap();
+    assert_eq!(layout.prefix_len, 3);
+    assert_eq!(layout.hook_accounts(&accounts)[0].key(), callback.key());
 }

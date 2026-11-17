@@ -16,7 +16,13 @@ impl HlpVault {
     }
 
     pub fn checkpoint_yield_from_srlp(&mut self, base_side: &MarketSide, quote_side: &MarketSide) -> Result<()> {
-        self.checkpoint_yield_from_srlp_shares(base_side, quote_side, self.srlp_shares)
+        self.checkpoint_yield_from_srlp_shares(
+            [
+                base_side.fees.swap_fee_growth_index_q64,
+                quote_side.fees.swap_fee_growth_index_q64,
+            ],
+            self.srlp_shares,
+        )
     }
 }
 

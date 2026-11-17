@@ -206,28 +206,6 @@ pub struct InitializeMarket<'info> {
         bump
     )]
     pub quote_collateral_vault: UncheckedAccount<'info>,
-    /// CHECK: Non-compounding interest vault PDA for the base asset.
-    #[account(
-        mut,
-        seeds = [
-            MARKET_INTEREST_VAULT_SEED_PREFIX,
-            market.key().as_ref(),
-            base_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub base_interest_vault: UncheckedAccount<'info>,
-    /// CHECK: Non-compounding interest vault PDA for the quote asset.
-    #[account(
-        mut,
-        seeds = [
-            MARKET_INTEREST_VAULT_SEED_PREFIX,
-            market.key().as_ref(),
-            quote_mint.key().as_ref(),
-        ],
-        bump
-    )]
-    pub quote_interest_vault: UncheckedAccount<'info>,
 
     /// CHECK: Validated against futarchy_authority.recipients.team_treasury.
     #[account(address = futarchy_authority.recipients.team_treasury @ ErrorCode::InvalidRecipient)]
@@ -314,7 +292,7 @@ impl<'info> InitializeMarket<'info> {
         let base_collateral_vault = ctx.accounts.base_collateral_vault.key();
         let quote_collateral_vault = ctx.accounts.quote_collateral_vault.key();
 
-        // Create reserve, collateral, and interest vaults for both assets.
+        // Create reserve and collateral vaults for both assets.
         let base_token_program = token_program_for_mint(
             &ctx.accounts.base_mint,
             &ctx.accounts.token_program,
@@ -365,26 +343,6 @@ impl<'info> InitializeMarket<'info> {
             MARKET_COLLATERAL_VAULT_SEED_PREFIX,
             ctx.bumps.quote_collateral_vault,
         )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.base_interest_vault,
-            &ctx.accounts.base_mint,
-            &ctx.accounts.system_program,
-            &base_token_program,
-            MARKET_INTEREST_VAULT_SEED_PREFIX,
-            ctx.bumps.base_interest_vault,
-        )?;
-        create_vault_token_account(
-            &ctx.accounts.market,
-            &ctx.accounts.payer,
-            &ctx.accounts.quote_interest_vault,
-            &ctx.accounts.quote_mint,
-            &ctx.accounts.system_program,
-            &quote_token_program,
-            MARKET_INTEREST_VAULT_SEED_PREFIX,
-            ctx.bumps.quote_interest_vault,
-        )?;
 
         // Collect the market-creation fee in the treasury's native-token account.
         invoke(
@@ -416,7 +374,6 @@ impl<'info> InitializeMarket<'info> {
             hlp_mint: base_hlp_mint,
             reserve_vault: ctx.accounts.base_reserve_vault.key(),
             collateral_vault: base_collateral_vault,
-            interest_vault: ctx.accounts.base_interest_vault.key(),
             ..MarketSide::default()
         });
         let quote_side = Box::new(MarketSide {
@@ -425,7 +382,6 @@ impl<'info> InitializeMarket<'info> {
             hlp_mint: quote_hlp_mint,
             reserve_vault: ctx.accounts.quote_reserve_vault.key(),
             collateral_vault: quote_collateral_vault,
-            interest_vault: ctx.accounts.quote_interest_vault.key(),
             ..MarketSide::default()
         });
         let base_hlp_srlp_vault = derive_hlp_srlp_vault_address(market_key, base_hlp_mint, srlp_mint).0;

@@ -298,11 +298,7 @@ impl<'info> AddLiquidity<'info> {
         {
             let market = &mut ctx.accounts.market;
             market.base_side.carry_forward_swap_fees()?;
-            market.base_side.carry_forward_interest()?;
             market.quote_side.carry_forward_swap_fees()?;
-            market.quote_side.carry_forward_interest()?;
-            market.checkpoint_holder_income(&mut base_yield_account, ctx.accounts.owner_srlp_account.amount, None)?;
-            market.checkpoint_holder_income(&mut quote_yield_account, ctx.accounts.owner_srlp_account.amount, None)?;
             base_yield_account.accrue(
                 ctx.accounts.owner_srlp_account.amount,
                 market.base_side.fees.swap_fee_growth_index_q64,

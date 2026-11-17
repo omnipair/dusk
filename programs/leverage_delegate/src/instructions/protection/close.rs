@@ -1,9 +1,11 @@
 use super::*;
 
 /// Close a cancelled order after its LP escrow is spent or refunded and its
-/// earned yield is harvested. The order and its custody token accounts return
+/// swap fees are harvested. The order and its custody token accounts return
 /// their rent to the sponsor; any asset balance left in custody goes to the
-/// sponsor's token account first. Dusk keeps the order's yield accounts.
+/// sponsor's token account first. Dusk keeps the order's yield accounts, so
+/// interest a cash-limited harvest could not pay stays claimable by their
+/// recipient, the sponsor.
 #[derive(Accounts)]
 pub struct CloseProtectionOrder<'info> {
     #[account(mut, close = owner,
@@ -53,9 +55,13 @@ impl<'info> CloseProtectionOrder<'info> {
             a.quote_mint.key(),
             LeverageDelegateError::InvalidTokenAccount
         );
-        // Dusk's harvest reads the LP custody account this closes, so both
-        // yield accounts must have nothing left to claim. Dusk only creates a
-        // yield account for its market's assets, which binds both mints.
+        // Swap fees are always payable, so a harvest clears them. Credited
+        // interest is paid as reserve cash allows; what is left stays on the
+        // yield account. Its recipient (the sponsor) harvests it from Dusk
+        // directly, passing this order as owner and the order's canonical LP
+        // account, which anyone can recreate after this close. Dusk only
+        // creates a yield account for its market's assets, which binds both
+        // mints.
         for (yield_account, mint) in [
             (&a.base_yield_account, a.base_mint.key()),
             (&a.quote_yield_account, a.quote_mint.key()),
@@ -70,12 +76,7 @@ impl<'info> CloseProtectionOrder<'info> {
                 LeverageDelegateError::InvalidOrder
             );
             require!(
-                yield_account.accrued_swap_fee_amount == 0
-                    && yield_account.accrued_interest_amount == 0
-                    && yield_account
-                        .income
-                        .iter()
-                        .all(|claim| claim.claimable == 0),
+                yield_account.accrued_swap_fee_amount == 0,
                 LeverageDelegateError::UnclaimedYield
             );
         }
