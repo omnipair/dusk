@@ -1,6 +1,7 @@
 import { DuskWrite } from "../write.js";
 import { oracleReadAccounts, encodeOraclePolicy } from "../oracle.js";
 import { DEFAULT_READONLY_PUBLIC_KEY } from "../address.js";
+import { LAUNCH_FEE_DECAY_DISABLED, LAUNCH_RATE_LIMIT_ASSET_DISABLED } from "../parameters.js";
 import * as anchor from "@coral-xyz/anchor";
 import type { Program } from "@coral-xyz/anchor";
 const BN: typeof anchor.BN = Reflect.get(anchor, "BN") ?? Reflect.get(anchor, "default")?.BN;
@@ -43,6 +44,11 @@ export type DuskVirtualBookQuotes = DuskVirtualBookSnapshot & {
 const CLOCK_OWNER = "Sysvar1111111111111111111111111111111111111";
 const BATCH_SIZE = 4;
 const U64_MAX = (1n << 64n) - 1n;
+const NAD = 1_000_000_000n;
+/** Matches the stream clients' first-to-last quote slot limit. */
+const MAX_CLOCK_SPREAD_SLOTS = 8;
+/** One part per million: 0.01 bps, a five-hundredth of the finest grouping. */
+const MAX_CLOCK_DRIFT_NAD = 1_000n;
 const raw = (value: { toString(): string }) => {
   const amount = BigInt(value.toString());
   if (amount < 0n || amount > U64_MAX) throw new Error("Invalid depth amount");
@@ -164,10 +170,13 @@ export function decodeDuskVirtualBookBatch(
     quotes,
     slot,
     epoch,
-    // Include every source account, including Clock: previews use its slot and
-    // timestamp for fees and interest without persisting those changes. Equal
-    // market bytes alone do not make batches one coherent depth snapshot.
+    unixTimestamp: clock.data.readBigInt64LE(32),
+    // Every source account except Clock: market, mints, authority and oracle
+    // feeds. Equal bytes mean no transaction touched any quote input between
+    // batches. The Clock is compared on its own in combineVirtualBookBatches,
+    // because parallel simulations reach confirmed banks a few slots apart.
     state: infos
+      .filter((_, index) => index !== 4)
       .map((info) => `${info.owner}:${info.data.toString("base64")}`)
       .join("|"),
   };
@@ -271,7 +280,17 @@ export async function previewVirtualBookQuotes(
   return combineVirtualBookBatches(snapshot, groupingBps, curve.mid, results);
 }
 
-/** Refuse to combine observations across trades, fee changes, epochs or stale banks. */
+/** Refuse to combine observations across trades, fee changes, epochs or stale banks.
+ *
+ * Batches may come from confirmed banks up to eight slots apart when no
+ * transaction touched their inputs. Within one epoch, a swap preview reads the
+ * Clock for interest, EMA and volatility decay (at a fixed 200 ms per slot,
+ * half-lives of at least one minute), the concentration ramp, recentring gates
+ * and the Unix-timestamp launch fees. Combining then requires everything a
+ * Clock change could move to agree: no active ramp, launch windows over unless
+ * the timestamps match, one centre, and start prices and volatility surcharges
+ * within one part per million.
+ */
 export function combineVirtualBookBatches(
   snapshot: DuskVirtualBookSnapshot,
   groupingBps: number,
@@ -284,16 +303,61 @@ export function combineVirtualBookBatches(
     ? Math.min(...results.map((result) => result.slot))
     : snapshot.slot;
   if (
-    lastSlot - firstQuoteSlot > 8 ||
+    lastSlot - firstQuoteSlot > MAX_CLOCK_SPREAD_SLOTS ||
     results.some(
       (result) =>
         result.slot < snapshot.slot || result.state !== first.state || result.epoch !== first.epoch
     )
   )
     throw new Error("Market depth changed during native previews");
+  if (
+    results.some(
+      (result) => result.slot !== first.slot || result.unixTimestamp !== first.unixTimestamp
+    )
+  ) {
+    // A ramp applies a new curve candidate each slot. Launch fees and the launch
+    // size limit step with whole Unix seconds until their windows end.
+    const { amm, config } = first.market;
+    const fees = config.amm;
+    const feeWindow =
+      fees.launchFeeDecayMode !== LAUNCH_FEE_DECAY_DISABLED || fees.launchMarketPriceStepBps > 0
+        ? BigInt(fees.launchFeeDurationSeconds.toString())
+        : 0n;
+    const limitWindow =
+      fees.launchRateLimitAsset !== LAUNCH_RATE_LIMIT_ASSET_DISABLED
+        ? BigInt(fees.launchRateLimitDurationSeconds.toString())
+        : 0n;
+    const launchEnd =
+      BigInt(config.startTime.toString()) + (feeWindow > limitWindow ? feeWindow : limitWindow);
+    if (
+      amm.concentrationRamp.active ||
+      (results.some((result) => result.unixTimestamp !== first.unixTimestamp) &&
+        results.some((result) => result.unixTimestamp < launchEnd))
+    )
+      throw new Error("Market depth changed during native previews");
+  }
   const allQuotes = results.flatMap((result) => result.quotes);
   const start = allQuotes[0]?.preview.startPriceNad.toString();
-  if (allQuotes.some((quote) => quote.preview.startPriceNad.toString() !== start))
+  const center = allQuotes[0]?.preview.centerPriceNad.toString();
+  const bounds = (values: bigint[]) => [
+    values.reduce((a, b) => (a < b ? a : b), values[0] ?? 0n),
+    values.reduce((a, b) => (a > b ? a : b), 0n),
+  ];
+  const [lowStart, highStart] = bounds(allQuotes.map((quote) => raw(quote.preview.startPriceNad)));
+  const [lowVolatility, highVolatility] = bounds(
+    allQuotes.map((quote) => raw(quote.preview.decayedVolatilityNad))
+  );
+  const [, volatilityRate] = bounds(
+    allQuotes.map((quote) => raw(quote.preview.volatilityFeeRateNad))
+  );
+  // Interest accrual moves the reserves, and with them the start price, by
+  // the elapsed slots. The volatility surcharge rate scales at most linearly
+  // with decayed volatility. Both stay within one part per million.
+  if (
+    allQuotes.some((quote) => quote.preview.centerPriceNad.toString() !== center) ||
+    (highStart - lowStart) * NAD > MAX_CLOCK_DRIFT_NAD * lowStart ||
+    volatilityRate * (highVolatility - lowVolatility) > MAX_CLOCK_DRIFT_NAD * highVolatility
+  )
     throw new Error("Market depth price changed during native previews");
   return {
     ...snapshot,
