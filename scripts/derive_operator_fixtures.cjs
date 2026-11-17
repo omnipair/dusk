@@ -60,7 +60,7 @@ function adapt(value,type) {
   if(type.option)return value==null?null:adapt(value,type.option);
   const def=newIdl.types.find(t=>t.name===(type.defined.name??type.defined));
   if(def.type.kind==='enum')return value??{[def.type.variants[0].name]:{}};
-  return Object.fromEntries(def.type.fields.map(field=>[field.name,adapt(value?.[field.name] ?? (field.name==="revenue_escrow"?value?.protocol_escrow:field.name==="revenue_release_pending"?value?.protocol_release_pending:undefined),field.type)]));
+  return Object.fromEntries(def.type.fields.map(field=>[field.name,adapt(value?.[field.name],field.type)]));
 }
 function encode(data) {
   const old=oldCoder.decode('Market',data);
@@ -69,8 +69,6 @@ function encode(data) {
   market.config.irm.lower_utilization_bps=7_500;
   market.config.irm.upper_utilization_bps=old.config.irm.borrow_utilization_limit_bps;
   restate(market,MARKET_AMOUNTS,amountFactor(market));
-  // Every captured income epoch began at genesis or an archived roll, so no
-  // drain run spans it (run_length 0) and growth restarted at zero.
   return encodeAccount('Market',market);
 }
 function encodeAccount(name,value) {
@@ -80,7 +78,9 @@ function encodeAccount(name,value) {
 }
 const oldAuthority=oldCoder.decode('FutarchyAuthority',original('programs/dusk/src/tests/fixtures/vob-authority-20260929.bin'));
 const authority=encodeAccount('FutarchyAuthority',adapt(oldAuthority,{defined:{name:'FutarchyAuthority'}}));
-const authorityTarget=`programs/dusk/src/tests/fixtures/vob-authority-layout${layout}.bin`;
+// The FutarchyAuthority layout has not changed since Market layout 18, so its
+// derived fixture keeps that name; a layout change shows up as a diff here.
+const authorityTarget='programs/dusk/src/tests/fixtures/vob-authority-layout18.bin';
 writeFileSync(authorityTarget,authority);
 process.stdout.write(`${authorityTarget} ${createHash('sha256').update(authority).digest('hex')}\n`);
 for(const name of ['hlp-entry','vob-market','hlp-entry-funding']) {
@@ -118,7 +118,7 @@ if(adaptedMarket.bump!==marketBump){
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero, and each income book starts a new drain run at its current epoch. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero, and the accrued-interest ledger starts empty, so the first accrual recognizes the captured outstanding interest and credits it to the holders of record. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
 const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
 writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
 process.stdout.write(`${batchTarget}\n`);

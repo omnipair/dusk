@@ -70,8 +70,6 @@ fn checkpoints_yield_account_with_pre_transfer_balance() {
     let lp_mint = Pubkey::new_unique();
     let asset_mint = Pubkey::new_unique();
     let mut yield_account = YieldAccount {
-        income_initialized: false,
-        income: Default::default(),
         escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
@@ -121,7 +119,6 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let market_key = Pubkey::new_unique();
     let mut market = Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -171,7 +168,8 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         bump: 0,
     };
     market.base_side.shares.srlp_supply = 100;
-    market.base_side.fees.unallocated_interest_liability = 100;
+    market.base_side.fees.swap_fee_custody_balance = 100;
+    market.base_side.fees.unallocated_swap_fee_liability = 100;
     market.base_hlp_vault.srlp_shares = 100;
     market.base_hlp_vault.hlp_supply = 100;
 
@@ -183,8 +181,8 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
                 lp_mint: base_hlp_mint,
                 asset_mint: base_mint,
                 token_kind: YieldTokenKind::Hlp,
-                swap_fee_growth_index_q64: 10,
-                interest_growth_index_q64: YIELD_GROWTH_SCALE_Q64 + 11,
+                swap_fee_growth_index_q64: YIELD_GROWTH_SCALE_Q64 + 10,
+                interest_growth_index_q64: 11,
             }),
             Some(YieldContext {
                 lp_mint: base_hlp_mint,
@@ -220,8 +218,6 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     let owner = Pubkey::new_unique();
     let recipient = Pubkey::new_unique();
     let mut source_yield = YieldAccount {
-        income_initialized: false,
-        income: Default::default(),
         escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
@@ -239,8 +235,6 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
         bump: 0,
     };
     let mut destination_yield = YieldAccount {
-        income_initialized: false,
-        income: Default::default(),
         escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
@@ -284,8 +278,8 @@ fn virtual_hlp_context_checkpoints_pending_yield_before_transfer() {
     checkpoint_yield_account_state(&mut destination_yield, context, 0).unwrap();
     checkpoint_yield_account_state(&mut destination_yield, context, 100).unwrap();
 
-    assert_eq!(source_yield.accrued_interest_amount, 100);
-    assert_eq!(destination_yield.accrued_interest_amount, 0);
+    assert_eq!(source_yield.accrued_swap_fee_amount, 100);
+    assert_eq!(destination_yield.accrued_swap_fee_amount, 0);
 }
 
 #[test]
@@ -437,7 +431,6 @@ fn transfer_checkpoint_rejects_readonly_yield_accounts_before_deserializing() {
             context,
             context,
             0,
-        None,
     )
         .unwrap_err(),
         error!(ErrorCode::InvalidYieldAccount)

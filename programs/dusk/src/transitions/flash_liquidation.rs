@@ -380,9 +380,15 @@ impl Market {
         // Reserve two owner atoms for aggregate debt/fee rounding at settle.
         // Unused custody is refunded to the buyer. Grossing this reserve up
         // matters for capped transfer fees: splitting one transfer into two
-        // may cost more than the reduction in the original transfer.
+        // may cost more than the reduction in the original transfer. The
+        // repayment and both liquidation fees reach the reserve vault in one
+        // transfer.
         let owner_bound = owner_surplus.checked_add(2).ok_or(ErrorCode::MarketMathOverflow)?;
-        for net in [repayment, fee.junior, fee.protocol, owner_bound] {
+        let reserve_credit = repayment
+            .checked_add(fee.junior)
+            .and_then(|value| value.checked_add(fee.protocol))
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        for net in [reserve_credit, owner_bound] {
             if net > 0 {
                 payment = payment
                     .checked_add(debt_fee.effective_gross_for_credit(net)?)

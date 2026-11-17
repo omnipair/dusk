@@ -10,7 +10,7 @@ fn cmp_trade(m: &Market, a: MarketAsset, gross: u64, f: LeverageCollateralFee) -
         reserve_credit: f.unwind_credit(gross)?,
         protocol_fee_bps: 2000,
     }
-    .prepare(&mut t, &Default::default())?;
+    .prepare(&mut t)?;
     let out = f.unwind_credit(s.quote.amount_out)?;
     s.finalize_state(&mut t, 2, 2000, ProtocolAuctionSplit::default())?;
     t.assert_market_invariants()?;
@@ -72,10 +72,7 @@ fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 6]> {
         let s = t.side(asset);
         let f = &s.fees;
         lpfees += cmp_value(
-            f.swap_fee_liability
-                + f.interest_liability
-                + f.unallocated_swap_fee_liability
-                + f.unallocated_interest_liability,
+            f.swap_fee_liability + u64::try_from(f.ledger.credited).unwrap() + f.unallocated_swap_fee_liability,
             asset,
             debt,
             mark,
@@ -484,7 +481,7 @@ fn cmp_current_candidate(
                         reserve_credit: credit,
                         protocol_fee_bps: 2000,
                     })
-                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote, &Default::default())
+                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote)
                     {
                         Ok(s) => s,
                         Err(_) => continue,
@@ -618,7 +615,9 @@ fn cmp_publish_fee(
     _slot: u64,
     e: HlpYieldEligibility,
 ) -> Result<()> {
-    m.side_mut(side).record_junior_liquidation_credit(fee.junior)?;
+    if fee.junior > 0 && m.side(side).fees.junior.initialized {
+        m.record_junior_liquidation_credit(side, fee.junior)?;
+    }
     m.side_mut(side).record_liquidation_protocol_credit(fee.protocol, ProtocolAuctionSplit::default())?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, e.base_hlp_srlp_shares)?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, e.quote_hlp_srlp_shares)?;

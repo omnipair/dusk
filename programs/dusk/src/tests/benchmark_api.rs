@@ -32,7 +32,6 @@ fn initialized_market() -> BenchmarkMarket {
         hlp_mint: Pubkey::new_unique(),
         reserve_vault: Pubkey::new_unique(),
         collateral_vault: Pubkey::new_unique(),
-        interest_vault: Pubkey::new_unique(),
         ..MarketSide::default()
     };
     let quote_side = MarketSide {
@@ -41,7 +40,6 @@ fn initialized_market() -> BenchmarkMarket {
         hlp_mint: Pubkey::new_unique(),
         reserve_vault: Pubkey::new_unique(),
         collateral_vault: Pubkey::new_unique(),
-        interest_vault: Pubkey::new_unique(),
         ..MarketSide::default()
     };
     let mut benchmark = BenchmarkMarket::initialize(
@@ -301,7 +299,7 @@ fn pure_preview_and_commit_match_the_native_swap_pipeline_exactly() {
         reserve_credit: request.reserve_credit,
         protocol_fee_bps: request.protocol_fee_bps,
     }
-    .prepare(&mut native, &Default::default())
+    .prepare(&mut native)
     .unwrap();
     let native_quote = prepared.quote;
     let native_fee_supply = prepared.fee_eligible_srlp_supply;
@@ -975,31 +973,16 @@ fn position_wrappers_match_native_deposit_borrow_and_repay() {
     let native_repay = native_market
         .repay(&mut native_position, MarketAsset::Base, repayment.cash_repaid)
         .unwrap();
-    let protocol = native_market
-        .quote_interest_revenue_credit(MarketAsset::Base, false, native_repay.interest_paid)
-        .unwrap()
-        .protocol;
-    let expected_referral = ReferralInterestQuote::with_protocol_revenue(
-        native_repay.interest_paid,
-        native_repay.interest_paid,
-        protocol,
-        Some(5_000),
-    )
-    .unwrap()
-    .referral_amount;
+    let expected_referral =
+        ReferralInterestQuote::with_protocol_revenue(native_repay.interest_paid, native_repay.protocol_paid, Some(5_000))
+            .unwrap()
+            .referral_amount;
     assert!(expected_referral > 0);
-    if native_repay.interest_paid > 0 {
-        native_market
-            .record_receivable_income_credit(
-                MarketAsset::Base,
-                false,
-                native_repay.interest_paid,
-                protocol,
-                ProtocolAuctionSplit::default(),
-                expected_referral,
-            )
-            .unwrap();
-    }
+    native_market
+        .side_mut(MarketAsset::Base)
+        .fees
+        .book_protocol_interest(ProtocolAuctionSplit::default(), expected_referral)
+        .unwrap();
     native_market.finalize_amm_transition(repay_clock.slot).unwrap();
     native_market.refresh_risk_at_slot(repay_clock.slot).unwrap();
 
@@ -1009,8 +992,6 @@ fn position_wrappers_match_native_deposit_borrow_and_repay() {
     let repay_request = BenchmarkRepayRequest {
         clock: repay_clock,
         max_repay_credit: u64::MAX,
-        interest_vault_credit: native_repay.interest_paid,
-        protocol_interest_fee_bps: 2_000,
         protocol_auction_split: ProtocolAuctionSplit::default(),
         referral_interest_amount: expected_referral,
         debt_asset: MarketAsset::Base,
@@ -1049,8 +1030,8 @@ fn position_wrappers_match_native_deposit_borrow_and_repay() {
         .unwrap();
     assert_eq!(repay.market.receipt, native_repay);
     assert_eq!(repay.market.cash.base.reserve_vault_credit, native_repay.cash_repaid);
-    assert_eq!(repay.market.cash.base.reserve_vault_debit, native_repay.interest_paid);
-    assert_eq!(repay.market.cash.base.interest_vault_credit, native_repay.interest_paid);
+    // Paid interest stays in the reserve vault.
+    assert_eq!(repay.market.cash.base.reserve_vault_debit, 0);
     assert_eq!(market_bytes(benchmark.market()), market_bytes(&native_market));
     assert_eq!(position_bytes(position.position()), position_bytes(&native_position));
     assert_eq!(repay.position_after, position.checkpoint(&benchmark).unwrap());
@@ -1296,15 +1277,6 @@ fn hlp_aware_swap_atomically_settles_both_srlp_vaults() {
             &mut quote_external,
             BenchmarkHlpAwareSwapRequest {
                 swap: swap_request,
-                base_hlp_interest_transfer: BenchmarkTokenTransferOutcome {
-                    source_debit: preview.base_rebalance.interest_paid,
-                    destination_credit: preview.base_rebalance.interest_paid,
-                },
-                quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome {
-                    source_debit: preview.quote_rebalance.interest_paid,
-                    destination_credit: preview.quote_rebalance.interest_paid,
-                },
-                protocol_interest_fee_bps: 2_000,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
             },
         )
@@ -1321,7 +1293,7 @@ fn hlp_aware_swap_atomically_settles_both_srlp_vaults() {
 }
 
 #[test]
-fn hlp_entry_settles_both_vaults_and_rolls_back_bad_funding_credit() {
+fn hlp_entry_settles_both_vaults_and_keeps_paid_funding_in_reserve() {
     let (mut benchmark, _) = initialized_keyed_market();
     let owner = Pubkey::new_unique();
     let mut base = BenchmarkHlpOwnedState::initialize(&benchmark, MarketAsset::Base, owner, owner).unwrap();
@@ -1360,16 +1332,9 @@ fn hlp_entry_settles_both_vaults_and_rolls_back_bad_funding_credit() {
     prepare_hlp_entry_market(&mut preview, MarketAsset::Base, base.hlp_mint_supply, clock, false).unwrap();
     let native = preview.deposit_single_sided(MarketAsset::Base, 50_000, 1).unwrap();
     assert!(native.rebalances.iter().all(|r| r.interest_paid > 0));
-    let funding = BenchmarkHlpFundingSettlement {
-        transfers: native.rebalances.map(|r| BenchmarkTokenTransferOutcome {
-            source_debit: r.interest_paid,
-            destination_credit: r.interest_paid,
-        }),
-        ..Default::default()
-    };
     let request = BenchmarkHlpEntryRequest {
         clock,
-        funding,
+        funding: BenchmarkHlpFundingSettlement::default(),
         target_transfer: BenchmarkTokenTransferOutcome {
             source_debit: 50_000,
             destination_credit: 50_000,
@@ -1384,7 +1349,7 @@ fn hlp_entry_settles_both_vaults_and_rolls_back_bad_funding_credit() {
         benchmark.clock(),
     );
     let mut wrong = request;
-    wrong.funding.transfers[1].destination_credit += 1;
+    wrong.min_hlp_amount = u64::MAX;
     assert!(benchmark.execute_hlp_entry(&mut base, &mut quote, wrong).is_err());
     assert_eq!(
         (
@@ -1396,14 +1361,10 @@ fn hlp_entry_settles_both_vaults_and_rolls_back_bad_funding_credit() {
         before
     );
     let result = benchmark.execute_hlp_entry(&mut base, &mut quote, request).unwrap();
-    assert_eq!(
-        result.market.cash.base.interest_vault_credit,
-        funding.transfers[1].destination_credit
-    );
-    assert_eq!(
-        result.market.cash.quote.interest_vault_credit,
-        funding.transfers[0].destination_credit
-    );
+    // Funding both vaults paid stays in the reserve vaults.
+    assert_eq!(result.market.cash.base.reserve_vault_debit, 0);
+    assert_eq!(result.market.cash.quote.reserve_vault_debit, 0);
+    assert_eq!(result.market.receipt.native.rebalances.map(|r| r.interest_paid), native.rebalances.map(|r| r.interest_paid));
     assert_eq!(
         base.hlp_vault_srlp_balance,
         benchmark.market().base_hlp_vault.srlp_shares
@@ -1467,12 +1428,7 @@ fn maximum_hlp_entry_and_pro_rata_withdrawal_exhaust_owned_state() {
                     source_debit: first_preview.target_amount_out,
                     destination_credit: first_preview.target_amount_out.saturating_sub(1),
                 },
-                interest_transfer: BenchmarkTokenTransferOutcome {
-                    source_debit: first_preview.interest_paid,
-                    destination_credit: first_preview.interest_paid,
-                },
                 min_target_recipient_credit: first_preview.target_amount_out.saturating_sub(1),
-                protocol_interest_fee_bps: 2_000,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
             },
         )
@@ -1482,10 +1438,6 @@ fn maximum_hlp_entry_and_pro_rata_withdrawal_exhaust_owned_state() {
     assert_eq!(
         external.hlp_vault_srlp_balance(),
         initial_srlp - first_preview.srlp_amount
-    );
-    assert_eq!(
-        external.checkpoint().measured_quote_interest_vault_credits,
-        first_preview.interest_paid
     );
 
     let final_burn = external.holder_hlp_token_balance();
@@ -1506,12 +1458,7 @@ fn maximum_hlp_entry_and_pro_rata_withdrawal_exhaust_owned_state() {
                     source_debit: final_preview.target_amount_out,
                     destination_credit: final_preview.target_amount_out,
                 },
-                interest_transfer: BenchmarkTokenTransferOutcome {
-                    source_debit: final_preview.interest_paid,
-                    destination_credit: final_preview.interest_paid,
-                },
                 min_target_recipient_credit: final_preview.target_amount_out,
-                protocol_interest_fee_bps: 2_000,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
             },
         )
@@ -1538,8 +1485,6 @@ fn prepared_leverage_open_and_full_unwind_match_native_transitions_exactly() {
         owner_quote_balance: 100_000,
         base_reserve_vault_balance: required_reserve_custody(&benchmark.market().base_side).unwrap(),
         quote_reserve_vault_balance: required_reserve_custody(&benchmark.market().quote_side).unwrap(),
-        base_interest_vault_balance: benchmark.market().base_side.fees.interest_vault_balance,
-        quote_interest_vault_balance: benchmark.market().quote_side.fees.interest_vault_balance,
         base_leverage_collateral_vault_balance: 0,
         quote_leverage_collateral_vault_balance: 0,
     };
@@ -1620,8 +1565,6 @@ fn prepared_leverage_open_and_full_unwind_match_native_transitions_exactly() {
                     source_debit: open_quote.swap.amount_out,
                     destination_credit: open_quote.swap.amount_out,
                 },
-                base_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
-                quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
             },
         )
         .unwrap();
@@ -1678,9 +1621,6 @@ fn prepared_leverage_open_and_full_unwind_match_native_transitions_exactly() {
                     source_debit: expected_close.residual,
                     destination_credit: expected_close.residual,
                 },
-                interest_transfer: BenchmarkTokenTransferOutcome::default(),
-                base_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
-                quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
             },
         )
         .unwrap();
@@ -1704,8 +1644,6 @@ fn failed_prepared_leverage_execution_rolls_back_every_owned_account() {
         owner_quote_balance: 100_000,
         base_reserve_vault_balance: required_reserve_custody(&benchmark.market().base_side).unwrap(),
         quote_reserve_vault_balance: required_reserve_custody(&benchmark.market().quote_side).unwrap(),
-        base_interest_vault_balance: benchmark.market().base_side.fees.interest_vault_balance,
-        quote_interest_vault_balance: benchmark.market().quote_side.fees.interest_vault_balance,
         ..BenchmarkLeverageTokenBalances::default()
     };
     let mut leverage = BenchmarkLeverageOwnedState::initialize_for_open(
@@ -1763,8 +1701,6 @@ fn failed_prepared_leverage_execution_rolls_back_every_owned_account() {
                     source_debit: quote.swap.amount_out.saturating_sub(1),
                     destination_credit: quote.swap.amount_out.saturating_sub(1),
                 },
-                base_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
-                quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome::default(),
             },
         )
         .is_err());
@@ -1861,18 +1797,11 @@ fn liquidation_bid_matches_native_transition_and_keeps_partial_collateral() {
             },
         )
         .unwrap();
-    if native_receipt.interest_paid > 0 {
-        native_market
-            .record_receivable_income_credit(
-                MarketAsset::Base,
-                false,
-                native_receipt.interest_paid,
-                0,
-                ProtocolAuctionSplit::default(),
-                0,
-            )
-            .unwrap();
-    }
+    native_market
+        .side_mut(MarketAsset::Base)
+        .fees
+        .book_protocol_interest(ProtocolAuctionSplit::default(), 0)
+        .unwrap();
     native_market.finalize_amm_transition(clock.slot).unwrap();
     native_market.refresh_risk_at_slot(clock.slot).unwrap();
 
@@ -1888,13 +1817,11 @@ fn liquidation_bid_matches_native_transition_and_keeps_partial_collateral() {
                 preview: preview_request,
                 max_repay_source_debit: 1_000,
                 debt_transfer: exact_transfer(preview.plan.repay_credit),
-                interest_transfer: exact_transfer(preview.native.interest_paid),
                 collateral_transfer: exact_transfer(preview.native.collateral_to_liquidator),
                 collateral_swap_transfer: BenchmarkTokenTransferOutcome::default(),
                 owner_residual_transfer: BenchmarkTokenTransferOutcome::default(),
                 junior_fee_transfer: exact_transfer(preview.native.junior_fee_funded),
                 min_collateral_recipient_credit: 0,
-                protocol_interest_fee_bps: 0,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
                 referral_interest_amount: 0,
             },
@@ -1947,13 +1874,11 @@ fn floor_shortfall_closes_automatically_and_late_failure_rolls_back() {
         preview: preview_request,
         max_repay_source_debit: 0,
         debt_transfer: BenchmarkTokenTransferOutcome::default(),
-        interest_transfer: exact_transfer(preview.native.interest_paid),
         collateral_transfer: exact_transfer(preview.plan.caller_bounty),
         collateral_swap_transfer: exact_transfer(preview.plan.collateral_swap_debit),
         owner_residual_transfer: exact_transfer(preview.owner_residual),
         junior_fee_transfer: BenchmarkTokenTransferOutcome::default(),
         min_collateral_recipient_credit: 0,
-        protocol_interest_fee_bps: 0,
         protocol_auction_split: ProtocolAuctionSplit::default(),
         referral_interest_amount: 0,
     };
@@ -2041,7 +1966,6 @@ fn floor_closes_when_transfer_fees_leave_no_collateral_for_the_amm() {
                 preview: preview_request,
                 max_repay_source_debit: 0,
                 debt_transfer: BenchmarkTokenTransferOutcome::default(),
-                interest_transfer: BenchmarkTokenTransferOutcome::default(),
                 collateral_transfer: BenchmarkTokenTransferOutcome::default(),
                 collateral_swap_transfer: BenchmarkTokenTransferOutcome {
                     source_debit: 1,
@@ -2050,7 +1974,6 @@ fn floor_closes_when_transfer_fees_leave_no_collateral_for_the_amm() {
                 owner_residual_transfer: BenchmarkTokenTransferOutcome::default(),
                 junior_fee_transfer: BenchmarkTokenTransferOutcome::default(),
                 min_collateral_recipient_credit: 0,
-                protocol_interest_fee_bps: 0,
                 protocol_auction_split: ProtocolAuctionSplit::default(),
                 referral_interest_amount: 0,
             },
@@ -2090,7 +2013,6 @@ fn public_interest_transition_witness_covers_zero_repay_and_writeoff() {
         BenchmarkPublicInterestPayments {
             base: BenchmarkPublicInterestPayment {
                 gross_cash_interest_paid: 50,
-                net_interest_vault_credit: 49,
             },
             quote: BenchmarkPublicInterestPayment::default(),
         },
@@ -2099,7 +2021,6 @@ fn public_interest_transition_witness_covers_zero_repay_and_writeoff() {
     assert_eq!(repay.base.clock_accrued, 20);
     assert_eq!(repay.base.total_interest_removed, 50);
     assert_eq!(repay.base.interest_written_off, 0);
-    assert_eq!(repay.base.net_interest_vault_credit, 49);
 
     let liquidation = BenchmarkPublicInterestTransition::checked(
         BenchmarkPublicInterestCheckpoint { base: 100, quote: 0 },
@@ -2108,7 +2029,6 @@ fn public_interest_transition_witness_covers_zero_repay_and_writeoff() {
         BenchmarkPublicInterestPayments {
             base: BenchmarkPublicInterestPayment {
                 gross_cash_interest_paid: 40,
-                net_interest_vault_credit: 40,
             },
             quote: BenchmarkPublicInterestPayment::default(),
         },
@@ -2141,7 +2061,6 @@ fn public_interest_transition_exposes_share_rounding_and_fails_closed() {
         BenchmarkPublicInterestPayments {
             base: BenchmarkPublicInterestPayment {
                 gross_cash_interest_paid: 2,
-                net_interest_vault_credit: 2,
             },
             quote: BenchmarkPublicInterestPayment::default(),
         },

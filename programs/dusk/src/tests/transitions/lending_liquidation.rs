@@ -63,7 +63,6 @@ fn liquidatable_quote_debt_position() -> (Market, BorrowPosition) {
     quote_side.shares.srlp_supply = 1_000_000_000;
     let mut market = Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -235,7 +234,6 @@ fn market_with_cash_backed_debt(
     quote_side.shares.srlp_supply = srlp_supply;
     let mut market = Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -264,6 +262,7 @@ fn market_with_cash_backed_debt(
         reduce_only: false,
         bump: 255,
     };
+    market.recognize_accrued_interest(debt_asset).unwrap();
     market.prepare_amm_for_swap(0).unwrap();
     market.refresh_risk().unwrap();
 
@@ -368,13 +367,14 @@ proptest! {
             MarketAsset::Quote => market.debt.fixed_quote_debt().unwrap(),
         };
         let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
-        let principal_credit = repay_credit.checked_sub(receipt.interest_paid).unwrap();
-        let live_debit = aggregate_debt_reduction.checked_sub(principal_credit).unwrap();
         let (live_after, cash_after) = reserve_pair(&market, debt_asset);
 
+        // Paid interest stays in reserve cash; with no protocol markup the
+        // live reserve is unchanged.
+        prop_assert!(receipt.interest_paid <= repay_credit);
         prop_assert_eq!(receipt.socialized_loss, 0);
-        prop_assert_eq!(live_after, live_before - u128::from(live_debit));
-        prop_assert_eq!(cash_after, cash_before + principal_credit);
+        prop_assert_eq!(live_after, live_before);
+        prop_assert_eq!(cash_after, cash_before + repay_credit);
         prop_assert!(repay_credit <= max_repay_credit);
         prop_assert!(debt_reduction.abs_diff(repay_credit) <= 1);
         prop_assert_eq!(aggregate_debt_reduction, repay_credit);
@@ -409,14 +409,11 @@ fn partial_liquidation_charges_the_aggregate_delta_without_rounding_writeoff() {
     let debt_reduction = u64::try_from(debt_before - debt_after).unwrap();
     let aggregate_debt_after = market.debt.fixed_quote_debt().unwrap();
     let aggregate_debt_reduction = u64::try_from(aggregate_debt_before - aggregate_debt_after).unwrap();
-    let principal_credit = repay_credit.checked_sub(receipt.interest_paid).unwrap();
+    assert!(receipt.interest_paid > 0);
     assert!(debt_reduction.abs_diff(repay_credit) <= 1);
     assert_eq!(aggregate_debt_reduction, repay_credit);
-    assert_eq!(
-        market.quote_side.reserves.live_reserve,
-        live_before - u128::from(aggregate_debt_reduction - principal_credit)
-    );
-    assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + principal_credit);
+    assert_eq!(market.quote_side.reserves.live_reserve, live_before);
+    assert_eq!(market.quote_side.reserves.cash_reserve, cash_before + repay_credit);
     market.assert_market_invariants().unwrap();
 }
 
@@ -437,6 +434,7 @@ fn partial_liquidation_uses_aggregate_debt_delta_with_multiple_positions() {
             + Debt::shares_to_debt(market.debt.fixed_quote_shares, market.debt.quote_borrow_index_nad).unwrap(),
     )
     .unwrap());
+    market.recognize_accrued_interest(debt_asset).unwrap();
     market.assert_virtual_reserve_invariant(debt_asset).unwrap();
     let debt_before = position_debt_after(&market, &borrow_position, debt_asset);
 
@@ -1032,6 +1030,9 @@ fn junior_liquidation_fee_preserves_room_to_restore_health() {
     assert_eq!(expected_junior_fee_bps(200, 10_250), 49);
 }
 
+/// Interest credited at accrual can exceed all LP principal. The write-off
+/// still goes through: LP capital falls to zero, the rest of the loss is the
+/// asset's recorded deficit, and credited claims stay as they are.
 #[test]
 fn numerically_saturated_interest_remains_liquidatable_with_full_loss_socialization() {
     let asset = MarketAsset::Quote;
@@ -1053,11 +1054,49 @@ fn numerically_saturated_interest_remains_liquidatable_with_full_loss_socializat
     .unwrap();
     let debt = position_debt_after(&market, &position, asset);
     assert!(debt > i64::MAX as u128 && debt <= u64::MAX as u128);
+    let curve_before = market.curve_reserve(asset).unwrap();
+    let ledger_before = market.side(asset).fees.ledger;
+    assert_eq!(ledger_before.deficit, 0);
     let receipt = Liquidation::new_with_pricing(asset, 1, debt as u64 - 1,
         liquidation_terms_for_debt(debt), LiquidationPricing::ReferencePrice { debt_per_collateral_price_nad: NAD })
         .apply(&mut market, &mut position).unwrap();
     assert_eq!(receipt.remaining_debt, 0);
     assert_eq!(receipt.socialized_loss, debt as u64 - 1);
     assert_eq!(position.fixed_quote_shares, 0);
+    // LP capital is gone; the unabsorbed loss is the recorded deficit. With
+    // no protocol markup the whole write-off is pool loss.
+    let ledger = market.side(asset).fees.ledger;
+    assert_eq!(market.curve_reserve(asset).unwrap(), 0);
+    assert_eq!(ledger.deficit, u128::from(receipt.socialized_loss) - u128::from(curve_before));
+    // Credited claims are not haircut.
+    assert_eq!(ledger.credited, ledger_before.credited);
+    assert_eq!(ledger.public_recognized, 0);
     market.assert_market_invariants().unwrap();
+    // New capital would fund the old claims, so deposits are refused.
+    assert!(matches!(
+        market.add_liquidity(1_000, 1_000),
+        Err(error) if error == error!(ErrorCode::InterestDeficit)
+    ));
+    // Claims are paid from whatever cash remains, first come, and never
+    // beyond what was credited.
+    let cash = market.side(asset).reserves.cash_reserve;
+    let paid = market.side_mut(asset).pay_interest(u64::MAX).unwrap();
+    assert_eq!(paid, cash);
+    assert_eq!(market.side(asset).fees.ledger.credited, ledger.credited - u128::from(cash));
+    assert_eq!(market.side_mut(asset).pay_interest(1).unwrap(), 0);
+    assert_eq!(market.side(asset).fees.ledger.deficit, ledger.deficit);
+    market.assert_market_invariants().unwrap();
+    // The wiped asset has no curve: a swap is refused for liquidity, as in an
+    // empty market, rather than pricing against an empty side.
+    for asset_in in [MarketAsset::Base, MarketAsset::Quote] {
+        let result = crate::transitions::amm::SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit: 1_000,
+            protocol_fee_bps: 0,
+        }
+        .prepare(&mut market.clone());
+        assert!(matches!(result, Err(error) if error == error!(ErrorCode::InsufficientLiquidity)));
+    }
 }

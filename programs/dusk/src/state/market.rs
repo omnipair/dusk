@@ -1,7 +1,5 @@
 use anchor_lang::prelude::*;
-use std::{cell::OnceCell, rc::Rc};
 
-use super::{IncomeReceivableBook, IncomeReceivableClaim, ReceivableGrowth};
 use crate::{constants::*, errors::ErrorCode, state::OperatorState};
 
 /// Maximum center amplification admitted by the protocol. Only the narrowest
@@ -255,48 +253,41 @@ pub struct TrancheIncome {
     pub carry: TrancheRevenueCarry,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
-pub struct IncomeExposureEnd {
-    pub ended: bool,
-    pub epoch: u64,
-    pub growth: ReceivableGrowth,
-}
-
+/// Per-asset interest ledger. Interest is credited to holders when it
+/// accrues; claims are paid from reserve cash.
+///
+/// With `C = cash_reserve + flash_receivable`, `D` borrower principal,
+/// `I = public_recognized + funding_recognized`, `Q = credited`,
+/// `Pu = protocol_unpaid` and `Δ = deficit`, every instruction preserves
+/// `C + D + I + Δ = curve_reserve + Q + Pu`.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct InterestRevenueBook {
-    pub gross_unpaid: u64,
-    pub protocol_unpaid: u64,
-    pub operator_unpaid: u64,
-    pub pending_gross: u64,
-    pub pending_protocol_gross: u64,
-    pub operator_claimable: u64,
+pub struct InterestLedger {
+    /// Public fixed and isolated interest outstanding (debt minus principal,
+    /// clamped as in `public_unpaid_interest`) as last recognized.
+    pub public_recognized: u128,
+    /// The opposite hLP vault's indexed funding debt in this asset minus its
+    /// `debt_principal` (including carried funding) as last recognized.
+    pub funding_recognized: u128,
+    /// Credited, unclaimed interest of every holder lane, the junior seed,
+    /// both hLP holder indexes, checkpointed holder balances, the operator,
+    /// and index rounding dust. Includes `operator_claimable`.
+    pub credited: u128,
+    /// Protocol share of recognized interest not yet paid or written off.
+    pub protocol_unpaid: u128,
+    /// Current operator recipient's credited, unclaimed share.
+    pub operator_claimable: u128,
+    /// Q64 sub-atom carries of the accrual split.
     pub protocol_fraction_q64: u64,
     pub operator_fraction_q64: u64,
-    pub protocol_cash_fraction_q64: u64,
-}
-
-/// Public-loan and hLP-funding receivables are independent. The vault-owned
-/// public-income claims preserve hLP's automatic funding-gap repayment.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, Default, InitSpace)]
-pub struct MarketIncomeBooks {
-    /// base public, quote public, base hLP funding, quote hLP funding.
-    pub books: [Box<IncomeReceivableBook>; 4],
-    pub revenue: [Box<InterestRevenueBook>; 4],
-    /// Gross settlement budget awaiting measured net custody credit.
-    pub pending: [u64; 4],
-    pub seed: [IncomeReceivableClaim; 4],
-    /// [hLP target][income asset], owned by the vault rather than its holders.
-    pub hlp: [[IncomeReceivableClaim; 2]; 2],
-    pub junior_end: [IncomeExposureEnd; 4],
-    pub split_carry_bps: [u16; 4],
-}
-
-/// Untouched income has a zero-allocation default. Nonzero income is decoded
-/// once and shared by scratch markets; quotes copy it only when they mutate it.
-/// This avoids retaining both an encoded and decoded book on the SBF heap.
-#[derive(Clone, Debug, Default)]
-pub struct LazyIncomeBooks {
-    pub(crate) decoded: OnceCell<Rc<MarketIncomeBooks>>,
+    /// Protocol share already removed from `cash_reserve`, still in the
+    /// reserve vault, awaiting `book_protocol_interest`.
+    pub protocol_pending: u64,
+    /// Pool loss that LP capital could not absorb: the amount by which
+    /// credited interest and the protocol's unpaid share exceed everything
+    /// the pool holds or is owed. `curve_reserve` is zero while it is
+    /// nonzero. Credited claims are not reduced; they are paid from cash as
+    /// it allows. It never decreases.
+    pub deficit: u128,
 }
 
 impl Default for AmmConfig {
@@ -528,10 +519,10 @@ pub struct Debt {
     // Debt tracking (r_debt)
     /// Aggregate outstanding *principal* (borrowed token amount, excluding
     /// accrued interest) backing fixed margin debt on each side. Accrued
-    /// interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can
-    /// be routed to the interest vault (non-compounding) instead of
-    /// compounding into reserves. Principal is a raw token-atom balance and is
-    /// therefore bounded by the corresponding `u64` reserve custody domain.
+    /// interest is `fixed_*_debt - fixed_*_principal`; tracked so interest is
+    /// credited to holders instead of compounding into reserves. Principal is
+    /// a raw token-atom balance and is therefore bounded by the corresponding
+    /// `u64` reserve custody domain.
     pub fixed_base_principal: u64,
     pub fixed_quote_principal: u64,
     /// Aggregate isolated leverage debt. This debt contributes to utilization
@@ -548,26 +539,13 @@ pub struct Debt {
     pub leverage_quote_collateral: u64,
 }
 
-/// Reserve-cash funding of public borrower interest. The revenue-fee portion is
-/// held in the reserve vault until repayment, so cancellation can return it
-/// to executable cash without a transfer or a second transfer fee.
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace, PartialEq, Eq)]
-pub struct PublicInterestAdvance {
-    pub outstanding_gross: u64,
-    pub revenue_escrow: u64,
-    /// Native repayment has already restored this cash; its token handler
-    /// must exclude it from the new interest-vault transfer.
-    pub repayment_credit_pending: u64,
-    /// Frozen operator/protocol allocation released by repayment, still held in the
-    /// reserve vault until the same instruction completes token settlement.
-    pub revenue_release_pending: u64,
-}
-
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
 pub struct Fees {
     pub junior: TrancheIncome,
-    pub public_interest_advance: PublicInterestAdvance,
+    pub ledger: InterestLedger,
     pub swap_fee_growth_index_q64: u128,
+    /// Ordinary srLP interest lane. Its denominator is srLP supply less junior
+    /// reserve shares and both hLP vaults' srLP.
     pub interest_growth_index_q64: u128,
     /// Scaled fee entitlement not yet representable by the integer growth
     /// index. The corresponding whole-token backing already sits in
@@ -576,26 +554,18 @@ pub struct Fees {
     pub swap_fee_growth_remainder_scaled: u64,
     /// Interest counterpart of `swap_fee_growth_remainder_scaled`.
     pub interest_growth_remainder_scaled: u64,
-    /// Source-scoped Q64 carry for interest paid by hLP funding debt. Funding
-    /// uses a non-hLP denominator, while public interest uses total srLP
-    /// supply; sharing one carry across those denominators would eventually
-    /// leak rounding entitlement between the two populations.
-    pub hlp_funding_interest_growth_remainder_scaled: u64,
     /// Claimable swap fees physically held in the reserve vault but excluded
     /// from executable cash and live reserves.
     pub swap_fee_custody_balance: u64,
-    pub interest_vault_balance: u64,
     pub swap_fee_liability: u64,
-    pub interest_liability: u64,
     pub unallocated_swap_fee_liability: u64,
-    pub unallocated_interest_liability: u64,
     pub swap_protocol_fee_liability: u64,
     pub swap_buyback_fee_liability: u64,
+    /// Booked protocol interest revenue. Its atoms sit in the reserve vault
+    /// outside `cash_reserve`.
     pub interest_protocol_fee_liability: u64,
     pub interest_buyback_fee_liability: u64,
     pub referral_interest_liability: u64,
-    /// Shared custody for operator claims and protocol fractional carry.
-    pub revenue_interest_liability: u64,
     pub fee_swap_auction: ProtocolAuctionState,
     pub fee_interest_auction: ProtocolAuctionState,
     pub buyback_swap_auction: ProtocolAuctionState,
@@ -636,20 +606,18 @@ pub struct HlpVault {
     pub hlp_supply: u64,
     pub residual_exposure: i128,
     pub base_swap_fee_growth_index_q64: u128,
+    /// Holder index of interest credited to this vault at accrual.
     pub base_interest_growth_index_q64: u128,
     pub quote_swap_fee_growth_index_q64: u128,
     pub quote_interest_growth_index_q64: u128,
     pub base_swap_fee_checkpoint_q64: u128,
-    pub base_interest_checkpoint_q64: u128,
     pub quote_swap_fee_checkpoint_q64: u128,
-    pub quote_interest_checkpoint_q64: u128,
-    /// Aggregate sub-atom srLP entitlement carried across hLP checkpoints.
-    /// These are distinct from each holder YieldAccount remainder: this layer
-    /// converts vault-owned srLP growth into hLP growth without double-flooring.
+    /// Aggregate sub-atom srLP swap-fee entitlement carried across hLP
+    /// checkpoints. Distinct from each holder YieldAccount remainder: this
+    /// layer converts vault-owned srLP growth into hLP growth without
+    /// double-flooring.
     pub base_swap_fee_remainder_q64: u64,
-    pub base_interest_remainder_q64: u64,
     pub quote_swap_fee_remainder_q64: u64,
-    pub quote_interest_remainder_q64: u64,
     /// Sub-index distribution carry for the second, srLP-to-hLP allocation
     /// layer. Whole-token backing represented here has already left the
     /// corresponding `unallocated_*` bucket.
@@ -668,6 +636,12 @@ pub struct HlpVault {
     /// The fixed twelve-hour half-life gives Stop Rate orders stable semantics.
     pub funding_apr_ema_nad: u128,
     pub funding_apr_ema_last_slot: u64,
+    /// Public interest credited to the vault's srLP while it was frozen,
+    /// net of funding netting. It stays in `credited` for the vault's
+    /// creditors: a terminal close applies it to the vault's debt, and a
+    /// recovery that unfreezes the vault publishes it to the holders.
+    pub held_base_interest: u64,
+    pub held_quote_interest: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default, InitSpace)]
@@ -706,7 +680,6 @@ pub struct Market {
     pub debt: Debt,
     /// One shared junior capital budget across both reserve/debt books.
     pub tranches: TrancheCapital,
-    pub income: LazyIncomeBooks,
     pub junior_exit_config: JuniorExitConfig,
     pub tranche_policy: TranchePolicy,
     pub junior_mint: Pubkey,
@@ -760,7 +733,6 @@ impl Market {
         reload_field(&mut *self.amm, &mut cursor)?;
         reload_field(&mut self.debt, &mut cursor)?;
         reload_field(&mut self.tranches, &mut cursor)?;
-        self.income.reload(&mut cursor)?;
         reload_field(&mut self.junior_exit_config, &mut cursor)?;
         reload_field(&mut self.tranche_policy, &mut cursor)?;
         reload_field(&mut self.junior_mint, &mut cursor)?;
@@ -940,7 +912,6 @@ pub struct MarketSide {
     pub hlp_mint: Pubkey,
     pub reserve_vault: Pubkey,
     pub collateral_vault: Pubkey,
-    pub interest_vault: Pubkey,
     pub reserves: Reserves,
     pub shares: ReserveShares,
     pub fees: Fees,

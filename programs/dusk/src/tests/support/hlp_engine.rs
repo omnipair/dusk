@@ -13,7 +13,6 @@ fn canonical_debt_for_proportional_claim(
         total_srlp_supply,
         borrow_index_nad,
         0,
-        0,
         quoted_debt,
     )
 }

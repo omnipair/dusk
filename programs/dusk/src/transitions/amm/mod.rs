@@ -104,6 +104,32 @@ impl Market {
         Ok(())
     }
 
+    /// A recorded interest deficit leaves its asset with no LP capital, so
+    /// the market has no curve. It never regains one (deposits refuse) and
+    /// never trades again (swaps refuse). Every curve reader treats it like
+    /// an empty market, which keeps the price-free exits open: claims,
+    /// repayment, collateral moves, srLP exits and flash liquidation.
+    pub(crate) fn curve_wiped(&self) -> bool {
+        self.base_side.fees.ledger.deficit > 0 || self.quote_side.fees.ledger.deficit > 0
+    }
+
+    /// The checkpoint of a wiped market. No curve remains to observe, so
+    /// risk keeps its last prices, depth and valuation curve: positions are
+    /// valued, and liquidated, at the last observation. Vaults the terminal
+    /// close would accept are frozen at their EMA marks.
+    pub(crate) fn observe_wiped_curve(&mut self, current_slot: u64) -> Result<()> {
+        self.risk.last_snapshot_slot = current_slot;
+        self.risk_revision = self.curve_revision;
+        self.last_update_slot = current_slot;
+        self.freeze_ema_insolvent_hlp_vaults(current_slot)
+    }
+
+    /// `observe_wiped_curve` after a transition that changed reserves.
+    fn finalize_wiped_curve(&mut self, current_slot: u64) -> Result<()> {
+        self.advance_curve_revision()?;
+        self.observe_wiped_curve(current_slot)
+    }
+
     pub(crate) fn advance_curve_revision(&mut self) -> Result<()> {
         self.curve_revision = self
             .curve_revision
@@ -135,7 +161,7 @@ impl Market {
     /// Lazily initializes the oracle-less AMM from the first complete
     /// two-sided liquidity state. No external price is consulted.
     pub(crate) fn ensure_amm_initialized(&mut self, current_slot: u64) -> Result<bool> {
-        if self.amm.initialized {
+        if self.amm.initialized || self.curve_wiped() {
             return Ok(false);
         }
         let reserves = self.curve_reserves_nad()?;
@@ -285,6 +311,9 @@ impl Market {
         if self.base_side.shares.srlp_supply == MIN_LIQUIDITY {
             return self.finalize_amm_transition_and_observe_risk(current_slot);
         }
+        if self.curve_wiped() {
+            return self.finalize_wiped_curve(current_slot);
+        }
         let (price_nad, curve_depth_nad) = self.checkpoint_amm_socialized_loss_raw(current_slot, before)?;
         self.defer_amm_retention_target()?;
         self.advance_curve_revision()?;
@@ -297,6 +326,9 @@ impl Market {
     /// reserves and refreshed curve geometry unchanged. Always checkpoint depth
     /// and the protected floor, including changes from accrued hLP funding.
     pub(crate) fn finalize_debt_repayment(&mut self, current_slot: u64, before: CurveReservesNad) -> Result<()> {
+        if self.curve_wiped() {
+            return self.finalize_wiped_curve(current_slot);
+        }
         if self.oracle_price_unavailable() {
             // Rebuild cash/debt geometry, but do not turn a stale report into
             // a new risk observation. Revision invalidation forces a fresh
@@ -332,6 +364,9 @@ impl Market {
     /// Finalizes a complete non-trade transition. First liquidity is already fully
     /// checkpointed by initialization and has no stale forward target.
     pub(crate) fn finalize_amm_transition(&mut self, current_slot: u64) -> Result<()> {
+        if self.curve_wiped() {
+            return self.finalize_wiped_curve(current_slot);
+        }
         if self.ensure_amm_initialized(current_slot)? {
             self.advance_curve_revision()?;
             return Ok(());
@@ -386,6 +421,9 @@ impl Market {
             self.risk_revision = self.curve_revision;
             self.last_update_slot = current_slot;
             return Ok(());
+        }
+        if self.curve_wiped() {
+            return self.finalize_wiped_curve(current_slot);
         }
         let reserves = self.curve_reserves_nad()?;
         if reserves.base == 0 && reserves.quote == 0 {
@@ -896,17 +934,21 @@ impl Market {
         ))
     }
 
-    pub(crate) fn clear_frozen_hlp(&mut self, target: MarketAsset) {
+    /// Unfreezing releases the interest the vault held for its creditors to
+    /// its holders; a terminal close spends that interest first.
+    pub(crate) fn clear_frozen_hlp(&mut self, target: MarketAsset) -> Result<()> {
         match target {
             MarketAsset::Base => {
                 self.amm.frozen_hlp_mask &= !1;
                 self.amm.frozen_base_vault_base_offset_nad = 0;
                 self.amm.frozen_base_vault_quote_offset_nad = 0;
+                self.base_hlp_vault.release_held_interest()
             }
             MarketAsset::Quote => {
                 self.amm.frozen_hlp_mask &= !2;
                 self.amm.frozen_quote_vault_base_offset_nad = 0;
                 self.amm.frozen_quote_vault_quote_offset_nad = 0;
+                self.quote_hlp_vault.release_held_interest()
             }
         }
     }
@@ -1138,11 +1180,10 @@ impl Market {
         Ok(())
     }
 
-    /// Aggregate public fixed and isolated interest which has not yet been
-    /// paid into the non-compounding interest vault. hLP funding interest is a
-    /// separate debt cost and is deliberately excluded. Debt-share rounding
-    /// can momentarily put tracked principal above computed debt, so principal
-    /// is clamped first.
+    /// Aggregate public fixed and isolated interest outstanding. hLP funding
+    /// interest is a separate source (`funding_unpaid_interest`). Debt-share
+    /// rounding can momentarily put tracked principal above computed debt, so
+    /// principal is clamped first.
     pub(crate) fn public_unpaid_interest(&self, asset: MarketAsset) -> Result<u128> {
         // Both canonical debt conversions are exactly zero with no public
         // shares; avoid their repeated dispatch on debt-free swap paths.
@@ -1177,23 +1218,11 @@ impl Market {
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
-    /// Only the public receivable not already funded from reserves remains
-    /// outside pricing principal. Funding reduces live and this exclusion by
-    /// the same gross amount, without moving the executable curve reserves.
-    pub(crate) fn unrealized_interest(&self, asset: MarketAsset) -> Result<u128> {
-        self.public_unpaid_interest(asset)?
-            .checked_sub(u128::from(
-                self.side(asset).fees.public_interest_advance.outstanding_gross,
-            ))
-            .ok_or_else(|| ErrorCode::BrokenInvariant.into())
-    }
-
+    /// LP principal backing: `live_reserve + funding_recognized − credited −
+    /// protocol_unpaid`. Interest credited at accrual offsets the receivable
+    /// it creates, so accrual never moves this reserve or the price.
     pub(crate) fn curve_reserve(&self, asset: MarketAsset) -> Result<u64> {
-        let live_reserve = self.side(asset).reserves.live_reserve;
-        let curve_reserve = live_reserve
-            .checked_sub(self.unrealized_interest(asset)?)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        u64::try_from(curve_reserve).map_err(|_| ErrorCode::MarketMathOverflow.into())
+        self.side(asset).curve_reserve()
     }
 
     pub(crate) fn curve_reserves_nad(&self) -> Result<CurveReservesNad> {
@@ -1243,23 +1272,6 @@ impl Market {
             reserves.base > 0 && reserves.quote > 0,
             ErrorCode::InsufficientLiquidity
         );
-        let receivable_hedge = self.base_side.fees.junior.initialized;
-        // Native coupons have separate ownership. A market with no hLP never
-        // includes them in its funded AMM coordinates.
-        let (base_interest, quote_interest) = if receivable_hedge {
-            (0, 0)
-        } else {
-            (
-                self.normalize_amount(
-                    self.unrealized_interest(MarketAsset::Base)?,
-                    self.base_side.asset_decimals,
-                )?,
-                self.normalize_amount(
-                    self.unrealized_interest(MarketAsset::Quote)?,
-                    self.quote_side.asset_decimals,
-                )?,
-            )
-        };
         let ordinary = ConcentratedCurvePoint {
             base_reserve: reserves.base,
             quote_reserve: reserves.quote,
@@ -1271,26 +1283,22 @@ impl Market {
         let state = IntegratedCurveState {
             ordinary_base: ordinary.base_reserve,
             ordinary_quote: ordinary.quote_reserve,
-            ordinary_base_book_offset: i128::try_from(if receivable_hedge { 0 } else { base_interest })
-                .map_err(|_| ErrorCode::MarketMathOverflow)?
-                .checked_sub(self.amm.hlp_funding_base_pricing_offset_nad)
+            ordinary_base_book_offset: self
+                .amm
+                .hlp_funding_base_pricing_offset_nad
+                .checked_neg()
                 .ok_or(ErrorCode::MarketMathOverflow)?,
-            ordinary_quote_book_offset: i128::try_from(if receivable_hedge { 0 } else { quote_interest })
-                .map_err(|_| ErrorCode::MarketMathOverflow)?
-                .checked_sub(self.amm.hlp_funding_quote_pricing_offset_nad)
+            ordinary_quote_book_offset: self
+                .amm
+                .hlp_funding_quote_pricing_offset_nad
+                .checked_neg()
                 .ok_or(ErrorCode::MarketMathOverflow)?,
             base_pricing_offset_nad: self.amm.hlp_funding_base_pricing_offset_nad,
             quote_pricing_offset_nad: self.amm.hlp_funding_quote_pricing_offset_nad,
-            base_unpaid_interest: if receivable_hedge { 0 } else { base_interest },
-            receivable_hedge,
-            quote_unpaid_interest: if receivable_hedge { 0 } else { quote_interest },
             base_atom_nad: self.normalize_amount(1, self.base_side.asset_decimals)?,
             quote_atom_nad: self.normalize_amount(1, self.quote_side.asset_decimals)?,
             ..IntegratedCurveState::default()
         };
-        if !receivable_hedge {
-            state.book_ordinary()?;
-        }
         Ok((state, None))
     }
 
@@ -1310,7 +1318,6 @@ impl Market {
             quote_hlp_base_backing,
             ..
         } = basis;
-        let supply = self.base_side.shares.srlp_supply;
         let as_signed = |value: u128| i128::try_from(value).map_err(|_| ErrorCode::MarketMathOverflow);
         let base_hlp_quote_debt = self.normalize_amount(
             Debt::shares_to_debt(self.base_hlp_vault.debt_shares, self.debt.quote_borrow_index_nad)?,
@@ -1320,63 +1327,19 @@ impl Market {
             Debt::shares_to_debt(self.quote_hlp_vault.debt_shares, self.debt.base_borrow_index_nad)?,
             self.base_side.asset_decimals,
         )?;
-        let base_interest = self.normalize_amount(
-            self.unrealized_interest(MarketAsset::Base)?,
-            self.base_side.asset_decimals,
-        )?;
-        let quote_interest = self.normalize_amount(
-            self.unrealized_interest(MarketAsset::Quote)?,
-            self.quote_side.asset_decimals,
-        )?;
         let signed_value = |amount: i128, numerator: u128, denominator: u128| -> Result<i128> {
             let value = as_signed(mul_div_u128(amount.unsigned_abs(), numerator, denominator)?)?;
             Ok(if amount < 0 { -value } else { value })
         };
-        let receivable_hedge = self.base_side.fees.junior.initialized;
-        let mut hlp_unpaid = [[0_u128; 2]; 2];
-        if receivable_hedge {
-            for target in [MarketAsset::Base, MarketAsset::Quote] {
-                for asset in [MarketAsset::Base, MarketAsset::Quote] {
-                    hlp_unpaid[target.code() as usize][asset.code() as usize] = self.normalize_amount(
-                        self.hlp_unpaid_income(target, asset)? as u128,
-                        self.side(asset).asset_decimals,
-                    )?;
-                }
-            }
-        }
-        let base_book_claim = base_hlp_base_claim
-            .checked_add(if receivable_hedge {
-                hlp_unpaid[0][0]
-            } else {
-                mul_div_u128(base_interest, self.base_hlp_vault.srlp_shares as u128, supply as u128)?
-            })
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let base_book_claim = base_hlp_base_claim;
         let base_opposite_book_net = base_opposite_net
             .checked_add(as_signed(base_hlp_quote_backing)?)
             .and_then(|value| value.checked_sub(as_signed(base_hlp_quote_debt).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            .checked_add(as_signed(if receivable_hedge {
-                hlp_unpaid[0][1]
-            } else {
-                mul_div_u128(quote_interest, self.base_hlp_vault.srlp_shares as u128, supply as u128)?
-            })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let quote_book_claim = quote_hlp_quote_claim
-            .checked_add(if receivable_hedge {
-                hlp_unpaid[1][1]
-            } else {
-                mul_div_u128(quote_interest, self.quote_hlp_vault.srlp_shares as u128, supply as u128)?
-            })
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let quote_book_claim = quote_hlp_quote_claim;
         let quote_opposite_book_net = quote_opposite_net
             .checked_add(as_signed(quote_hlp_base_backing)?)
             .and_then(|value| value.checked_sub(as_signed(quote_hlp_base_debt).ok()?))
-            .ok_or(ErrorCode::MarketMathOverflow)?
-            .checked_add(as_signed(if receivable_hedge {
-                hlp_unpaid[1][0]
-            } else {
-                mul_div_u128(base_interest, self.quote_hlp_vault.srlp_shares as u128, supply as u128)?
-            })?)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let needs_mark = base_opposite_book_net != 0 || quote_opposite_book_net != 0;
         let mark = if needs_mark {
@@ -1421,8 +1384,7 @@ impl Market {
         };
         let base_book_offset = {
             as_signed(reserves.base)?
-                .checked_add(as_signed(base_interest)?)
-                .and_then(|value| value.checked_sub(as_signed(ordinary.base_reserve).ok()?))
+                .checked_sub(as_signed(ordinary.base_reserve)?)
                 .and_then(|value| value.checked_sub(as_signed(active_base_equity).ok()?))
                 .and_then(|value| {
                     value.checked_sub(
@@ -1442,8 +1404,7 @@ impl Market {
         };
         let quote_book_offset = {
             as_signed(reserves.quote)?
-                .checked_add(as_signed(quote_interest)?)
-                .and_then(|value| value.checked_sub(as_signed(ordinary.quote_reserve).ok()?))
+                .checked_sub(as_signed(ordinary.quote_reserve)?)
                 .and_then(|value| value.checked_sub(as_signed(active_quote_equity).ok()?))
                 .and_then(|value| {
                     value.checked_sub(
@@ -1491,67 +1452,14 @@ impl Market {
             quote_hlp_base_carry: 0,
             ordinary_base_book_offset: base_book_offset,
             ordinary_quote_book_offset: quote_book_offset,
-            base_unpaid_interest: base_interest,
-            quote_unpaid_interest: quote_interest,
             base_atom_nad: self.normalize_amount(1, self.base_side.asset_decimals)?,
             quote_atom_nad: self.normalize_amount(1, self.quote_side.asset_decimals)?,
             frozen_hlp_mask: self.amm.frozen_hlp_mask,
             frozen_base_curve_offset_nad: self.frozen_curve_offsets()?.0,
             frozen_quote_curve_offset_nad: self.frozen_curve_offsets()?.1,
-            receivable_hedge,
-            hlp_unpaid: [[0; 2]; 2],
-            hlp_capitalized: [[0; 3]; 2],
             junior_compound: None,
             junior_seed_compound: 0,
         };
-        if receivable_hedge {
-            if !self.hlp_frozen(MarketAsset::Base) {
-                state.hlp_unpaid[0] = hlp_unpaid[0];
-            }
-            if !self.hlp_frozen(MarketAsset::Quote) {
-                state.hlp_unpaid[1] = hlp_unpaid[1];
-            }
-            for target in [MarketAsset::Base, MarketAsset::Quote] {
-                let i = target.code() as usize;
-                let equity = if i == 0 {
-                    &mut state.base_hlp_equity
-                } else {
-                    &mut state.quote_hlp_equity
-                };
-                let coupon = &mut state.hlp_unpaid[i][i];
-                if *coupon > *equity {
-                    let needed = self.denormalize_amount_ceil(*coupon - *equity, self.side(target).asset_decimals)?;
-                    let (units, owned, value) = self.quote_hlp_capitalization_for_value(target, needed)?;
-                    state.hlp_capitalized[i] = [units, owned, value];
-                    *coupon = coupon
-                        .checked_sub(self.normalize_amount(value as u128, self.side(target).asset_decimals)?)
-                        .ok_or(ErrorCode::BrokenInvariant)?;
-                }
-                *equity = equity.checked_sub(*coupon).ok_or(ErrorCode::BrokenInvariant)?;
-            }
-            state.base_unpaid_interest = state.hlp_unpaid[1][0];
-            state.quote_unpaid_interest = state.hlp_unpaid[0][1];
-            state.ordinary_base_book_offset = as_signed(reserves.base)?
-                .checked_add(as_signed(self.normalize_amount(
-                    state.hlp_capitalized[0][2] as u128,
-                    self.base_side.asset_decimals,
-                )?)?)
-                .and_then(|v| v.checked_sub(as_signed(state.base_hlp_equity).ok()?))
-                .and_then(|v| v.checked_sub(as_signed(state.quote_hlp_base_debt).ok()?))
-                .and_then(|v| v.checked_add(as_signed(state.base_unpaid_interest).ok()?))
-                .and_then(|v| v.checked_sub(as_signed(ordinary.base_reserve).ok()?))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            state.ordinary_quote_book_offset = as_signed(reserves.quote)?
-                .checked_add(as_signed(self.normalize_amount(
-                    state.hlp_capitalized[1][2] as u128,
-                    self.quote_side.asset_decimals,
-                )?)?)
-                .and_then(|v| v.checked_sub(as_signed(state.quote_hlp_equity).ok()?))
-                .and_then(|v| v.checked_sub(as_signed(state.base_hlp_quote_debt).ok()?))
-                .and_then(|v| v.checked_add(as_signed(state.quote_unpaid_interest).ok()?))
-                .and_then(|v| v.checked_sub(as_signed(ordinary.quote_reserve).ok()?))
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-        }
         state.book_ordinary()?;
         let has_funding = (!self.hlp_frozen(MarketAsset::Base)
             && base_hlp_quote_debt
@@ -1624,7 +1532,12 @@ impl Market {
         Ok(false)
     }
 
+    /// A wiped market has no inventory point; its socialized-loss and
+    /// terminal checkpoints never read the returned empty point.
     pub(crate) fn ordinary_inventory_point_nad(&self) -> Result<ConcentratedCurvePoint> {
+        if self.curve_wiped() {
+            return Ok(ConcentratedCurvePoint::default());
+        }
         self.frozen_adjusted_inventory(&self.hlp_curve_basis_from_reserves_nad(self.curve_reserves_nad()?)?)
     }
 
@@ -1700,7 +1613,8 @@ impl Market {
     // changes to inventory. The translation creates no redeemable claim.
     #[inline(never)]
     pub(crate) fn exclude_hlp_funding_payment_from_pricing(&mut self, asset: MarketAsset, paid: u64) -> Result<()> {
-        if paid == 0 {
+        // A wiped market has no pricing point to keep.
+        if paid == 0 || self.curve_wiped() {
             return Ok(());
         }
         let mut reserves = self.curve_reserves_nad()?;

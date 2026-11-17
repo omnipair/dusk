@@ -8,7 +8,7 @@ import { Dusk, DuskUnsupportedMarketLayoutError, MARKET_LAYOUT_VERSION } from ".
 // Each case rewrites only its version byte, so every reader sees otherwise
 // valid current-format bytes.
 const fixture = JSON.parse(
-  readFileSync(new URL("./fixtures/virtual-book-batch-layout18.json", import.meta.url))
+  readFileSync(new URL("./fixtures/virtual-book-batch-layout19.json", import.meta.url))
 );
 const original = Buffer.from(fixture.result.value.accounts[0].data[0], "base64");
 const programId = new PublicKey(fixture.programId);
@@ -89,7 +89,7 @@ test("instruction builders reject a market at another layout before using it", a
     serve(version);
     await assert.rejects(dusk.write.hlpRemainingAccounts(marketKey), unsupported(version));
     await assert.rejects(
-      dusk.tranches.rollIncome({ market: marketKey, payer: PublicKey.unique(), bookIndex: 0 }),
+      dusk.tranches.fundSeed({ market: marketKey, asset: "base" }),
       unsupported(version)
     );
   }

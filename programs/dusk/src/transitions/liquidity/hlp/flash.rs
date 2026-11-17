@@ -54,13 +54,19 @@ impl Market {
         let opposite = engine::hlp_full_underlying_amount(self, target, borrowed)?;
         let target_claim = engine::hlp_full_underlying_amount(self, target, target)?;
         let gap = debt.saturating_sub(opposite);
+        // With an interest deficit any vault may be wound down by a full
+        // terminal settlement, solvent or not (product decision 2026-11-17).
+        let wind_down = self.curve_wiped();
         // A solvent vault need not wait for the native recovery swap's
         // critical-stress boundary. The fixed payment repairs the funding gap
         // while the affordable-discount check below preserves positive NAV.
-        require!(self.hlp_frozen(target) || gap > 0, ErrorCode::HlpNotLiquidatable);
+        require!(
+            wind_down || self.hlp_frozen(target) || gap > 0,
+            ErrorCode::HlpNotLiquidatable
+        );
         let current_slot = self.amm.last_observation_slot;
         let ema_collateral = self.hlp_ema_collateral_value_in_borrowed(target, target_claim, opposite, current_slot)?;
-        let full = ema_collateral <= debt;
+        let full = wind_down || ema_collateral <= debt;
         // Reuse the native recovery incentive's health bands. Payment is frozen
         // against the symmetric EMA, independently of the route's execution.
         let discount = if opposite == 0 {
@@ -108,11 +114,18 @@ impl Market {
         let prices = current_hlp_curve_prices(self)?;
         let nav = engine::hlp_share_nav_nad_with_prices(self, target, prices)?;
         let interest = debt.saturating_sub(vault.debt_principal);
-        // A previously frozen vault can regain full backing as its opposite
+        // Paying the funding takes only its protocol share from cash. A
+        // previously frozen vault can regain full backing as its opposite
         // srLP claim grows. It still needs a positive atomic payment to resume
         // its hedge; otherwise its receipts would remain frozen forever.
         let credit = gap
-            .max(interest.saturating_sub(self.side(borrowed).reserves.cash_reserve))
+            .max(
+                self.side(borrowed)
+                    .fees
+                    .ledger
+                    .protocol_share(interest)?
+                    .saturating_sub(self.side(borrowed).reserves.cash_reserve),
+            )
             .max(u64::from(self.hlp_frozen(target)));
         let payment_value = engine::asset_value_in_target_nad_with_prices(self, prices, borrowed, credit, target)?;
         let normalized_credit = self.normalize_amount(u128::from(credit), self.side(borrowed).asset_decimals)?;
@@ -182,12 +195,7 @@ impl Market {
             quote.collateral_debit > 0 && quote.reserve_credit > 0,
             ErrorCode::AmountZero
         );
-        if quote.full {
-            for asset in [MarketAsset::Base, MarketAsset::Quote] {
-                self.capitalize_hlp_receivable(target, asset, 1, 1)?;
-            }
-        }
-        if quote.full && !self.hlp_frozen(target) {
+        if quote.full && !self.hlp_frozen(target) && !self.curve_wiped() {
             let vault = match target {
                 MarketAsset::Base => self.base_hlp_vault,
                 MarketAsset::Quote => self.quote_hlp_vault,
@@ -240,7 +248,7 @@ impl Market {
         // resumes: reconstruct its indexed debt and equity before applying
         // the payment, so the payment cannot disappear into the static tranche.
         if self.hlp_frozen(target) {
-            self.clear_frozen_hlp(target);
+            self.clear_frozen_hlp(target)?;
         }
         // Compose with the actual current state. Swaps, other loans, and srLP
         // operations in the middle are never overwritten with a begin snapshot.
@@ -299,7 +307,7 @@ impl Market {
         };
         vault.flash_collateral_debit = 0;
         let plan = engine::prepare_concentrated_hlp_transition_from_end(self, end, false, true, 0, 0)?;
-        let receipts = plan.consume(self)?;
+        let receipts = plan.consume(self, crate::transitions::ProtocolCash::Required)?;
         self.finalize_amm_transition_and_observe_risk(slot)?;
         self.assert_market_invariants()?;
         Ok(receipts)

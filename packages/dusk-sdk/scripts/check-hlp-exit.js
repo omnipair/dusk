@@ -12,7 +12,7 @@ const U64_MAX = (1n << 64n) - 1n;
 function fixture() {
   const keys = Array.from({ length: 13 }, (_, i) => Keypair.fromSeed(new Uint8Array(32).fill(i + 1)).publicKey);
   const [programId, market, owner, baseMint, quoteMint, baseReserve, quoteReserve,
-    baseInterest, quoteInterest, baseHlpMint, quoteHlpMint, srlpMint, routeProgram] = keys;
+    , , baseHlpMint, quoteHlpMint, srlpMint, routeProgram] = keys;
   const program = new anchor.Program({ ...IDL, address: programId.toBase58() }, {
     connection: { getAccountInfo: async () => ({ owner: TOKEN_PROGRAM_ID }) },
     wallet: { publicKey: owner }, publicKey: owner,
@@ -21,8 +21,8 @@ function fixture() {
   const inactive = { hlpSupply: new anchor.BN(0), residualExposure: new anchor.BN(0) };
   program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
     amm: { frozenHlpMask: 1 }, srlpMint,
-    baseSide: { assetMint: baseMint, reserveVault: baseReserve, interestVault: baseInterest, hlpMint: baseHlpMint },
-    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, interestVault: quoteInterest, hlpMint: quoteHlpMint },
+    baseSide: { assetMint: baseMint, reserveVault: baseReserve, hlpMint: baseHlpMint },
+    quoteSide: { assetMint: quoteMint, reserveVault: quoteReserve, hlpMint: quoteHlpMint },
     baseHlpVault: { srlpVault: baseReserve, debtPrincipal: new anchor.BN(1_000), ...inactive },
     quoteHlpVault: { srlpVault: quoteReserve, debtPrincipal: new anchor.BN(5_000), ...inactive },
   });

@@ -8,6 +8,11 @@ mod ema_settlement {
     include!("liquidation_ema_settlement.rs");
 }
 
+mod referral_booking {
+    use super::*;
+    include!("referral_booking.rs");
+}
+
 mod stored_margin_runtime {
     use super::*;
     include!("leverage_stored_margin_runtime.rs");
@@ -87,7 +92,7 @@ fn calibration_entry(
         reserve_credit: spend,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(market, policy, &Default::default())?;
+    .prepare_with_cash_policy(market, policy)?;
     let quote = prepared.leverage_quote();
     let finalized = prepared.apply(
         market,
@@ -251,7 +256,7 @@ fn margin_calibration_partial_recovery_report() {
                         reserve_credit: sold,
                         protocol_fee_bps: 0,
                     })
-                    .prepare_with_cash_policy(&mut market, policy, &Default::default()) else {
+                    .prepare_with_cash_policy(&mut market, policy) else {
                         continue;
                     };
                     let quote = prepared.leverage_quote();
@@ -348,7 +353,7 @@ fn margin_calibration_emergency_price_path_report() {
                             reserve_credit: sale,
                             protocol_fee_bps: 0,
                         }
-                        .prepare_with_cash_policy(&mut market, SwapCashPolicy::Spot, &Default::default())
+                        .prepare_with_cash_policy(&mut market, SwapCashPolicy::Spot)
                         .unwrap();
                         let quote = prepared.leverage_quote();
                         prepared

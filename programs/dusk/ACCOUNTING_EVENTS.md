@@ -91,9 +91,13 @@ still applies. A report that assigns amounts to economic calendar days must
 state its interval policy; do not assume uniform daily accrual or add estimated
 uncheckpointed interest to a later actual checkpoint twice.
 
-Accrued interest is not collected cash, protocol revenue, or supplier yield.
-Writeoffs and debt-share rounding adjustments are separate from accrual and
-must be handled separately when reconciling outstanding receivables.
+The event also splits the interest it recognized: `protocol_credit` (the
+protocol's share, paid only when borrowers repay), `operator_credit` and
+`lp_credit` (credited to the operator and to holders at once), and
+`vault_netted` (hLP vault public interest netted against its funding debt).
+Credited interest is a holder entitlement, not collected cash or protocol
+revenue. Writeoffs and debt-share rounding adjustments are separate from
+accrual and must be handled separately when reconciling outstanding interest.
 
 ## Interest paid
 
@@ -102,18 +106,17 @@ inline hLP settlement. `source` is `Credit`, `Margin`, or `Hlp`. A margin
 repayment stays margin interest even when it occurs through adding margin;
 hLP funding settled during a spot swap stays hLP interest.
 
-- `interest_paid`: gross interest collected, excluding repaid principal.
-- `interest_vault_credit`: actual net interest-vault receipt.
-- `protocol_interest_revenue`: protocol allocation from that net receipt,
+- `interest_paid`: interest collected, excluding repaid principal. It stays in
+  reserve cash; holders were credited at accrual.
+- `protocol_interest_revenue`: the protocol's paid share of that interest,
   before referral allocation.
 - `referral_amount`: the portion of the protocol allocation owed to the referrer.
-- `caller_bounty`: gross terminal hLP caller reward funded from interest.
+- `caller_bounty`: gross terminal hLP caller reward, paid from pool cash.
 
 The protocol's retained allocation is `protocol_interest_revenue -
-referral_amount`; the supplier allocation is `interest_vault_credit -
-protocol_interest_revenue`. Transfer fees and terminal hLP bounty explain why
-gross collection can exceed vault receipt. Protocol-auction realization is a
-later event and is not a second collection of borrower interest.
+referral_amount`. Supplier interest is reported at accrual and when claimed
+(`YieldClaimed`), not here. Protocol-auction realization is a later event and
+is not a second collection of borrower interest.
 
 Lifecycle and referral events may repeat paid interest for context. Count the
 canonical payment once; do not add `ReferralInterestAccrued`, `YieldClaimed`, or

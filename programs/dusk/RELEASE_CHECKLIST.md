@@ -93,7 +93,8 @@ mainnet launch or upgrade.
   both hLP flash and native terminal paths.
 - Re-check fee liabilities: srLP, hLP, protocol, and unallocated carry-forward
   buckets. Swap-fee liabilities must remain reserve-custodied
-  outside executable cash; interest liabilities must remain interest-vault-custodied.
+  outside executable cash; protocol interest liabilities stay in reserve-vault
+  custody outside cash, and credited interest is paid from cash as it allows.
 - Re-check direct and delegated srLP governance across reusable locked balance,
   proposal creation/support, partial withdrawal before queue, strict-majority
   support, hLP-vault exclusion, seven-day timelock/window, independent family

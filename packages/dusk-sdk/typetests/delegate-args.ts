@@ -64,7 +64,6 @@ const executeHlpAccounts = {
   targetHlpMint: key,
   baseReserveVault: key,
   quoteReserveVault: key,
-  borrowedInterestVault: key,
   custodyTargetAccount: key,
   custodyHlpAccount: key,
   hlpSrlpAccount: key,

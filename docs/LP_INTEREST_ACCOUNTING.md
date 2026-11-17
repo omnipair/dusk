@@ -4,24 +4,147 @@ Implemented in PR #45. The initial accounting work began at
 `5c0aca7fcb582418f1c5b99061d4ff7605b6f185`; later hLP recovery changes
 are also integrated into that PR.
 
-## Selected behavior (2026-10-18)
+## Accrued-interest ledger (2026-11-15)
 
-- Keep V1-style ownership: accrued public borrower interest is included in LP
-  share value. Entrants pay for their share of the existing receivable.
-- Apply the same economic backing to srLP mint/burn and hLP share valuation.
-- An exiting holder receives the permitted cash withdrawal and retains no
-  separate unpaid-interest entitlement. Existing funded yield is distinct.
-- Repayment converts a receivable into cash; it must not count the same income
-  twice. Cancellation removes the receivable from current share value.
-- Cash availability and backing checks remain binding. Notional reserves do
-  not authorize spending tokens the reserve vault does not hold.
-- Preserve the existing swap-fee split: compounded fees enter share principal;
-  separate swap fees retain their funded per-holder index.
-- Keep the current AMM pricing model: public unpaid interest remains excluded
-  from `curve_reserve`. The later V1-style swap-pricing proposal was declined.
+Borrower interest is credited to holders when it accrues and claims are paid
+in reserve cash. The income receivable books, their epochs and rolls, the
+public interest advance, `fund_interest`, `checkpoint_income`,
+`roll_income_epoch` and the per-asset interest vaults are removed (market
+layout 19).
 
-The previously proposed historical claim ledger and proportional funding
-policy are superseded. They are not part of this implementation.
+Per asset, with `C` reserve cash plus the flash receivable, `D` borrower
+principal (public, leverage and hLP funding), `I` recognized borrower
+interest, `Q` credited and unclaimed interest, `Pu` the protocol share of `I`
+not yet repaid and `P` LP principal:
+
+```text
+C + D + I + Δ = P + Q + Pu
+curve_reserve = max(0, live_reserve + funding_recognized + deficit − credited − protocol_unpaid)
+```
+
+`Δ` is the asset's recorded interest deficit (below); it is zero in a
+market whose LP capital has always covered its losses.
+
+`I` is `public_recognized + funding_recognized` in the side's
+`InterestLedger`. Every instruction ends with both sources recognized: the
+recorded values equal the debt they measure.
+
+| Event | Change | Effect on `P` |
+|---|---|---|
+| Accrual of `i` (LP and operator `a`, protocol `p`) | `I += i`, `Q += a`, `Pu += p` | none |
+| Repayment of interest `x` (protocol part `x_p`) | `C += x − x_p`, `I −= x`, `Pu −= x_p` | none |
+| hLP funding payment `x` | `I −= x`, cash leaves only for `x_p` | `−x` (the vault spends principal it owns) |
+| Claim of `y` | `C −= y`, `Q −= y` | none |
+| Write-off of interest `w` (protocol part `w_p`) | `I −= w`, `Pu −= w_p` | `−(w − w_p)`, junior first |
+
+Accrual, repayment, netting and claims leave `curve_reserve` and the price
+unchanged. Depth absorbs claims and repayments.
+
+- **Accrual split.** The protocol markup is added on top of base interest:
+  protocol `= gross × m / (10,000 + m)`. The operator receives its share of
+  the rest; the LP share goes to the junior lane (or the permanent seed while
+  junior is wiped), then senior. Senior public interest is split pro rata
+  across ordinary srLP and the srLP held by the two hLP vaults; hLP funding
+  interest credits ordinary srLP and junior only. Sub-atom splits carry in
+  Q64 fractions, so the running protocol and operator totals stay within one
+  atom of their exact share.
+- **Netting.** At accrual, the vault that borrows an asset first nets its new
+  public credit in that asset against the funding interest it owes there, by
+  burning its debt shares; the remainder is credited to its holders. Netting
+  moves neither the vault's principal nor its recorded live backing, so the
+  price does not move; it is skipped when cash cannot cover its protocol
+  share. Only accrual nets, so a prepared hLP plan never sees its vault debt
+  change between preparation and consumption.
+- **Protocol share.** The protocol is paid only. Each interest payment moves
+  `floor(paid × Pu / I)` from cash to `protocol_pending`, which is booked to
+  the referral, fee and buyback liabilities by the instruction (referral
+  first). A write-off drops `ceil(w × Pu / I)`; removing every outstanding
+  atom drains `Pu` exactly. A spot swap pays the protocol share of funding as
+  cash allows; leverage, liquidation and hLP paths require it.
+- **Operator share.** Credited at accrual into `operator_claimable` and paid
+  in cash like LP interest. A recipient handoff seals the outgoing
+  recipient's credited balance in its `OperatorRevenueAccount`; it stays in
+  `credited` until claimed.
+- **Defaults.** Liquidations pay principal first; unpaid interest is then
+  written off. A short recovery pays no interest and the protocol nothing.
+  Written-off interest that was credited is an ordinary pool loss, absorbed
+  by junior capital before senior. Credited interest, including the
+  operator's, never absorbs losses.
+- **Claims.** Harvest checkpoints the holder against the lane index and pays
+  from reserve cash, limited by the cash present; the rest stays claimable.
+  Claims arrive net of the asset's Token-2022 transfer fee. Direct borrower
+  repayments pay their own transfer fee. No other interest movement is a
+  token transfer.
+- **Junior.** Conversion, exit escrow and retired burns checkpoint the junior
+  index. A wipe freezes the generation's final index in its cohort, and
+  retired holders harvest credited interest from it.
+- **hLP NAV.** A vault's NAV is its srLP share of `curve_reserve` plus the
+  opposite-asset debt it holds; interest credited to the vault's holders is
+  outside NAV, so exits need no coupon conversion.
+- **Frozen hLP vaults.** Creditors come before equity. A frozen (insolvent)
+  vault still nets same-asset interest against the funding it owes, but the
+  rest of its public interest is held on the vault
+  (`held_base_interest`, `held_quote_interest`) instead of reaching its
+  holders. Held interest stays in `credited`, so accrual moves neither the
+  curve nor the price. The terminal close, native or flash, applies it to
+  the debt the sale or payment leaves unrecovered, borrowed-asset interest
+  first and target-asset interest at the terminal EMA mark: the applied part
+  moves from `credited` into LP principal and the vault's unrecovered debt
+  falls by exactly its value. Held interest never creates a surplus; what
+  the debt does not need is published to the retired cohort in the asset it
+  was held in. A recovery that unfreezes the vault publishes the held
+  interest to its holders in full. Interest published before the freeze
+  stays theirs.
+
+**Interest deficit.** Credited interest can exceed all LP capital in an
+asset, so a write-off can be larger than `P`. The liquidation still goes
+through: LP capital goes to zero, junior then senior, and the part of the
+loss capital cannot absorb is recorded as `InterestLedger::deficit` (u128,
+per asset, never decreases). `absorb_funded_credit_loss` records it before
+allocating the rest to capital, and every instruction ends with no
+unrecorded gap. Credited claims are not reduced: they are paid from the cash
+that remains, first come and limited by cash, and the checked subtraction on
+`credited` keeps every payout within what was credited. Once claims exceed
+what the pool can ever pay, late claimers receive nothing. While either asset
+has a deficit, `add_liquidity`, `deposit_single_sided` and `borrow` refuse
+with `InterestDeficit`, because new capital would fund old claims and no
+price can move to value new credit. The wiped asset has no curve, so the
+market never trades again: spot and leverage swaps, and liquidations and
+leverage closes that sell through the curve, refuse with
+`InsufficientLiquidity` instead of pricing against an empty side, where any
+input would buy the other side's whole reserve. Every other curve reader
+(`update_at_slot`, the leverage-margin prelude, the borrow-protection
+snapshot, risk refresh and the transition finalizers) treats the market like
+an empty one (`Market::curve_wiped`): it skips the curve and hLP price
+checkpoints and keeps risk, prices and the valuation curve at their last
+observation. Price-free exits therefore keep working: harvest and the
+operator, referral and protocol claims (first come, from remaining cash),
+repayment, collateral deposits, withdrawals by debt-free positions (repay
+first otherwise), srLP exits (the healthy asset's principal, zero of the
+wiped one's), flash liquidation at the last observation, and burning a
+terminally closed vault's hLP receipts. A position that still owes either
+asset cannot withdraw collateral against the frozen price, and an hLP exit,
+which needs a curve price, refuses with `InterestDeficit`; a vault the
+terminal close would accept (EMA collateral no longer covering its funding
+debt) is frozen at that mark, so its new interest is held for its creditors
+and the terminal close is its holders' exit. With a deficit, the terminal
+close (native or flash) also accepts a solvent vault (product decision
+2026-11-17): its debt is settled at the close's EMA price, held interest
+applies as above, and recovery above the debt is the holders' remainder.
+The native close returns it in kind (the borrowed claim first, then the
+target claim at the sale's average price) after it pays the caller bounty;
+the flash close credits the buyer's payment above the debt. A solvent
+wind-down absorbs no loss and never raises a deficit. The native close
+settles a borrowed-asset debt with target inventory the pool keeps, which
+on a wiped borrowed asset would grow its deficit, so when the vault's
+borrowed asset has a deficit the native close refuses with
+`InterestDeficit` (solvent or insolvent vault) and the vault closes by
+flash, where the buyer pays the borrowed asset. Holders then burn their
+receipts as for an insolvent vault.
+
+Dated sections below record earlier validation. Where they describe
+receivables, coupons in hLP NAV or interest custody, the ledger above
+supersedes them.
 
 ## Terminal hLP receipt cohorts
 
@@ -51,7 +174,8 @@ book_quote = ordinary_curve_quote + quote_book_offset
 
 live_base  = book_base  + base_hLP_equity  + quote_hLP_debt
 live_quote = book_quote + quote_hLP_equity + base_hLP_debt
-curve[i]   = live[i] - unpaid_public_interest[i]
+curve[i]   = live[i] - curve_exclusion[i]
+curve_exclusion = credited + protocol_unpaid - funding_recognized
 ```
 
 The book offsets provide cash-flow coordinates during one quoted trade.
@@ -66,7 +190,8 @@ fee-free 10,000-token round trip could gain 0.116057 tokens initially and
 canonical hedged point and certifies the completed endpoint against the same
 curve. A few residual-based candidates are followed, when needed, by bounded
 bisection; every accepted candidate independently satisfies the invariant.
-When no active hLP owns unpaid interest, the quote retains its analytic path.
+Under the accrued-interest ledger no hLP NAV holds an unpaid coupon, so the
+certified search runs only for carried funding or frozen vaults.
 
 The regression runs three successive round trips across both directions,
 both interest assets, 1x/4x concentration, 20k/200k hLP deposits, 25k/250k
@@ -110,8 +235,10 @@ at the funded curve mark and uses separate ownership offsets to reconcile the
 entire liability with actual inventory. Accrued interest is not additional
 principal or executable liquidity. Frozen vaults keep their liabilities.
 
-Payment records the cash moved to interest custody and settles the liability
-already charged to the paying vault's NAV at accrual. Persistent, signed hLP
+Payment settles the liability already charged to the paying vault's NAV at
+accrual. The paid funding stays in reserve cash; only its protocol share
+leaves cash, so a spot swap carries funding only when cash cannot cover its
+output plus that share. Persistent, signed hLP
 funding offsets bridge the resulting ownership books to the unchanged pricing
 point. They are virtual trading coordinates, never redeemable assets or cash.
 Both vaults settle through one endpoint, preserve their full pre-payment NAV
@@ -154,32 +281,15 @@ ceilings are the successful finished-binary measurements plus exactly 5%.
 These fixture measurements do not establish that every composition fits;
 external hLP flash execution needs its own transaction budget tests.
 
-## Vault-wide harvesting and flash recovery
+## Harvesting and flash recovery
 
-`fund_interest` funds accrued public interest from available cash and settles
-new hLP income at vault scope. It checkpoints historical holder growth first,
-uses only new income to cover each vault's funding gap, jointly restores the
-opposite-token hedge, and publishes the remaining new yield. Existing funded
-claims cannot be spent on recovery. New income in the borrowed asset is used
-first, then new target-asset income; transfer fees are charged to that vault.
-Both vaults use one frozen pre-rebalance mark for the ownership allocation.
-
-Funding alone leaves swap reserves unchanged. The user approved the existing
-hedge reconstruction changing the AMM mark within the harvest transaction.
-The hedge is vault-wide, including under concentration; its target is opposite-
-token neutrality, not a fixed 2x gross leverage ratio.
-
-`HlpInterestAllocated` reports new published yield, custody debits retained as
-hLP capital, and measured reserve credits. `PublicInterestFunded` reports the
-cash advance and allocations. Repayment uses the same new-income settlement.
-Gross `BorrowInterestPaid` credits minus capital debits reconcile net interest
-custody; these gross credit events must not be interpreted as net vault growth.
-
-The SDK exposes `dusk.yield.fundInstruction`, `previewFunding`, and
-`buildHarvest`. The latter composes funding with an existing holder harvest;
-`fundAccruedInterest: false` collects already-funded claims independently.
-Funding checks reserve cash, current transfer fees and the complete hedge
-settlement. A simulation is not a reservation of cash or a guarantee of inclusion.
+Interest is already credited when a holder harvests: the holder is
+checkpointed against its lane index and paid from reserve cash as cash
+allows. hLP vault interest is published to the vault's holder index at
+accrual, after netting against the funding the vault owes. Swap fees keep
+their funded index and custody. `BorrowInterestAccrued` reports the protocol,
+operator and LP credit and the amount netted; `BorrowInterestPaid` reports
+the interest paid and its protocol share.
 
 The hLP flash interface adds `preview_hlp_flash`, `begin_hlp_flash`, and
 `settle_hlp_flash`. Recovery applies to an entire target-token vault. A holder
@@ -217,12 +327,13 @@ reserve invariant fails.
 Both native terminal closure and flash terminal closure allocate the remaining
 funded principal loss to junior first, then senior. There is no outside coverage
 vault or draw budget. The caller can cap the total socialized principal loss.
-Funding interest is realized only to the extent that cash can pay it; the rest
-is canceled when the cohort closes and does not become principal loss.
+Recovery pays funding principal first; funding interest the recovery cannot
+pay is written off. That interest was credited at accrual, so its LP and
+operator part is a pool loss absorbed with the principal loss, junior first.
 Native closure retains seized inventory in the pool; flash closure physically
-releases the quoted target tokens. Historical funded claims remain untouched.
-Any flash surplus becomes funded yield of the retired cohort, whose receipts
-remain burnable. Closing one insolvent vault does not require repairing the
+releases the quoted target tokens. Credited claims remain untouched.
+Any flash surplus is credited to the retired cohort's holder index, whose
+receipts remain burnable. Closing one insolvent vault does not require repairing the
 other insolvent vault first.
 
 The SDK exposes `dusk.hlpLiquidations.preview` and `buildFlash`. Its route
@@ -232,9 +343,9 @@ signing or submitting, and reject unapproved full closure. A versioned
 transaction with a prepared lookup table is appropriate for composed routes;
 final instruction order must stay unchanged because settle's index is bound.
 
-Cash limits still matter: unpaid receivables are NAV, not flashable token cash.
-If target cash cannot fund an external quote, the quote rejects; the native
-terminal path can retain inventory and cancel unpaid interest. A preview does
+Cash limits still matter. If target cash cannot fund an external quote, the
+quote rejects; the native terminal path can retain inventory and write off
+unpaid funding interest. A preview does
 not guarantee external liquidity, profitability, or successful inclusion.
 The complete audit item's review status is recorded in
 [the remediation ledger](audit/MODEL_REVIEW_CLOSEOUT.md).
@@ -243,201 +354,39 @@ The complete audit item's review status is recorded in
 
 Virtual reserves and intermediate indexed-debt arithmetic use u128. Physical
 SPL custody and individual debt settlement amounts remain u64; signed receipt
-deltas use i128 so the full unsigned token range can be reported. New borrowing
-must preserve these domains and the capacity of existing income books.
+deltas use i128 so the full unsigned token range can be reported.
 
-At an extreme accrual boundary the market limits the shared index before
-issuing any additional debt or fee/LP receivable. Excess interest is forgone,
-not deferred, and the accrual slot still advances. Existing obligations are
-never independently clipped. Current APR continues evolving, and future
-interest can resume when all dependent books have room. Exhausted income-unit
-denominations retain the existing permissionless archive/roll path after
-settlement. The index resets only when every public and hLP debt share on that
-asset has been extinguished; historical income claims are retained.
+Accrual keeps one numeric clip: the shared borrow index stops where a debt
+bucket would leave the u64 domain, and the accrual slot still advances.
+Interest is never forgone for bookkeeping reasons. Under that clip
+`I < 2^66` and `Q < I + 2^64`, so the u128 ledger cannot overflow and a spot
+swap never fails in recognition, netting or funding settlement. Growth
+indexes overflow only above 2^64 atoms per share.
 
-A book whose receivable is fully repaid without a shortfall advances to its
-next epoch in place when it next issues. Repaying all due interest is
-routine: every swap that pays hLP funding, and a `fund_interest` that funds the
-whole public coupon, drain their book. The shared borrow index therefore keeps
-accruing, and no archive or keeper is involved. Book units carry 64 fractional
-bits, so issuance never lets a unit's paid-plus-unpaid value fall below one
-atom of face value. Each cash credit carries its rounding remainder into the
-next, so a fully repaid epoch's paid index ends within a few 2^-64 of face.
-Lane growth stays cumulative across such a drain run, and the book records
-each ordinary lane's units when the current epoch began. A holder that last
-checkpointed anywhere in the run is valued in one step: units issued before
-the current epoch at face value less 2^-56, units issued since at the live
-paid index. The margin costs holders under 256 atoms per epoch even at the
-2^64 unit limit, however cheaply units were issued. A holder is never paid
-more than custody received. A new holder starts at the lane's current point.
+Rounding: the protocol share of a payment rounds down and of a write-off
+rounds up; Q64 carries keep the accrual split and lane distributions exact
+over time; a share burn that moves a phantom atom between principal and
+interest is recognized like any accrued atom. `credited` exceeds the sum of
+holder entitlements only by sub-atom index carries.
 
-`fund_interest` never leaves the public book a dust remainder: a cap that
-would leave the book's unpaid value below 2^-16 atom per unit is lowered so
-that at least that much stays unfunded. Units issued into a nearly repaid book are nearly free, so
-repeated near-full fundings would otherwise multiply the unit count until
-issuance no longer fits and accrual stalls until a roll.
-
-Every interest transfer into income custody is grossed up by the asset's
-Token-2022 transfer fee, so custody receives the full interest and a routine
-epoch drains at face value. A borrower's direct repayment (`repay`,
-`add_leverage_margin`) pays that fee on top of the repayment; its debt
-reduction is unchanged. Internal moves (hLP funding paid during swaps, entries,
-exits, flash and terminal settlement; `fund_interest`; leverage and
-liquidation settlement interest) debit reserve cash and live reserve for the
-fee: a real cost to LP reserves, never to the income book. Like the funding
-payment it accompanies, the fee is excluded from pricing, so spot does not
-move and depth falls instead.
-
-The fee is part of every pay-or-carry decision for the payment it
-accompanies, so cash never pays the interest without its fee. A spot swap
-carries hLP funding on the vault's debt when cash cannot cover the funding,
-its fee and the trader's output (the swap still executes); leverage swaps and
-liquidation settlements refuse, as they do for funding cash cannot cover; the
-terminal waterfall and flash terminal pay only funding whose fee cash also
-covers and cancel the rest; hLP entry, exit and harvest, leverage settlement
-interest and `fund_interest` require the fee with the payment (`fund_interest`
-also keeps back the fee on funding the reserve owes). The only remaining net
-credit is a swap's own safety net: a settlement rebuilt after a loss inside
-the swap that leaves less cash than its prepared plan counted. SPL fee
-arithmetic makes the grossed-up transfer deliver exactly the interest; if one
-ever delivered more than the settlement budget, collection would credit
-exactly the budget and leave the excess in the vault, unrecorded.
-
-An epoch credited less than its pending interest (a fee changed after the
-gross-up was priced, the swap safety net above, a terminal caller bounty) or
-with a writeoff is impaired and needs an archived roll before it can issue
-again, instead of an in-place advance.
-
-`roll_income_epoch` archives a book only once at least half of its units are
-repaid, or once any of its counters (units, unpaid, paid per unit, or a lane's
-growth) reaches half its numeric range; it refuses a drained book that can
-advance in place. An archived roll starts a new drain run. Holders carry
-their units across archived epochs in bounded catch-up batches, so rolling a
-barely repaid book would let anyone fragment that catch-up into many epochs
-without freeing capacity. Rolling needs no keeper: anyone may call it, the
-SDK's `prepareDrainedIncomeBooks` rolls impaired or exhausted drained books as market
-maintenance, and holders run `prepareHolderIncome` before a transfer, exit or
-claim. Catch-up passes only the archived epochs: the archive that ended a run
-carries that run's start, so the SDK walks back from the live book's run.
-
-## Interest fees and cash advances
+## Interest fees
 
 Base borrower interest is split between LPs and the operator. The operator's
-share is 0–50%; it receives no swap revenue. The global protocol interest fee
-is a markup added on top of base interest, controlled by FutarchyAuthority.
-With $100 base interest, a 30% operator share and 20% protocol markup,
-borrowers owe $120: $70 LP income, $30 operator revenue and $20 protocol revenue.
+share is 0–100% of base interest; it receives no swap revenue. The global
+protocol interest fee is a markup added on top of base interest, controlled
+by FutarchyAuthority. With $100 base interest, a 30% operator share and 20%
+protocol markup, borrowers owe $120: $70 LP interest, $30 operator interest
+and $20 protocol revenue.
 
 Rates are frozen as interest accrues. Each market checkpoints elapsed debt at
 its cached markup, then adopts the latest global markup for future accrual.
 An operator-share edit also accrues the previous interval before installing
-its new share. No later rate change re-prices the earlier fee book. Repayments
-and defaults are pooled within each asset/source receivable book.
+its new share.
 
-Operator entitlement follows collection: the recipient at payment receives
-the fee, including payment of previously accrued interest. On a handoff,
-already collected whole-atom cash is sealed for the outgoing recipient;
-unpaid fee amounts and sub-atom rounding carry follow the new recipient. Claims
-are backed by measured interest-vault cash and pay the recipient's canonical
-ATA. Claims never call an external governance program.
-
-Each asset tracks gross advanced interest and aggregate protocol/operator
-revenue escrow. Only LP income is advanced into interest custody; fees remain
-unpaid until borrower cash arrives. Frozen fee escrow stays in reserve custody,
-excluded from executable cash and LP value. Repayment recycles the advance;
-only fresh interest and released fee escrow transfer to interest custody.
-Measured Token-2022 credit is divided between the LP and fee books. Referral
-revenue comes only from the collected protocol allocation.
-
-Let `U` be gross public unpaid interest, `A` the outstanding gross advance,
-`R` the live reserve, and `C` available cash. Funding `a` records:
-
-```text
-A' = A + a
-R' = R - a
-C' = C - a
-curve' = R' - (U - A') = R - (U - A)
-```
-
-Thus funding alone does not change executable curve reserves. Borrower debt
-is unchanged. A clearance removes its proportional advance and frozen fee;
-the final clearance drains integer remainders. Paid advances replenish cash.
-Canceled advances return the held fee portion to cash. The LP portion
-already paid is a real loss if the borrower defaults; it is not paid again,
-and junior-first principal loss allocation does not cover canceled interest.
-
-The repayment kernel applies the debit and recycled credit together. A
-valid internal repayment must not fail because it tries to collect cash for
-already-funded interest a second time. The same reconciliation is wired into
-ordinary borrowing, leverage repayment/close, external flash recovery and
-native liquidation accounting.
-
-SDK functions `quoteInterestAdvanceAmounts` and `allocateRepaidInterest`
-provide integer accounting amounts, including the effective Token-2022 fee
-and the historical fee-book split. Use the simulated `previewFunding` for hLP feasibility and `buildHarvest`
-for transaction composition.
-
-### Historical gross-income rehedge diagnostic
-
-A native diagnostic funds interest, publishes its gross hLP-owned LP share,
-and applies the existing full-value hedge reconstruction. This is a tested
-comparison, **not the proposed net-yield harvest implementation**. Funding
-leaves the raw curve and quoted price unchanged. The subsequent existing
-hedge reconstruction can change the quoted price.
-
-The fixture starts with 1,000,000 tokens per ordinary reserve, deposits
-200,000 tokens into each hLP, and has 400,000 USDC of public principal. With
-4x concentration and a 20% protocol interest share:
-
-| Accrued USDC interest | Price before funding/rehedging | Price after | Change |
-| ---: | ---: | ---: | ---: |
-| 25,000 | 0.999984250 | 0.999977720 | -0.000653% |
-| 250,000 | 0.998593574 | 0.997806262 | -0.078842% |
-| 800,000 | 0.988868015 | 0.971366965 | -1.769806% |
-
-The two larger cases deliberately stress large unpaid balances; they are
-not yield forecasts. The diagnostic excludes token transfer fees and new
-hLP funding interest. It verifies that rehedging preserves each hLP's
-remaining NAV at the fixed pre-rehedge mark within token rounding. The
-changed AMM mark is a separate effect. The user subsequently accepted hedge
-rebalancing moving the mark. Historical funded claims are not used here.
-
-The implemented net-yield checkpoint differs from this gross-income diagnostic:
-it restores funding using only newly earned income before publishing the rest.
-The integration test covers both hLPs and srLP, SPL Token and Token-2022, both
-interest assets, 1x/4x concentration, a 20%-to-60% protocol rate change, actual
-cash-funded harvests and repayment conservation including withheld transfer fees.
-The native allocation matrix covers 108 cases, including 1x/4x/10x concentration,
-three unpaid-interest amounts, funding accrual and capped/uncapped transfer fees.
-It checks each vault's value at the common mark and preserves historical claims.
-
-### Validation of the advance accounting
-
-The complete required local CI sequence passed: formatting, hygiene, helper
-shape, Clippy, 518 Dusk tests in both default and production profiles, the
-production check, the EMA settlement invariant, delegate/faucet tests,
-TypeScript, Dusk/delegate/faucet SBF builds, build identity, regenerated IDLs,
-and 74 SDK tests. Strict LiteSVM passed 136 tests, exercised all 71 instructions
-and all 18 required compute scenarios, with no pending tests. Existing CU
-ceilings were retained. Ordinary swaps measured 98,640 CU against the unchanged
-strict 100,000 limit; the concentrated public-interest fixture reached 883,010 CU.
-
-At the previous advance-ledger checkpoint, the instruction regression seeded
-a funded accounting/custody state, then ran
-real repayment transfers with both hLPs at 1x and 4x concentration and both debt
-assets. It freezes 20% on the funded half, changes the current rate to 60%, and
-verifies custody, exact fresh/frozen protocol allocation, LP growth without a
-second payout, and full ledger clearance. The new integration replaces this seeded advance with real funding and harvest
-instructions. Native tests cover zero-starting-cash internal
-repayment, concentrated emergency cancellation, and both hLPs through repayment
-and writeoffs. SDK tests cover effective Token-2022 transfer fees, mixed frozen
-and fresh net-credit allocation, cash caps and u64 precision. The new instruction fixture also covers fee-bearing Token-2022 advances,
-harvests and repayments.
-
-Market layout version 4 includes the two per-asset advance ledgers, temporary
-flash receivables, and per-vault recovery locks; all four SDK
-IDL/type files are regenerated with the source change. This is a development
-interface change, not a deployed migration.
+The LP and operator shares are credited at accrual. The protocol share is
+paid only, from the interest borrowers actually repay; referral revenue comes
+from that paid protocol share. An operator share credited before a default is
+covered by junior, then senior, because the pool fronted it.
 
 ## Harvest and flash validation (2026-10-20)
 
@@ -446,8 +395,7 @@ profile, including a 108-case harvest conservation matrix. That matrix covers
 both interest assets, 1×/4×/10× concentration, funding gaps, and capped/uncapped
 transfer fees. It checks ordinary srLP value and both hLPs at a common mark,
 including newly published yield and retained capital. Historical funded claims
-are preserved. Existing repayment/writeoff tests exercise the shared advance
-ledger and its frozen protocol allocation.
+are preserved.
 
 The SDK has 77 passing checks. The strict LiteSVM suite has 140 passing tests,
 76/76 instructions exercised and all 19 required compute scenarios. Its flash

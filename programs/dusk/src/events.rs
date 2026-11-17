@@ -126,9 +126,10 @@ pub struct HlpRebalanced {
     pub quote_hlp_debt_increase: u64,
     pub quote_hlp_debt_decrease: u64,
     pub quote_hlp_debt_after: u64,
-    /// Gross quote tokens paid from reserve cash to the interest vault.
+    /// Quote funding interest the base-target hLP paid. Only its protocol
+    /// share leaves reserve cash.
     pub base_hlp_funding_interest_paid: u64,
-    /// Gross base tokens paid from reserve cash to the interest vault.
+    /// Base funding interest the quote-target hLP paid.
     pub quote_hlp_funding_interest_paid: u64,
 }
 
@@ -262,7 +263,10 @@ pub struct YieldClaimed {
     pub token_kind: u8,
     pub recipient: Pubkey,
     pub swap_fee_amount: u64,
+    /// Interest paid now, limited by reserve cash.
     pub interest_amount: u64,
+    /// Credited interest still claimable by the holder after this claim.
+    pub interest_remaining: u64,
     /// Total amount credited to the recipient after transfer fees.
     pub recipient_credit: u64,
     pub metadata: MarketEventMetadata,
@@ -359,7 +363,6 @@ pub struct ReferralInterestAccrued {
     pub referral_accrual: Pubkey,
     pub asset_mint: Pubkey,
     pub interest_paid: u64,
-    pub interest_vault_credit: u64,
     pub protocol_interest_revenue: u64,
     pub interest_share_bps: u16,
     pub accrued_amount: u64,
@@ -606,6 +609,13 @@ pub struct BorrowInterestAccrued {
     pub credit_interest: u128,
     pub margin_interest: u128,
     pub hlp_interest: u128,
+    /// Split of the interest recognized by this accrual: protocol share
+    /// (paid only), operator and LP credits, and hLP vault public interest
+    /// netted against its funding debt.
+    pub protocol_credit: u64,
+    pub operator_credit: u64,
+    pub lp_credit: u64,
+    pub vault_netted: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -625,11 +635,10 @@ pub struct BorrowInterestPaid {
     pub source: DebtSource,
     /// None for aggregate hLP funding debt; `asset_side` identifies its vault.
     pub position: Option<Pubkey>,
-    /// Gross interest collected, including any terminal hLP caller bounty.
+    /// Interest collected. It stays in reserve cash, credited to holders at
+    /// accrual; only the protocol share leaves cash.
     pub interest_paid: u64,
-    /// Net tokens credited to the interest vault after transfer fees/bounty.
-    pub interest_vault_credit: u64,
-    /// Protocol allocation from vault credit, before the referral allocation.
+    /// Protocol share of `interest_paid`, before the referral allocation.
     pub protocol_interest_revenue: u64,
     pub referral_amount: u64,
     /// Gross terminal hLP caller bounty; zero for ordinary payments.

@@ -245,8 +245,7 @@ impl Market {
     /// Closes a lending position after its external auction expires. The AMM
     /// leg has already debited `swap_output` from executable reserves; this
     /// step applies that output to fixed debt, charges junior before senior,
-    /// and writes off any remaining debt without a caller-selected veto. The
-    /// interest and principal use their separate settlement ledgers.
+    /// and writes off any remaining debt without a caller-selected veto.
     pub fn settle_internal_liquidation(
         &mut self,
         borrow_position: &mut BorrowPosition,
@@ -256,7 +255,6 @@ impl Market {
         caller_bounty: u64,
     ) -> Result<InternalLiquidationReceipt> {
         borrow_position.require_idle()?;
-        let unpaid_before = self.public_unpaid_interest(debt_asset)?;
         let collateral_before = position_collateral(borrow_position, debt_asset);
         require_eq!(collateral_consumed, collateral_before, ErrorCode::BrokenInvariant);
         require_gte!(collateral_consumed, caller_bounty, ErrorCode::BrokenInvariant);
@@ -289,7 +287,7 @@ impl Market {
             .cash_repaid
             .checked_sub(cash_repaid)
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        let (interest_paid, principal_credit) = self.clear_fixed_position_principal(
+        let (interest_paid, _) = self.clear_fixed_position_principal(
             borrow_position,
             debt_asset,
             cash_repaid,
@@ -317,11 +315,9 @@ impl Market {
                     .ok_or(ErrorCode::DebtShareMathOverflow)?;
             }
         }
-        let live_debit = full_repayment
-            .cash_repaid
-            .checked_sub(principal_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.settle_public_debt_reserves(debt_asset, unpaid_before, interest_paid, live_debit, principal_credit)?;
+        // Principal first: a short recovery pays no interest and the protocol
+        // nothing; the unpaid remainder is written off junior first.
+        self.settle_public_debt(debt_asset, cash_repaid, interest_paid, full_repayment.cash_repaid)?;
         borrow_position.set_liquidation_cf_bps(debt_asset, 0);
         borrow_position.clear_referral_binding(debt_asset);
         self.reconcile_global_health_contribution(borrow_position, debt_asset, 0)?;

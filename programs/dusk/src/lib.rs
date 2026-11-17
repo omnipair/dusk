@@ -48,16 +48,32 @@ security_txt! {
 
 declare_id!("DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj");
 
+/// Runs a handler that mutates the interest ledger, then checks the ledger
+/// against the debt it measures (`Market::assert_interest_ledgers`), so a
+/// missed settlement fails in the instruction that left it instead of being
+/// written off as a loss by a later recognition.
+macro_rules! ledger_checked {
+    ($ctx:ident, $($market:ident).+, $handler:expr) => {{
+        let Context {
+            program_id,
+            accounts,
+            remaining_accounts,
+            bumps,
+        } = $ctx;
+        {
+            let $ctx = Context::new(program_id, &mut *accounts, remaining_accounts, bumps);
+            $handler?;
+        }
+        accounts.$($market).+.assert_interest_ledgers()
+    }};
+}
+
 #[program]
 pub mod dusk {
     use super::*;
 
     pub fn update_lp_metadata(ctx: Context<UpdateLpMetadata>, args: InitializeLpMetadataArgs) -> Result<()> {
         UpdateLpMetadata::handle(ctx, args)
-    }
-
-    pub fn checkpoint_income(ctx: Context<CheckpointIncome>, args: CheckpointIncomeArgs) -> Result<()> {
-        CheckpointIncome::handle_checkpoint(ctx, args)
     }
 
     pub fn burn_retired_junior(ctx: Context<BurnRetiredJunior>, args: BurnRetiredJuniorArgs) -> Result<()> {
@@ -71,10 +87,6 @@ pub mod dusk {
     pub fn compound_junior_seed<'info>(ctx: Context<'_, '_, '_, 'info, CompoundJuniorSeed<'info>>) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         CompoundJuniorSeed::handle_compound(ctx)
-    }
-
-    pub fn roll_income_epoch(ctx: Context<RollIncomeEpoch>, args: RollIncomeEpochArgs) -> Result<()> {
-        RollIncomeEpoch::handle_roll(ctx, args)
     }
 
     pub fn initialize_junior(ctx: Context<InitializeJunior>, args: InitializeJuniorArgs) -> Result<()> {
@@ -154,16 +166,17 @@ pub mod dusk {
 
     #[access_control(ctx.accounts.validate())]
     pub fn claim_referral_interest<'info>(ctx: Context<'_, '_, '_, 'info, ClaimReferralInterest<'info>>) -> Result<()> {
-        ClaimReferralInterest::handle_claim(ctx)
+        ledger_checked!(ctx, market, ClaimReferralInterest::handle_claim(ctx))
     }
 
     // Protocol auction instructions
-    #[access_control(ctx.accounts.validate(&args))]
     pub fn settle_protocol_auction<'info>(
         ctx: Context<'_, '_, '_, 'info, SettleProtocolAuction<'info>>,
         args: SettleProtocolAuctionArgs,
     ) -> Result<()> {
-        SettleProtocolAuction::handle_settle(ctx, args)
+        ctx.accounts.book_pending_interest()?;
+        ctx.accounts.validate(&args)?;
+        ledger_checked!(ctx, market, SettleProtocolAuction::handle_settle(ctx, args))
     }
 
     // Market instructions
@@ -187,7 +200,7 @@ pub mod dusk {
 
     /// Permissionless execution after the full exit notice. A new authority accepts a handoff by signing.
     pub fn execute_operator_change<'info>(ctx: Context<'_, '_, '_, 'info, ExecuteOperatorChange<'info>>) -> Result<()> {
-        ExecuteOperatorChange::handle(ctx)
+        ledger_checked!(ctx, market, ExecuteOperatorChange::handle(ctx))
     }
 
     /// The operator may cancel any bundle; a manager may cancel its own. Anyone may close obsolete proposals.
@@ -209,7 +222,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, ClaimOperatorRevenue<'info>>,
         args: ClaimOperatorRevenueArgs,
     ) -> Result<()> {
-        ClaimOperatorRevenue::handle(ctx, args)
+        ledger_checked!(ctx, market, ClaimOperatorRevenue::handle(ctx, args))
     }
 
     // Liquidity instructions
@@ -219,7 +232,7 @@ pub mod dusk {
     ) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
-        AddLiquidity::handle_add_liquidity(ctx, args)
+        ledger_checked!(ctx, market, AddLiquidity::handle_add_liquidity(ctx, args))
     }
 
     /// Permissionless launch adapters use the same fully-backed seeding path
@@ -236,7 +249,7 @@ pub mod dusk {
             0,
             ErrorCode::NonZeroSupply
         );
-        AddLiquidity::handle_add_liquidity(ctx, args)
+        ledger_checked!(ctx, market, AddLiquidity::handle_add_liquidity(ctx, args))
     }
 
     pub fn remove_liquidity<'info>(
@@ -245,7 +258,7 @@ pub mod dusk {
     ) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
-        RemoveLiquidity::handle_remove_liquidity(ctx, args)
+        ledger_checked!(ctx, market, RemoveLiquidity::handle_remove_liquidity(ctx, args))
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -260,16 +273,6 @@ pub mod dusk {
         SetHarvestAuthority::handle_set(ctx, args)
     }
 
-    /// Fund accrued public LP interest from available cash, settle both hLP
-    /// funding gaps from their new income, and publish remaining holder yield.
-    pub fn fund_interest<'info>(
-        ctx: Context<'_, '_, '_, 'info, FundInterest<'info>>,
-        args: FundInterestArgs,
-    ) -> Result<FundInterestReceipt> {
-        ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
-        FundInterest::handle(ctx, args)
-    }
-
     pub fn harvest<'info>(ctx: Context<'_, '_, '_, 'info, Harvest<'info>>, args: HarvestArgs) -> Result<()> {
         // Harvest pays income that has already accrued and prices nothing,
         // so an oracle outage must not hold it. A supplied feed still refreshes
@@ -278,7 +281,7 @@ pub mod dusk {
             .market
             .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
         ctx.accounts.update_and_validate(&args)?;
-        Harvest::handle_harvest(ctx, args)
+        ledger_checked!(ctx, market, Harvest::handle_harvest(ctx, args))
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -286,7 +289,7 @@ pub mod dusk {
         ctx: Context<'_, '_, '_, 'info, InitializeYieldAccounts<'info>>,
         args: InitializeYieldAccountsArgs,
     ) -> Result<()> {
-        InitializeYieldAccounts::handle_initialize(ctx, args)
+        ledger_checked!(ctx, market, InitializeYieldAccounts::handle_initialize(ctx, args))
     }
 
     #[access_control(ctx.accounts.validate(ctx.remaining_accounts))]
@@ -299,7 +302,7 @@ pub mod dusk {
     // Spot instructions
     pub fn swap<'info>(ctx: Context<'_, '_, '_, 'info, Swap<'info>>, args: SwapArgs) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
-        Swap::handle_swap(ctx, args)
+        ledger_checked!(ctx, market, Swap::handle_swap(ctx, args))
     }
 
     /// Quote the fixed net payment for vault-wide atomic external hLP recovery.
@@ -321,7 +324,7 @@ pub mod dusk {
             .accounts
             .market
             .bind_current_oracle(ctx.remaining_accounts)?;
-        BeginHlpFlash::handle(ctx, args)
+        ledger_checked!(ctx, accounts.market, BeginHlpFlash::handle(ctx, args))
     }
 
     /// Verify the fixed payment and restore the vault's opposite-token hedge.
@@ -330,22 +333,24 @@ pub mod dusk {
             .accounts
             .market
             .bind_current_oracle(ctx.remaining_accounts)?;
-        SettleHlpFlash::handle(ctx)
+        ledger_checked!(ctx, accounts.market, SettleHlpFlash::handle(ctx))
     }
 
     /// Permissionlessly closes an hLP whose current-slot symmetric-EMA backing
     /// cannot cover funding debt. Native recovery uses EMA price, smoothed depth,
     /// concentration and configured fees. Recovery protects principal first;
     /// junior absorbs principal loss before senior; unpaid interest is canceled.
-    /// Realized funding interest is cash-limited and funds the bounded caller
-    /// reward. Existing funded holder claims remain claimable after cleanup.
+    /// Interest the vault held while frozen counts as recovery. The bounded
+    /// caller reward and the protocol share of the funding paid take only what
+    /// borrowed-asset cash allows. Existing funded holder claims remain
+    /// claimable after cleanup.
     pub fn close_insolvent_hlp<'info>(
         ctx: Context<'_, '_, '_, 'info, CloseInsolventHlp<'info>>,
         args: CloseInsolventHlpArgs,
     ) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let current_slot = ctx.accounts.update_and_validate(&args)?;
-        CloseInsolventHlp::handle(ctx, args, current_slot)
+        ledger_checked!(ctx, market, CloseInsolventHlp::handle(ctx, args, current_slot))
     }
 
     pub fn begin_flash_liquidation<'info>(
@@ -356,7 +361,7 @@ pub mod dusk {
             .accounts
             .market
             .bind_current_oracle(ctx.remaining_accounts)?;
-        BeginFlashLiquidation::handle(ctx, args)
+        ledger_checked!(ctx, accounts.market, BeginFlashLiquidation::handle(ctx, args))
     }
 
     pub fn preview_flash_liquidation(
@@ -388,7 +393,7 @@ pub mod dusk {
             .accounts
             .market
             .bind_current_oracle(ctx.remaining_accounts)?;
-        EmergencyLiquidation::handle(ctx, args)
+        ledger_checked!(ctx, accounts.market, EmergencyLiquidation::handle(ctx, args))
     }
 
     pub fn preview_emergency_liquidation(
@@ -418,7 +423,7 @@ pub mod dusk {
             .accounts
             .market
             .bind_current_oracle(ctx.remaining_accounts)?;
-        SettleFlashLiquidation::handle(ctx)
+        ledger_checked!(ctx, accounts.market, SettleFlashLiquidation::handle(ctx))
     }
 
     // Lending instructions
@@ -430,7 +435,7 @@ pub mod dusk {
             .market
             .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
         ctx.accounts.update_and_validate(&args)?;
-        DepositCollateral::handle_deposit(ctx, args)
+        ledger_checked!(ctx, market, DepositCollateral::handle_deposit(ctx, args))
     }
 
     pub fn withdraw_collateral<'info>(
@@ -439,13 +444,13 @@ pub mod dusk {
     ) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
-        WithdrawCollateral::handle_withdraw(ctx, args)
+        ledger_checked!(ctx, market, WithdrawCollateral::handle_withdraw(ctx, args))
     }
 
     pub fn borrow<'info>(ctx: Context<'_, '_, '_, 'info, Borrow<'info>>, args: BorrowArgs) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
-        Borrow::handle_borrow(ctx, args)
+        ledger_checked!(ctx, market, Borrow::handle_borrow(ctx, args))
     }
 
     pub fn repay<'info>(ctx: Context<'_, '_, '_, 'info, Repay<'info>>, args: RepayArgs) -> Result<()> {
@@ -453,7 +458,7 @@ pub mod dusk {
             .market
             .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
         ctx.accounts.update_and_validate(&args)?;
-        Repay::handle_repay(ctx, args)
+        ledger_checked!(ctx, market, Repay::handle_repay(ctx, args))
     }
 
     /// Adds the signer's tokens to an existing borrow position without granting
@@ -466,7 +471,7 @@ pub mod dusk {
             .market
             .bind_optional_repayment_oracle(ctx.remaining_accounts, &Clock::get()?);
         ctx.accounts.update_and_validate(&args)?;
-        DonateCollateral::handle_deposit(ctx, args)
+        ledger_checked!(ctx, market, DonateCollateral::handle_deposit(ctx, args))
     }
 
     /// Sweeps both collateral balances and closes a debt-free borrow position.
@@ -494,7 +499,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        ledger_checked!(
+            ctx,
+            market,
+            OpenLeverage::handle_open(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        )
     }
 
     pub fn close_leverage<'info>(
@@ -504,7 +513,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        ledger_checked!(
+            ctx,
+            market,
+            CloseLeverage::handle_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        )
     }
 
     pub fn delegated_close_leverage<'info>(
@@ -514,7 +527,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_delegated_at(&args, clock.unix_timestamp)?;
-        CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        ledger_checked!(
+            ctx,
+            market,
+            CloseLeverage::handle_delegated_close(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        )
     }
 
     pub fn increase_leverage<'info>(
@@ -524,7 +541,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        ledger_checked!(
+            ctx,
+            market,
+            IncreaseLeverage::handle_increase(ctx, args, clock.slot, clock.epoch, clock.unix_timestamp)
+        )
     }
 
     pub fn decrease_leverage<'info>(
@@ -534,7 +555,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
+        ledger_checked!(
+            ctx,
+            market,
+            DecreaseLeverage::handle_decrease(ctx, args, clock.slot, clock.unix_timestamp)
+        )
     }
 
     pub fn add_leverage_margin<'info>(
@@ -544,7 +569,11 @@ pub mod dusk {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         let clock = Clock::get()?;
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
+        ledger_checked!(
+            ctx,
+            market,
+            AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, true)
+        )
     }
 
     /// Repays leverage from the signer's tokens without quoting or selling collateral.
@@ -558,7 +587,11 @@ pub mod dusk {
             .market
             .bind_optional_repayment_oracle(ctx.remaining_accounts, &clock);
         ctx.accounts.validate_at(&args, clock.unix_timestamp)?;
-        AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
+        ledger_checked!(
+            ctx,
+            market,
+            AddLeverageMargin::handle_add_margin(ctx, args, clock.slot, clock.epoch, false)
+        )
     }
 
     #[access_control(ctx.accounts.validate(&args))]
@@ -655,7 +688,7 @@ pub mod dusk {
     ) -> Result<()> {
         ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         ctx.accounts.update_and_validate(&args)?;
-        DepositSingleSided::handle_deposit(ctx, args)
+        ledger_checked!(ctx, market, DepositSingleSided::handle_deposit(ctx, args))
     }
 
     pub fn withdraw_single_sided<'info>(
@@ -677,7 +710,12 @@ pub mod dusk {
             ctx.accounts.market.bind_current_oracle(ctx.remaining_accounts)?;
         }
         ctx.accounts.update_and_validate(&args)?;
-        WithdrawSingleSided::handle_withdraw(ctx, args)
+        if terminal {
+            // The burn neither accrues nor touches debt, so it must not
+            // depend on the rest of the market's ledger either.
+            return WithdrawSingleSided::handle_withdraw(ctx, args);
+        }
+        ledger_checked!(ctx, market, WithdrawSingleSided::handle_withdraw(ctx, args))
     }
 
     pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {

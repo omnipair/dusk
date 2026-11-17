@@ -119,6 +119,7 @@ pub fn handle_transfer_hook<'info>(
                 authority.revenue_share.interest_bps <= crate::constants::BPS_DENOMINATOR,
                 ErrorCode::InvalidInterestFeeBps
             );
+            market.book_protocol_interest(authority.protocol_auction_split)?;
             if market.protocol_interest_markup_bps != authority.revenue_share.interest_bps {
                 let previous_bps = market.protocol_interest_markup_bps;
                 market.protocol_interest_markup_bps = authority.revenue_share.interest_bps;
@@ -132,22 +133,13 @@ pub fn handle_transfer_hook<'info>(
                     event_authority.clone(),
                 )?;
             }
+            market.assert_interest_ledgers()?;
             let contexts = match current_yield_contexts(market, lp_mint)? {
                 Some(contexts) => contexts,
                 None => retired_hlp_yield_contexts(market_key, market, lp_mint, accounts)?,
             };
             let base = contexts.items[0].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
             let quote = contexts.items[1].ok_or_else(|| error!(ErrorCode::InvalidYieldAccount))?;
-            let ends = if base.token_kind == YieldTokenKind::Junior && lp_mint != market.junior_mint {
-                crate::state::JuniorCohort::from_remaining(
-                    accounts.get(15).ok_or(ErrorCode::InvalidLpMintKey)?,
-                    market_key,
-                    lp_mint,
-                )?
-                .income_end
-            } else {
-                market.income.get()?.junior_end
-            };
             checkpoint_transfer_party(
                 &accounts[8],
                 &accounts[10],
@@ -157,7 +149,6 @@ pub fn handle_transfer_hook<'info>(
                 base,
                 quote,
                 balances.source_pre_balance,
-                Some((market, ends)),
             )?;
             checkpoint_transfer_party(
                 &accounts[9],
@@ -168,7 +159,6 @@ pub fn handle_transfer_hook<'info>(
                 base,
                 quote,
                 balances.destination_pre_balance,
-                Some((market, ends)),
             )?;
             Ok((base, quote))
         })?;
@@ -316,9 +306,7 @@ pub(crate) fn current_yield_contexts(market: &mut Market, lp_mint: Pubkey) -> Re
     }
     if market.srlp_mint == lp_mint {
         market.base_side.carry_forward_swap_fees()?;
-        market.base_side.carry_forward_interest()?;
         market.quote_side.carry_forward_swap_fees()?;
-        market.quote_side.carry_forward_interest()?;
         return Ok(Some(YieldContexts {
             items: [
                 Some(YieldContext {
@@ -392,7 +380,6 @@ fn checkpoint_transfer_party<'info>(
     base_context: YieldContext,
     quote_context: YieldContext,
     pre_transfer_balance: u64,
-    income: Option<(&Market, [crate::state::IncomeExposureEnd; 4])>,
 ) -> Result<()> {
     for (account_info, yield_context) in [(base_account_info, base_context), (quote_account_info, quote_context)] {
         require!(account_info.is_writable, ErrorCode::InvalidYieldAccount);
@@ -421,9 +408,6 @@ fn checkpoint_transfer_party<'info>(
                 );
                 require_keys_eq!(*account_info.key, expected_key, ErrorCode::InvalidYieldAccount);
                 require_eq!(yield_account.bump, expected_bump, ErrorCode::InvalidYieldAccount);
-                if let Some((market_state, ends)) = income {
-                    market_state.checkpoint_holder_income(yield_account, pre_transfer_balance, Some(ends))?;
-                }
                 yield_account.accrue(
                     pre_transfer_balance,
                     yield_context.swap_fee_growth_index_q64,

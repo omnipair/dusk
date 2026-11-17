@@ -119,8 +119,6 @@ pub const MARKET_RESERVE_VAULT_SEED_PREFIX: &[u8] = b"market_reserve";
 #[constant]
 pub const MARKET_COLLATERAL_VAULT_SEED_PREFIX: &[u8] = b"market_collateral";
 #[constant]
-pub const MARKET_INTEREST_VAULT_SEED_PREFIX: &[u8] = b"market_interest";
-#[constant]
 pub const BORROW_POSITION_SEED_PREFIX: &[u8] = b"borrow_position_v2";
 #[constant]
 pub const YIELD_ACCOUNT_SEED_PREFIX: &[u8] = b"yield";
@@ -147,10 +145,10 @@ pub const LEVERAGE_MAX_MULTIPLIER_BPS: u64 = 200_000; // 20x circuit breaker
 /// decimals and sets independent lower/upper utilization rate targets.
 /// Aggregate virtual reserves use u128; physical token amounts remain u64.
 /// Separate hLP funding offsets preserve pricing principal through payment.
-/// Income books record their drain run so a fully repaid epoch advances in
-/// place without an archive.
+/// Interest is credited at accrual through a per-asset interest ledger and
+/// per-lane growth indexes.
 #[constant]
-pub const MARKET_LAYOUT_VERSION: u8 = 18;
+pub const MARKET_LAYOUT_VERSION: u8 = 19;
 
 /// Emergency signer authorized to toggle reduce-only mode.
 pub const REDUCE_ONLY_EMERGENCY_AUTHORITY: Pubkey = pubkey!("3YL87sTCrHMB6DYKorE9CCN4dL45kZPahoREcMLDY6QV");

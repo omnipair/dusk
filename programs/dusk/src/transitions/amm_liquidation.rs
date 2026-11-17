@@ -46,11 +46,10 @@ pub(crate) struct PreparedEmergencyLiquidation {
     pub policy: SwapCashPolicy,
 }
 
-fn fee_debits(fee: LiquidationFeeAllocation, token_fee: LeverageCollateralFee) -> Result<(u64, u64)> {
-    Ok((
-        token_fee.effective_gross_for_credit(fee.junior)?,
-        token_fee.effective_gross_for_credit(fee.protocol)?,
-    ))
+/// Junior and protocol liquidation fees stay in the reserve vault, so their
+/// debit from the sale output equals their credit.
+fn fee_debits(fee: LiquidationFeeAllocation) -> (u64, u64) {
+    (fee.junior, fee.protocol)
 }
 
 impl Market {
@@ -177,12 +176,7 @@ impl Market {
                     reserve_credit: collateral_credit,
                     protocol_fee_bps,
                 }
-                .prepare_ema_liquidation(
-                    self,
-                    scratch,
-                    reads,
-                    &LeverageCollateralFee::by_asset(asset, debt_fee, collateral_fee),
-                )?,
+                .prepare_ema_liquidation(self, scratch, reads)?,
             )
         };
         let output = swap.as_ref().map_or(0, |s| s.quote.amount_out);
@@ -202,7 +196,7 @@ impl Market {
             while low < high {
                 let cap = low + (high - low).div_ceil(2);
                 let fee = LiquidationFeeAllocation::quote(repayment, cap);
-                let (junior, revenue) = fee_debits(fee, debt_fee)?;
+                let (junior, revenue) = fee_debits(fee);
                 if u128::from(junior) + u128::from(revenue) <= u128::from(surplus) {
                     low = cap;
                 } else {
@@ -211,7 +205,7 @@ impl Market {
             }
             (allocation, repayment, LiquidationFeeAllocation::quote(repayment, low))
         } else {
-            let (allocation, fee) = self.quote_emergency_partial_repayment(position, asset, budget, debt_fee)?;
+            let (allocation, fee) = self.quote_emergency_partial_repayment(position, asset, budget)?;
             (allocation, allocation.debt, fee)
         };
         let remaining = available - collateral_debit;
@@ -232,7 +226,7 @@ impl Market {
         }
         let loss =
             LiquidationLossAllocation::quote(allocation.principal.min(allocation.debt), allocation.debt, repayment)?;
-        let (junior_fee_debit, revenue_fee_debit) = fee_debits(fee, debt_fee)?;
+        let (junior_fee_debit, revenue_fee_debit) = fee_debits(fee);
         let owner_debit = budget
             .checked_sub(repayment)
             .and_then(|v| v.checked_sub(junior_fee_debit))
@@ -281,14 +275,13 @@ impl Market {
     }
 
     // The full-close certificate and actual AMM execution must use identical
-    // integer share burns and transfer-fee gross-ups. This calculation does
-    // not materialize a swap, allocate account clones, or mutate any state.
+    // integer share burns. This calculation does not materialize a swap,
+    // allocate account clones, or mutate any state.
     pub(crate) fn quote_emergency_partial_repayment(
         &self,
         position: &LiquidationPositionRef<'_>,
         asset: MarketAsset,
         budget: u64,
-        debt_fee: LeverageCollateralFee,
     ) -> Result<(LiquidationDebtAllocation, LiquidationFeeAllocation)> {
         let maximum = position
             .shares(asset)
@@ -306,7 +299,7 @@ impl Market {
             let shares = low + (high - low).div_ceil(2);
             let allocation = self.liquidation_debt_allocation(position, asset, shares)?;
             let fee = LiquidationFeeAllocation::quote(allocation.debt, u64::MAX);
-            let (junior, revenue) = fee_debits(fee, debt_fee)?;
+            let (junior, revenue) = fee_debits(fee);
             if u128::from(allocation.debt) + u128::from(junior) + u128::from(revenue) <= u128::from(budget) {
                 low = shares;
             } else {
@@ -327,7 +320,7 @@ impl Market {
         slot: u64,
         protocol_fee_bps: u16,
         split: ProtocolAuctionSplit,
-    ) -> Result<Option<crate::transitions::amm::FinalizedSwapState>> {
+    ) -> Result<(Option<crate::transitions::amm::FinalizedSwapState>, u64)> {
         let q = prepared.quote;
         require!(
             self.liquidation_debt_allocation(&position.as_ref(), asset, prepared.allocation.shares)?
@@ -342,13 +335,14 @@ impl Market {
             let state = swap.apply(self, prepared.policy, fee_credit, slot, protocol_fee_bps, split, None)?;
             self.apply_liquidation_position(position, asset, prepared.allocation, q.collateral_debit, q.full)?;
             self.reconcile_liquidation_position(position, asset, prepared.allocation.remaining_debt)?;
-            Ok(Some(state))
+            let protocol_paid = state.lifecycle.protocol_paid;
+            Ok((Some(state), protocol_paid))
         } else {
             require!(q.full && q.swap_output == 0, ErrorCode::BrokenInvariant);
-            let loss =
+            let (loss, protocol_paid) =
                 self.settle_flash_recovery(position, asset, prepared.allocation, q.collateral_debit, 0, true, slot)?;
             require!(loss == q.loss, ErrorCode::BrokenInvariant);
-            Ok(None)
+            Ok((None, protocol_paid))
         }
     }
 }

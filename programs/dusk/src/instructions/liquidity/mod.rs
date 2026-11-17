@@ -1,5 +1,3 @@
-mod fund_interest;
-pub use fund_interest::*;
 mod harvest;
 mod hlp;
 mod initialize_lp_transfer_hook;

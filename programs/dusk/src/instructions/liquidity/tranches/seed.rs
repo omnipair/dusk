@@ -1,13 +1,8 @@
 use crate::{
     constants::MARKET_V2_SEED_PREFIX,
     errors::ErrorCode,
-    generate_market_seeds,
-    instructions::accounts::{
-        require_reserve_custody, token_account_credit, token_program_for_mint, validate_interest_accounts,
-        validate_swap_fee_custody_accounts,
-    },
+    instructions::accounts::{require_reserve_custody, validate_swap_fee_custody_accounts},
     state::Market,
-    token::transfer_checked_with_remaining_accounts,
 };
 use anchor_lang::prelude::*;
 use anchor_spl::{
@@ -15,18 +10,16 @@ use anchor_spl::{
     token_interface::{Mint, Token2022, TokenAccount},
 };
 
-/// Move only the permanent seed's collected interest into reserve fee custody.
-/// This is not principal until balanced reinvestment mints funded reserve units.
+/// Move the permanent seed's credited interest that reserve cash can pay into
+/// swap-fee custody. The atoms stay in the reserve vault. This is not
+/// principal until balanced reinvestment mints funded reserve units.
 #[event_cpi]
 #[derive(Accounts)]
 pub struct FundJuniorSeed<'info> {
     #[account(mut, constraint = market.assert_current_version().is_ok() @ ErrorCode::InvalidVersion, seeds = [MARKET_V2_SEED_PREFIX, market.base_side.asset_mint.as_ref(), market.quote_side.asset_mint.as_ref(), market.params_hash.as_ref()], bump = market.bump)]
     pub market: Box<Account<'info, Market>>,
     pub asset_mint: Box<InterfaceAccount<'info, Mint>>,
-    #[account(mut)]
     pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
     pub token_2022_program: Program<'info, Token2022>,
 }
@@ -43,35 +36,15 @@ impl<'info> FundJuniorSeed<'info> {
     pub fn handle_fund(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         let a = &mut *ctx.accounts;
         a.market.assert_current_version()?;
-        let asset = validate_interest_accounts(&a.market, &a.asset_mint, &a.interest_vault)?;
-        require!(
-            asset == validate_swap_fee_custody_accounts(&a.market, &a.asset_mint, &a.reserve_vault)?,
-            ErrorCode::InvalidVault
-        );
-        a.market.checkpoint_junior_seed()?;
-        let amount = a.market.side(asset).fees.junior.seed_interest_amount;
+        let asset = validate_swap_fee_custody_accounts(&a.market, &a.asset_mint, &a.reserve_vault)?;
+        let amount = a.market.fund_junior_seed(asset)?;
         require!(amount > 0, ErrorCode::AmountZero);
-        let before = a.reserve_vault.amount;
-        transfer_checked_with_remaining_accounts(
-            a.market.to_account_info(),
-            a.interest_vault.to_account_info(),
-            a.reserve_vault.to_account_info(),
-            a.asset_mint.to_account_info(),
-            token_program_for_mint(&a.asset_mint, &a.token_program, &a.token_2022_program)?,
-            amount,
-            a.asset_mint.decimals,
-            &[&generate_market_seeds!(a.market)[..]],
-            ctx.remaining_accounts,
-        )?;
-        a.reserve_vault.reload()?;
-        let credit = token_account_credit(before, &a.reserve_vault)?;
-        a.market.fund_junior_seed(asset, amount, credit)?;
         require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
         let event = JuniorSeedFunded {
             market: a.market.key(),
             asset: a.asset_mint.key(),
             interest_debit: amount,
-            reserve_credit: credit,
+            reserve_credit: amount,
         };
         emit_cpi!(event);
         Ok(())
@@ -106,7 +79,7 @@ impl<'info> CompoundJuniorSeed<'info> {
             market,
             Clock::get()?.slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         market.reconcile_junior_receipts(ctx.accounts.junior_mint.supply)?;
         // Swap-fee allocation carries forward whenever srLP supply is

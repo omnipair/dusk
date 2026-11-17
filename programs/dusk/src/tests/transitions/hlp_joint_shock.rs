@@ -9,7 +9,6 @@ fn sol_usdc_market(hlp_dollars: u64) -> Market {
         hlp_mint: Pubkey::new_unique(),
         reserve_vault: Pubkey::new_unique(),
         collateral_vault: Pubkey::new_unique(),
-        interest_vault: Pubkey::new_unique(),
         asset_decimals: decimals,
         ..MarketSide::default()
     };
@@ -72,7 +71,7 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
         },
         protocol_fee_bps: 2_000,
     }
-    .prepare(market, &Default::default())
+    .prepare(market)
     .unwrap();
     let quote = prepared.quote;
     let before = market.clone();
@@ -100,14 +99,15 @@ fn settle_and_check(market: &mut Market, asset: MarketAsset, slot: u64) {
         };
         assert_eq!(
             market.side(side).reserves.cash_reserve as i128,
-            before.side(side).reserves.cash_reserve as i128 + trader_flow + compounded as i128 - interest as i128
+            before.side(side).reserves.cash_reserve as i128 + trader_flow + compounded as i128
+                - receipt.protocol_paid as i128
         );
         let settled_vault = if side == MarketAsset::Base {
             &market.quote_hlp_vault
         } else {
             &market.base_hlp_vault
         };
-        let claim = market.side(side).reserves.live_reserve as u128 * settled_vault.srlp_shares as u128
+        let claim = market.curve_reserve(side).unwrap() as u128 * settled_vault.srlp_shares as u128
             / market.side(side).shares.srlp_supply as u128;
         let debt = Debt::shares_to_debt(settled_vault.debt_shares, market.debt.borrow_index(side)).unwrap();
         assert!(claim.abs_diff(debt) <= 3, "side={side:?}, claim={claim}, debt={debt}");
@@ -126,14 +126,14 @@ fn joint_shock_sol_usdc_preserves_recorded_starting_debt() {
             // With no accrued interest the starting ledger must agree exactly,
             // even when the two mints and the srLP shares round differently.
             assert_eq!(
-                state.book_ordinary().unwrap().0 + state.base_hlp_equity - state.base_unpaid_interest,
+                state.book_ordinary().unwrap().0 + state.base_hlp_equity,
                 reserve.base
                     - market
                         .normalize_amount(market.hlp_live_reserve(MarketAsset::Base).unwrap(), 9)
                         .unwrap()
             );
             assert_eq!(
-                state.book_ordinary().unwrap().1 + state.quote_hlp_equity - state.quote_unpaid_interest,
+                state.book_ordinary().unwrap().1 + state.quote_hlp_equity,
                 reserve.quote
                     - market
                         .normalize_amount(market.hlp_live_reserve(MarketAsset::Quote).unwrap(), 6)
@@ -161,11 +161,11 @@ fn joint_shock_sol_usdc_pays_funding_once_and_preserves_opposite_claims() {
                 let state = market.integrated_curve_state_nad().unwrap();
                 let reserve = market.curve_reserves_nad().unwrap();
                 assert_eq!(
-                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt - state.base_unpaid_interest,
+                    state.book_ordinary().unwrap().0 + state.base_hlp_equity + state.quote_hlp_base_debt,
                     reserve.base
                 );
                 assert_eq!(
-                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt - state.quote_unpaid_interest,
+                    state.book_ordinary().unwrap().1 + state.quote_hlp_equity + state.base_hlp_quote_debt,
                     reserve.quote
                 );
                 settle_and_check(&mut market, asset, slot);

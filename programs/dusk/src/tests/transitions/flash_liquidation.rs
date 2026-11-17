@@ -69,7 +69,7 @@ fn emergency_sale_uses_principal_first_waterfall_and_clears_both_directions() {
         assert_eq!(q.loss.interest_canceled, 450_000);
         assert!(q.loss.principal_written_off > 0);
         assert_eq!(q.swap_output, q.repayment + q.reward_debit);
-        let finalized = market.apply_emergency_liquidation(&mut LiquidationPositionMut::Leverage(&mut position), asset, &mut prepared, 0, 0, ProtocolAuctionSplit::default()).unwrap().unwrap();
+        let finalized = market.apply_emergency_liquidation(&mut LiquidationPositionMut::Leverage(&mut position), asset, &mut prepared, 0, 0, ProtocolAuctionSplit::default()).unwrap().0.unwrap();
         assert_eq!(finalized.lifecycle.socialized_principal_loss, q.loss.principal_written_off);
         assert_eq!(position.debt_shares, 0);
         assert_eq!(position.debt_principal, 0);
@@ -171,7 +171,7 @@ fn flash_partial_quote_recovers_health_and_leaves_unrelated_position_untouched()
         assert!(q.health_before.improves(q.health_after).unwrap());
         assert!(!q.health_after.recovered().unwrap());
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, q.debt_shares_to_burn).unwrap();
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, allocation.debt, false, 0).unwrap();
+        let (loss, _) = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, allocation.debt, false, 0).unwrap();
         assert_eq!(loss.principal_written_off, 0);
         assert_eq!(loss.interest_canceled, 0);
         assert_eq!(position.collateral_amount, 1_000_000 - q.collateral_debit);
@@ -200,7 +200,7 @@ fn full_borrow_recovery_preserves_the_other_debt_leg() {
     market.base_side.reserves.cash_reserve -= 1_000;
     market.quote_side.reserves.cash_reserve -= 500;
     let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Borrow(&position), MarketAsset::Base, 1_000).unwrap();
-    let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), MarketAsset::Base, allocation, 800, 700, true, 1).unwrap();
+    let (loss, _) = market.settle_flash_recovery(&mut LiquidationPositionMut::Borrow(&mut position), MarketAsset::Base, allocation, 800, 700, true, 1).unwrap();
     assert_eq!(loss.principal_written_off, 300);
     assert_eq!(position.fixed_base_shares, 0);
     assert_eq!(position.quote_collateral, 0);
@@ -243,7 +243,7 @@ fn external_flash_loss_preserves_concentrated_hlp_backing() {
         let q = market.quote_flash_liquidation(&LiquidationPositionRef::Leverage(&position), asset, 0, true,
             fee, fee, fee, 0, 1).unwrap();
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, q.repayment, true, 1).unwrap();
+        let (loss, _) = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, q.collateral_debit, q.repayment, true, 1).unwrap();
         assert!(loss.principal_written_off > 0);
         market.assert_virtual_reserve_invariant(asset).unwrap();
         market.assert_virtual_reserve_invariant(asset.opposite()).unwrap();
@@ -474,7 +474,7 @@ fn emergency_fallback_can_close_despite_a_useful_flash_partial() {
             assert!(market.quote_flash_liquidation(&reference, asset, 0, true, fee, fee, fee, 120, 0).is_err());
             let expected = SwapRequest { current_slot: 0, current_unix_timestamp: 120,
                 asset_in: asset.opposite(), reserve_credit: 1_000, protocol_fee_bps: 0 }
-                .prepare_with_cash_policy(&mut market.clone(), SwapCashPolicy::LiquidationQuote, &Default::default()).unwrap().quote;
+                .prepare_with_cash_policy(&mut market.clone(), SwapCashPolicy::LiquidationQuote).unwrap().quote;
             let mut prepared = market.prepare_emergency_liquidation(&reference, asset, 1_000, true, fee, fee, fee, 120, 0, 0).unwrap();
             assert!(prepared.quote.health_before.collateral_value > prepared.quote.health_before.debt);
             assert_eq!(prepared.quote.swap_output, expected.amount_out);
@@ -543,13 +543,16 @@ fn full_external_recovery_writes_off_all_unrecovered_principal_and_cancels_inter
         let before_curve = market.curve_reserve(asset).unwrap();
         let allocation = market.liquidation_debt_allocation(&LiquidationPositionRef::Leverage(&position), asset, position.debt_shares).unwrap();
         assert_eq!((allocation.debt, allocation.principal), (1_350_000, 900_000));
-        let loss = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, 850_000, 400_000, true, 1).unwrap();
+        let (loss, _) = market.settle_flash_recovery(&mut LiquidationPositionMut::Leverage(&mut position), asset, allocation, 850_000, 400_000, true, 1).unwrap();
         assert_eq!(loss.principal_written_off, 500_000);
         assert_eq!(loss.interest_canceled, 450_000);
         assert_eq!(loss.interest_paid, 0);
         assert_eq!(position.debt_shares, 0);
         assert_eq!(position.debt_principal, 0);
         assert_eq!(position.collateral_amount, 0);
-        assert_eq!(market.curve_reserve(asset).unwrap(), before_curve - 500_000);
+        // Interest credited to holders at accrual and then defaulted is a
+        // pool loss alongside the principal (no protocol markup here).
+        assert_eq!(market.curve_reserve(asset).unwrap(), before_curve - 500_000 - 450_000);
+        market.assert_market_invariants().unwrap();
     }
 }

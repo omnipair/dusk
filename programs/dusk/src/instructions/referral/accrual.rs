@@ -11,8 +11,8 @@ use crate::{
     events::{MarketEventMetadata, ReferralInterestClaimed},
     generate_market_seeds,
     instructions::accounts::{
-        require_supported_asset_mint, token_account_credit, token_account_debit, token_program_for_mint,
-        validate_interest_accounts,
+        require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_debit,
+        token_program_for_mint, validate_swap_fee_custody_accounts,
     },
     state::{Market, ReferralAccrual, ReferralPartner},
     token::transfer_checked_with_remaining_accounts,
@@ -141,7 +141,7 @@ pub struct ClaimReferralInterest<'info> {
     pub referral_accrual: Box<Account<'info, ReferralAccrual>>,
 
     #[account(mut)]
-    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub recipient_token_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -153,7 +153,7 @@ pub struct ClaimReferralInterest<'info> {
 impl<'info> ClaimReferralInterest<'info> {
     pub fn validate(&self) -> Result<()> {
         require_supported_asset_mint(&self.asset_mint)?;
-        validate_interest_accounts(&self.market, &self.asset_mint, &self.interest_vault)?;
+        validate_swap_fee_custody_accounts(&self.market, &self.asset_mint, &self.reserve_vault)?;
 
         // Bind the claim destination to the partner's configured recipient.
         require_keys_eq!(
@@ -178,7 +178,7 @@ impl<'info> ClaimReferralInterest<'info> {
     pub fn handle_claim(ctx: Context<'_, '_, '_, 'info, Self>) -> Result<()> {
         // Snapshot both token accounts so transfer effects are measured exactly.
         let amount = ctx.accounts.referral_accrual.amount;
-        let vault_balance_before = ctx.accounts.interest_vault.amount;
+        let vault_balance_before = ctx.accounts.reserve_vault.amount;
         let recipient_balance_before = ctx.accounts.recipient_token_account.amount;
         let token_program = token_program_for_mint(
             &ctx.accounts.asset_mint,
@@ -187,7 +187,7 @@ impl<'info> ClaimReferralInterest<'info> {
         )?;
         transfer_checked_with_remaining_accounts(
             ctx.accounts.market.to_account_info(),
-            ctx.accounts.interest_vault.to_account_info(),
+            ctx.accounts.reserve_vault.to_account_info(),
             ctx.accounts.recipient_token_account.to_account_info(),
             ctx.accounts.asset_mint.to_account_info(),
             token_program,
@@ -196,11 +196,11 @@ impl<'info> ClaimReferralInterest<'info> {
             &[&generate_market_seeds!(ctx.accounts.market)[..]],
             ctx.remaining_accounts,
         )?;
-        ctx.accounts.interest_vault.reload()?;
+        ctx.accounts.reserve_vault.reload()?;
         ctx.accounts.recipient_token_account.reload()?;
 
         // Verify the vault debit before retiring accrual and market liabilities.
-        let vault_debit = token_account_debit(vault_balance_before, &ctx.accounts.interest_vault)?;
+        let vault_debit = token_account_debit(vault_balance_before, &ctx.accounts.reserve_vault)?;
         let recipient_credit = token_account_credit(recipient_balance_before, &ctx.accounts.recipient_token_account)?;
         require_eq!(vault_debit, amount, ErrorCode::InvalidReferralAccrual);
         ctx.accounts.referral_accrual.claim(vault_debit)?;
@@ -208,7 +208,8 @@ impl<'info> ClaimReferralInterest<'info> {
         ctx.accounts
             .market
             .side_mut(asset)
-            .settle_referral_interest_claim(vault_debit, ctx.accounts.interest_vault.amount)?;
+            .settle_referral_interest_claim(vault_debit)?;
+        require_reserve_custody(ctx.accounts.reserve_vault.amount, ctx.accounts.market.side(asset))?;
 
         emit_cpi!(ReferralInterestClaimed {
             market: ctx.accounts.market.key(),

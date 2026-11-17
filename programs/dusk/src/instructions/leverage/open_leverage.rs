@@ -19,8 +19,8 @@ use crate::{
 
 use super::settlement::{
     leverage_collateral_admission_fee, leverage_collateral_credit, leverage_collateral_vault_pda,
-    leverage_interest_transfer_fees, leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap,
-    settle_inline_leverage_hlp, validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
+    leverage_position_pda, leverage_swap_fee_credit, prepare_leverage_swap, settle_inline_leverage_hlp,
+    validate_leverage_futarchy_pda, validate_leverage_market_pda, validate_leverage_mints,
     validate_leverage_reserve_accounts, validate_owner_debt_account,
 };
 use crate::instructions::accounts::{require_reserve_custody, token_program_for_mint, HlpSwapAccountLayout};
@@ -261,7 +261,7 @@ impl<'info> OpenLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         let margin_credit = deposit_credit;
 
@@ -293,16 +293,7 @@ impl<'info> OpenLeverage<'info> {
             asset: debt_asset,
             amount: debt_amount,
         };
-        let transfer_fees = leverage_interest_transfer_fees(
-            &ctx.accounts.market,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            current_epoch,
-        )?;
-        let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy, transfer_fees)?;
-
-        let interest_eligibility = prepared_swap.interest_eligibility;
+        let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
         let collateral_credit = leverage_collateral_credit(
             &ctx.accounts.collateral_mint,
             prepared_swap.leverage_quote().amount_out,
@@ -360,21 +351,17 @@ impl<'info> OpenLeverage<'info> {
         }
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            &ctx.accounts.debt_reserve_vault,
-            &ctx.accounts.collateral_reserve_vault,
-            &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             ctx.remaining_accounts,
             h_lp_accounts,
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
-            interest_eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        // No borrower interest is paid here, so nothing waits on a referral.
+        ctx.accounts
+            .market
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
         // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;

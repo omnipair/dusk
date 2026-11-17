@@ -126,23 +126,22 @@ export class DuskOperator {
     const side=state.baseSide.assetMint.equals(mint)?state.baseSide:state.quoteSide.assetMint.equals(mint)?state.quoteSide:null;
     if(!side)throw new Error("asset mint is not part of the market");
     const asset=state.baseSide.assetMint.equals(mint)?0:1;
-    let claimable=0n;
-    for(const i of [asset,asset+2]) {
-      const revenueBook=state.income.revenue[i]!;
-      claimable+=BigInt((current?revenueBook.operatorClaimable:archive!.claimable[i]!).toString());
-    }
+    // Operator interest is credited at accrual and paid from reserve cash as
+    // it allows; a sealed recipient keeps the amount credited before handoff.
+    const claimable=BigInt((current?side.fees.ledger.operatorClaimable:archive!.claimable[asset]!).toString());
     const requested=BigInt(integerBN(params.maxDebit??0xffff_ffff_ffff_ffffn,"maxDebit").toString());
-    const debit=claimable<requested?claimable:requested;
-    if(debit===0n)throw new Error("no collected operator cash is claimable");
+    const cash=BigInt(side.reserves.cashReserve.toString());
+    const debit=[claimable,requested,cash].reduce((a,b)=>a<b?a:b);
+    if(debit===0n)throw new Error(claimable===0n?"no operator interest is claimable":"no reserve cash is available for operator interest");
     const tokenProgram=await tokenProgramForMint(this.program.provider.connection,mint);
     const mintState=await getMint(this.program.provider.connection,mint,undefined,tokenProgram);
     const ata=getAssociatedTokenAddressSync(mint,recipient,true,tokenProgram);
     const hook=await resolveTransferHookAccountMetas(this.program.provider.connection,[{
-      mint,source:side.interestVault,destination:ata,authority:market,amount:debit,decimals:mintState.decimals,tokenProgram,
+      mint,source:side.reserveVault,destination:ata,authority:market,amount:debit,decimals:mintState.decimals,tokenProgram,
     }]);
     const instruction=await this.write.instruction("claimOperatorRevenue",{revenueEpoch:epoch,
       maxDebit:integerBN(debit,"maxDebit"),minimumCredit:integerBN(params.minimumCredit??0,"minimumCredit")},
-      {accounts:{market,revenue,recipient,assetMint:mint,interestVault:side.interestVault,recipientAssetAccount:ata,
+      {accounts:{market,revenue,recipient,assetMint:mint,reserveVault:side.reserveVault,recipientAssetAccount:ata,
         tokenProgram:TOKEN_PROGRAM_ID,token2022Program:TOKEN_2022_PROGRAM_ID},remainingAccounts:[...hook,...(params.remainingAccounts??[])]});
     const transaction=new Transaction().add(createAssociatedTokenAccountIdempotentInstruction(payer,ata,recipient,mint,tokenProgram),instruction);
     return {instruction,transaction,recipient,revenue,recipientAssetAccount:ata};

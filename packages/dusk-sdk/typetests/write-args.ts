@@ -44,7 +44,6 @@ const flashLiquidationAccounts = {
   debtMint: key,
   collateralVault: key,
   reserveVault: key,
-  interestVault: key,
   buyerCollateralAccount: key,
   buyerRefundAccount: key,
   ownerDebtAccount: key,
@@ -170,7 +169,7 @@ export async function composites(): Promise<void> {
   const hlp = { payer: key, owner: key, market: key, targetHlpMint: key, baseMint: key, quoteMint: key };
   const withdrawOptions: HlpLiquidityBuildOptions<"withdrawSingleSided"> = {
     ...hlp,
-    accounts: { ...depositAccounts, borrowedInterestVault: key },
+    accounts: depositAccounts,
   };
   await write.depositSingleSided({ depositAmount: 1n, minHlpAmount: 0 }, { ...hlp, accounts: depositAccounts });
   await write.withdrawSingleSided({ hlpAmount: "1", minTargetAmountOut: 0n }, withdrawOptions);
@@ -178,8 +177,6 @@ export async function composites(): Promise<void> {
   await write.depositSingleSided({ depositAmount: new BN(1), minHlpAmount: 0n }, { ...hlp, accounts: depositAccounts });
   // @ts-expect-error a missing slippage floor
   await write.withdrawSingleSided({ hlpAmount: 1n }, withdrawOptions);
-  // @ts-expect-error a withdrawal needs the borrowed side's interest vault
-  await write.withdrawSingleSided({ hlpAmount: 1n, minTargetAmountOut: 0n }, { ...hlp, accounts: depositAccounts });
   await write.hlpLiquidityAction(
     Date.now() % 2 === 0 ? "depositSingleSided" : "withdrawSingleSided",
     Date.now() % 2 === 0 ? { depositAmount: 1n, minHlpAmount: 0n } : { hlpAmount: 1n, minTargetAmountOut: 0n },

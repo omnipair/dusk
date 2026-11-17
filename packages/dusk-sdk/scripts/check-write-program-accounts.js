@@ -10,7 +10,6 @@ import IDL from "../dist/idl_v2.js";
 import { DuskWrite, LIQUIDITY_RECENTER_COMPUTE_UNIT_LIMIT } from "../dist/write.js";
 import { defaultMarketLaunchConfig } from "../dist/market-bootstrap.js";
 import { deriveJuniorCohortAddress, deriveTokenMetadataAddress, TOKEN_METADATA_PROGRAM_ID, MARKET_LAYOUT_VERSION } from "../dist/constants.js";
-import { incomeBookMayRoll } from "../dist/tranche-client.js";
 
 const key = (byte) => new PublicKey(new Uint8Array(32).fill(byte));
 const owner = key(1);
@@ -273,7 +272,9 @@ test("hLP liquidity actions preserve a caller-supplied oracle policy", async () 
   writer.instruction = async (name, _args, options) => {
     assert.equal(name,"depositSingleSided");
     assert.deepEqual(options.oraclePolicy,policy());
-    assert.deepEqual(options.remainingAccounts.slice(0, 5).map(x => x.pubkey.toBase58()), [7, 13, 14, 15, 16].map(x => key(x).toBase58()));
+    // Exactly the program's three-account hLP prefix leads the list.
+    assert.deepEqual(options.remainingAccounts.slice(0, 3).map(x => x.pubkey.toBase58()), [7, 13, 14].map(x => key(x).toBase58()));
+    assert.ok(!options.remainingAccounts.some(x => [17, 18].some(k => x.pubkey.equals(key(k)))));
     return action;
   };
   client.account.market.fetch = async () => { throw new Error("explicit snapshot and policy must avoid a market fetch"); };
@@ -281,8 +282,8 @@ test("hLP liquidity actions preserve a caller-supplied oracle policy", async () 
     payer:owner,owner,market,targetHlpMint:key(25),baseMint,quoteMint,
     accounts:{},oraclePolicy:policy(),marketSnapshot: {
       srlpMint:key(7),
-      baseSide:{assetMint:baseMint,interestVault:key(15),reserveVault:key(17)},
-      quoteSide:{assetMint:quoteMint,interestVault:key(16),reserveVault:key(18)},
+      baseSide:{assetMint:baseMint,reserveVault:key(17)},
+      quoteSide:{assetMint:quoteMint,reserveVault:key(18)},
       baseHlpVault:{srlpVault:key(13),hlpSupply:new anchor.BN(0),residualExposure:new anchor.BN(0)},
       quoteHlpVault:{srlpVault:key(14),hlpSupply:new anchor.BN(0),residualExposure:new anchor.BN(0)},
     },
@@ -332,27 +333,4 @@ test("junior hook setup names the junior cohort, which a retired generation reso
   assert.equal(cohort.isWritable, false);
   const srlp = await write.initializeLpTransferHookInstruction({ payer: owner, market, lpMint, tokenKind: "srlp" });
   assert.equal(srlp.keys.length, junior.keys.length - 1);
-});
-
-test("an income book rolls once half repaid or near its numeric limits", () => {
-  const BN = anchor.BN;
-  const book = (units, unpaid, extra = {}) => ({
-    unitsQ64: new BN(units).shln(64), unpaid: new BN(unpaid), paidPerUnitQ64: new BN(0), paidRemainderQ64: new BN(0), impaired: false, runLength: 0,
-    growth: Array.from({ length: 4 }, () => ({ unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, 0].map(v => new BN(v)) })),
-    ...extra,
-  });
-  assert.equal(incomeBookMayRoll(book(100, 100)), false);
-  assert.equal(incomeBookMayRoll(book(100, 51)), false);
-  assert.equal(incomeBookMayRoll(book(100, 50)), true);
-  assert.equal(incomeBookMayRoll(book(100, 0)), true);
-  assert.equal(incomeBookMayRoll(book(0, 0)), false);
-  assert.equal(incomeBookMayRoll(book("9223372036854775807", "9223372036854775806")), true);
-  assert.equal(incomeBookMayRoll(book(100, 99, { paidPerUnitQ64: new BN("170141183460469231731687303715884105727") })), true);
-  const lane = { unitsQ64: new BN(0), weightedPaidQ128: [0, 0, 0, "9223372036854775807"].map(v => new BN(v)) };
-  assert.equal(incomeBookMayRoll(book(100, 99, { growth: [lane, ...book(1, 1).growth.slice(1)] })), true);
-  // A loss-free drained book advances in place and is not rolled; an
-  // impaired one is.
-  const drained = book(100, 0, { paidPerUnitQ64: new BN(1).shln(64) });
-  assert.equal(incomeBookMayRoll(drained), false);
-  assert.equal(incomeBookMayRoll({ ...drained, impaired: true }), true);
 });
