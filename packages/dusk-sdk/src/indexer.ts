@@ -19,7 +19,7 @@ export interface ApiResponse<T = unknown> {
 export interface RequestOptions {
   params?: Record<string, string | number | boolean | undefined | null>;
   signal?: AbortSignal;
-  headers?: HeadersInit;
+  headers?: NonNullable<Parameters<FetchLike>[1]>["headers"];
 }
 
 export interface PaginationOptions {
