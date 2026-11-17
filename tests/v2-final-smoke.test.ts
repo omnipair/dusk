@@ -8,6 +8,8 @@ import { fileURLToPath } from "url";
 import anchor from "@coral-xyz/anchor";
 import {
   ACCOUNT_SIZE,
+  AccountState,
+  createUpdateDefaultAccountStateInstruction,
   calculateEpochFee,
   getTransferFeeConfig,
   getTransferFeeAmount,
@@ -3594,7 +3596,7 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     });
   }
 
-  it("bootstraps and trades the public USDv extension layout, retaining issuer pause and delegate powers", async function () {
+  async function createUsdvAssetMint() {
     const captured = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures/usdv-mint-mainnet.json"), "utf8"));
     const quoteMint = Keypair.generate().publicKey;
     const data = Buffer.from(captured.account.data[0], "base64");
@@ -3615,6 +3617,11 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
       offset += 4 + length;
     }
     svm.setAccount(quoteMint, { lamports: 10_000_000, owner: TOKEN_2022_PROGRAM_ID, executable: false, data });
+    return quoteMint;
+  }
+
+  it("bootstraps and trades the public USDv extension layout, retaining issuer pause and delegate powers", async function () {
+    const quoteMint = await createUsdvAssetMint();
     const baseMint = await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
     const fixture = await addBalancedLiquidity(75, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID, { base: baseMint, quote: quoteMint });
     await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 100, 1);
@@ -3646,6 +3653,179 @@ describe("Omnipair V2 (Dusk) final model smoke", () => {
     let activatedHookFailure: unknown;
     try { await swapBaseForQuote(fixture, hlpSwapAccounts(fixture), 105, 1); } catch (error) { activatedHookFailure = error; }
     expect(String(activatedHookFailure)).to.include("InvalidTokenProgram");
+  });
+
+  for (const usdvRole of ["collateral", "debt"] as const) {
+    it(`borrows, repays and exits with public USDv as ${usdvRole}, preserving issuer freeze and pause semantics`, async function () {
+      const usdv = await createUsdvAssetMint();
+      const plain = await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+      const f = await addBalancedLiquidity(76, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID,
+        usdvRole === "collateral" ? { base: usdv, quote: plain } : { base: plain, quote: usdv });
+      const { borrowPosition } = await protectionBorrow(f);
+      const repay = () => program.methods.repay({ repayAmount: new BN(10_000) }).accounts({
+        market: f.market, futarchyAuthority, owner: payer.publicKey, debtAssetMint: f.quoteMint, collateralAssetMint: f.baseMint,
+        reserveVault: f.quoteReserveVault, interestVault: f.quoteInterestVault, ownerDebtAccount: f.ownerQuoteAccount,
+        borrowPosition, referralPartner: null, referralAccrual: null, tokenProgram: TOKEN_PROGRAM_ID,
+        token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction();
+      const withdraw = (amount: number) => program.methods.withdrawCollateral({
+        withdrawAmount: new BN(amount), minAssetAmountOut: new BN(amount), minLiquidationCfBps: 0,
+      }).accounts({ market: f.market, futarchyAuthority, owner: payer.publicKey, assetMint: f.baseMint,
+        collateralVault: f.baseCollateralVault, ownerAssetAccount: f.ownerBaseAccount, borrowPosition,
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+        eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID }).transaction();
+      const action = async () => connection.sendTransaction(usdvRole === "debt" ? await repay() : await withdraw(1), [payer]);
+      const guarded = [f.market, borrowPosition, f.baseCollateralVault, f.quoteReserveVault, f.ownerBaseAccount, f.ownerQuoteAccount];
+      const unchangedAfterRejection = async () => {
+        svm.expireBlockhash();
+        const before = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
+        let rejected: unknown;
+        try { await action(); } catch (error) { rejected = error; }
+        expect(rejected).to.not.equal(undefined);
+        guarded.forEach((key, index) => expect(Buffer.from(svm.getAccount(key)!.data).equals(before[index])).to.equal(true));
+      };
+      const issuerControlledVault = usdvRole === "debt" ? f.quoteReserveVault : f.baseCollateralVault;
+      await freezeAccount(connection as any, payer, issuerControlledVault, usdv, payer, [], undefined, TOKEN_2022_PROGRAM_ID);
+      await unchangedAfterRejection();
+      await thawAccount(connection as any, payer, issuerControlledVault, usdv, payer, [], undefined, TOKEN_2022_PROGRAM_ID);
+      await connection.sendTransaction(new Transaction().add(createPauseInstruction(usdv, payer.publicKey)), [payer]);
+      await unchangedAfterRejection();
+      await connection.sendTransaction(new Transaction().add(createResumeInstruction(usdv, payer.publicKey)), [payer]);
+      svm.expireBlockhash();
+      await connection.sendTransaction(await repay(), [payer]);
+      await connection.sendTransaction(await withdraw(10_000), [payer]);
+      expect(svm.getAccount(borrowPosition)).to.equal(null);
+      // LP principal uses the same public Token-2022 transfer path on exit.
+      const before = (await getAccount(connection as any, usdvRole === "debt" ? f.ownerQuoteAccount : f.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount;
+      await connection.sendTransaction(await program.methods.removeLiquidity({ srlpAmount: new BN(1_000), minBaseAmountOut: new BN(0), minQuoteAmountOut: new BN(0) }).accounts({
+        market: f.market, owner: payer.publicKey, baseMint: f.baseMint, quoteMint: f.quoteMint, srlpMint: f.srlpMint,
+        baseReserveVault: f.baseReserveVault, quoteReserveVault: f.quoteReserveVault, ownerBaseAccount: f.ownerBaseAccount,
+        ownerQuoteAccount: f.ownerQuoteAccount, ownerSrlpAccount: f.ownerSrlpAccount,
+        baseYieldAccount: deriveYieldAccountAddress(f.market, payer.publicKey, f.srlpMint, f.baseMint, "srlp")[0],
+        quoteYieldAccount: deriveYieldAccountAddress(f.market, payer.publicKey, f.srlpMint, f.quoteMint, "srlp")[0],
+        tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, eventAuthority: eventAuthority(), program: DUSK_PROGRAM_ID,
+      }).transaction(), [payer]);
+      expect((await getAccount(connection as any, usdvRole === "debt" ? f.ownerQuoteAccount : f.ownerBaseAccount, undefined, TOKEN_2022_PROGRAM_ID)).amount > before).to.equal(true);
+    });
+
+    it(`flash liquidates public USDv ${usdvRole} and rolls back while its issuer pauses transfers`, async function () {
+      const usdv = await createUsdvAssetMint();
+      const plain = await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+      const f = await addBalancedLiquidity(77, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID,
+        usdvRole === "collateral" ? { base: usdv, quote: plain } : { base: plain, quote: usdv });
+      const { borrowPosition } = await protectionBorrow(f, 10_000, 14_500);
+      const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), borrowPosition.toBuffer()], DUSK_PROGRAM_ID)[0];
+      const vault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), borrowPosition.toBuffer(), f.quoteMint.toBuffer()], DUSK_PROGRAM_ID)[0];
+      const prefundLamports = await connection.getMinimumBalanceForRentExemption(0);
+      if (usdvRole === "debt") await connection.sendTransaction(new Transaction().add(SystemProgram.transfer({fromPubkey: payer.publicKey, toPubkey: vault, lamports: prefundLamports})), [payer]);
+      await swapBaseForQuote(f, hlpSwapAccounts(f), 10_000, 1);
+      const clock = svm.getClock(); clock.slot += 10_000n; clock.unixTimestamp += 1_000n; svm.setClock(clock);
+      await connection.sendTransaction(new Transaction().add(createPauseInstruction(usdv, payer.publicKey)), [payer]);
+      const guarded = [f.market, borrowPosition, f.baseCollateralVault, f.quoteReserveVault, f.ownerBaseAccount, f.ownerQuoteAccount];
+      const before = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
+      let rejected: unknown;
+      try { await executeFlash(f, borrowPosition, false, f.baseCollateralVault, 1_000); } catch (error) { rejected = error; }
+      expect(rejected).to.not.equal(undefined);
+      guarded.forEach((key, index) => expect(Buffer.from(svm.getAccount(key)!.data).equals(before[index])).to.equal(true));
+      expect(svm.getAccount(session)).to.equal(null);
+      if (usdvRole === "debt") {
+        expect(svm.getAccount(vault)!.owner.equals(SystemProgram.programId)).to.equal(true);
+        expect(svm.getAccount(vault)!.data.length).to.equal(0);
+        expect(svm.getAccount(vault)!.lamports).to.equal(prefundLamports);
+      } else expect(svm.getAccount(vault)).to.equal(null);
+      await connection.sendTransaction(new Transaction().add(createResumeInstruction(usdv, payer.publicKey)), [payer]);
+      svm.expireBlockhash();
+      const { event } = await executeFlash(f, borrowPosition, false, f.baseCollateralVault, 1_000);
+      expect(event.debtRepaid.toNumber()).to.be.within(999, 1_000);
+      expect(event.remainingDebt.gt(new BN(0))).to.equal(true);
+      // The session closes while the extension-bearing payment account persists.
+      expect(svm.getAccount(session)).to.equal(null);
+      expect((await getAccount(connection as any, vault, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+      svm.expireBlockhash();
+      const reused = await executeFlash(f, borrowPosition, false, f.baseCollateralVault, 1_000);
+      expect(reused.event.remainingDebt.lt(event.remainingDebt)).to.equal(true);
+    });
+  }
+
+  it("honors USDv default-frozen account changes and permits public transfers only after issuer thaw", async function () {
+    const usdv = await createUsdvAssetMint();
+    await connection.sendTransaction(new Transaction().add(createUpdateDefaultAccountStateInstruction(
+      usdv, AccountState.Frozen, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)), [payer]);
+    const account = await createAccount(connection as any, payer, usdv, payer.publicKey, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+    expect((await getAccount(connection as any, account, undefined, TOKEN_2022_PROGRAM_ID)).isFrozen).to.equal(true);
+    let rejected: unknown;
+    try { await mintTo(connection as any, payer, usdv, account, payer, 10n, [], undefined, TOKEN_2022_PROGRAM_ID); } catch (error) { rejected = error; }
+    expect(rejected).to.not.equal(undefined);
+    expect((await getAccount(connection as any, account, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(0n);
+    await thawAccount(connection as any, payer, account, usdv, payer, [], undefined, TOKEN_2022_PROGRAM_ID);
+    svm.expireBlockhash();
+    await mintTo(connection as any, payer, usdv, account, payer, 10n, [], undefined, TOKEN_2022_PROGRAM_ID);
+    expect((await getAccount(connection as any, account, undefined, TOKEN_2022_PROGRAM_ID)).amount).to.equal(10n);
+  });
+
+  it("settles an hLP flash with public USDv assets and an extension-aware payment vault", async function () {
+    const f = await addBalancedLiquidity(78, marketConfig(), {
+      baseDeposit: 1_000_000_000_000n, quoteDeposit: 1_000_000_000_000n, minSrlp: 1n,
+      baseMint: 3_000_000_000_000n, quoteMint: 3_000_000_000_000n,
+    }, 6, TOKEN_2022_PROGRAM_ID, {base: await createUsdvAssetMint(), quote: await createUsdvAssetMint()});
+    await openBaseHedge(f, 20_000_000_000);
+    await openQuoteHedge(f, 20_000_000_000);
+    const account = svm.getAccount(f.market)!;
+    const market = accountCoder.decode("Market", Buffer.from(account.data)) as any;
+    market.debt.quote_borrow_index_nad = new BN((BigInt(market.debt.quote_borrow_index_nad.toString()) * 101n / 100n).toString());
+    const body = Buffer.alloc(account.data.length - 8);
+    const length = (accountCoder as any).accountLayouts.get("Market").layout.encode(market, body);
+    svm.setAccount(f.market, {...account, data: new Uint8Array(Buffer.concat([(accountCoder as any).accountDiscriminator("Market"), body.subarray(0, length)]))});
+    const sdk = new DuskHlpLiquidations(createDuskProgram({provider: program.provider}) as any, payer.publicKey);
+    const built = await sdk.buildFlash({market: f.market, targetAsset: "base", buyer: payer.publicKey,
+      maxSocializedLoss: 0n, route: (context: any) => [createTransferCheckedInstruction(f.ownerQuoteAccount,
+        context.debtMint, context.repaymentVault, payer.publicKey, context.requiredPaymentCredit, 6, [], TOKEN_2022_PROGRAM_ID)]});
+    await connection.sendTransaction(new Transaction().add(SystemProgram.transfer({fromPubkey: payer.publicKey, toPubkey: built.repaymentVault, lamports: await connection.getMinimumBalanceForRentExemption(0)})), [payer]);
+    const stub = new TransactionInstruction({programId: DUSK_PROGRAM_ID, data: Buffer.alloc(0),
+      keys: built.instructions.flatMap(ix => [...ix.keys, {pubkey: ix.programId, isWritable: false, isSigner: false}])});
+    const slotHash = svm.getSlotHashes()[0];
+    slotHash.slot = svm.getClock().slot; slotHash.hash = (await connection.getLatestBlockhash()).blockhash;
+    svm.setSlotHashes([slotHash]);
+    const plan = marketCreationLookupTablePlan({payer: payer.publicKey, recentSlot: Number(slotHash.slot), initializeMarketInstruction: stub});
+    await connection.sendTransaction(new Transaction().add(plan.createInstruction), [payer]);
+    for (const ix of plan.extendInstructions) await connection.sendTransaction(new Transaction().add(ix), [payer]);
+    svm.warpToSlot(svm.getClock().slot + 1n); svm.expireBlockhash();
+    const lookup = new AddressLookupTableAccount({key: plan.address, state: AddressLookupTableAccount.deserialize(svm.getAccount(plan.address)!.data)});
+    const transaction = new VersionedTransaction(new TransactionMessage({payerKey: payer.publicKey,
+      recentBlockhash: (await connection.getLatestBlockhash()).blockhash, instructions: built.instructions}).compileToV0Message([lookup]));
+    transaction.sign([payer]); expect(transaction.serialize().length).to.be.at.most(1232);
+    await connection.sendTransaction(transaction);
+    expect(svm.getAccount(built.session)).to.equal(null);
+    const vault = await getAccount(connection as any, built.repaymentVault, undefined, TOKEN_2022_PROGRAM_ID);
+    expect(vault.mint.equals(f.quoteMint)).to.equal(true);
+    expect(vault.owner.equals(built.session)).to.equal(true);
+    expect(vault.amount).to.equal(0n);
+  });
+
+  it("rolls back first-use USDv liquidation after a default-frozen flip while an existing vault remains usable", async function () {
+    const usdv = await createUsdvAssetMint();
+    const base = await createMint(connection as any, payer, payer.publicKey, null, 6, undefined, undefined, TOKEN_2022_PROGRAM_ID);
+    const f = await addBalancedLiquidity(79, marketConfig(), undefined, 6, TOKEN_2022_PROGRAM_ID, {base, quote: usdv});
+    const first = await protectionBorrow(f, 10_000, 14_500);
+    const fresh = await protectionBorrow(f, 10_000, 14_500);
+    await swapBaseForQuote(f, hlpSwapAccounts(f), 10_000, 1);
+    const clock = svm.getClock(); clock.slot += 10_000n; clock.unixTimestamp += 1_000n; svm.setClock(clock);
+    await executeFlash(f, first.borrowPosition, false, f.baseCollateralVault, 1_000);
+    await connection.sendTransaction(new Transaction().add(createUpdateDefaultAccountStateInstruction(usdv,
+      AccountState.Frozen, payer.publicKey, [], TOKEN_2022_PROGRAM_ID)), [payer]);
+    const session = PublicKey.findProgramAddressSync([Buffer.from("liquidation-session"), fresh.borrowPosition.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const vault = PublicKey.findProgramAddressSync([Buffer.from("liquidation-payment"), fresh.borrowPosition.toBuffer(), usdv.toBuffer()], DUSK_PROGRAM_ID)[0];
+    const guarded = [f.market, fresh.borrowPosition, f.baseCollateralVault, f.quoteReserveVault, f.ownerBaseAccount, f.ownerQuoteAccount];
+    const before = guarded.map(key => Buffer.from(svm.getAccount(key)!.data));
+    let rejected: unknown;
+    try { await executeFlash(f, fresh.borrowPosition, false, f.baseCollateralVault, 1_000); } catch (error) { rejected = error; }
+    expect(rejected).to.not.equal(undefined);
+    guarded.forEach((key, i) => expect(Buffer.from(svm.getAccount(key)!.data).equals(before[i])).to.equal(true));
+    expect(svm.getAccount(session)).to.equal(null);
+    expect(svm.getAccount(vault)).to.equal(null);
+    svm.expireBlockhash();
+    const reused = await executeFlash(f, first.borrowPosition, false, f.baseCollateralVault, 1_000);
+    expect(reused.event.debtRepaid.toNumber()).to.be.within(999, 1_000);
   });
 
   it("supports the hLP launch profile for base hLP entry", async function () {

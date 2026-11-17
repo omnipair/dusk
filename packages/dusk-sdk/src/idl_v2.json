@@ -715,6 +715,9 @@
         },
         {
           "name": "repayment_vault",
+          "docs": [
+            "session authority and token-program owner with the extension-aware helper."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -879,6 +882,9 @@
         },
         {
           "name": "repayment_vault",
+          "docs": [
+            "session authority and token-program owner with the extension-aware helper."
+          ],
           "writable": true,
           "pda": {
             "seeds": [

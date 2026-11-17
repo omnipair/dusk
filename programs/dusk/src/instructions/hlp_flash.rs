@@ -4,14 +4,14 @@ use crate::{
     generate_market_seeds,
     instructions::{
         accounts::{
-            require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-            validate_owner_asset_account, validate_side_vault_accounts, HlpSwapAccountLayout,
+            require_reserve_custody, require_supported_asset_mint, token_account_credit, token_account_info_amount,
+            token_program_for_mint, validate_owner_asset_account, validate_side_vault_accounts, HlpSwapAccountLayout,
         },
         leverage::settlement::settle_inline_hlp_accounts,
         leverage_collateral_fee, validate_hlp_authority_pdas,
     },
     state::*,
-    token::transfer_checked_with_remaining_accounts,
+    token::{create_token_account, transfer_checked_with_remaining_accounts},
     transitions::{liquidity::HlpFlashQuote, HlpYieldEligibility},
 };
 use anchor_lang::{
@@ -140,11 +140,10 @@ pub struct BeginHlpFlash<'info> {
     #[account(init, payer = accounts.buyer, space = 8 + HlpFlashSession::INIT_SPACE,
         seeds = [HLP_FLASH_SESSION_SEED, accounts.market.key().as_ref(), &[args.target_asset]], bump)]
     pub session: Box<Account<'info, HlpFlashSession>>,
-    #[account(init_if_needed, payer = accounts.buyer,
-        seeds = [HLP_FLASH_PAYMENT_SEED, session.key().as_ref()], bump,
-        token::mint = accounts.borrowed_mint, token::authority = session,
-        token::token_program = accounts.borrowed_token_program)]
-    pub repayment_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// CHECK: PDA checked here; the handler initializes or validates its mint,
+    /// session authority and token-program owner with the extension-aware helper.
+    #[account(mut, seeds = [HLP_FLASH_PAYMENT_SEED, session.key().as_ref()], bump)]
+    pub repayment_vault: UncheckedAccount<'info>,
     /// CHECK: Canonical instructions sysvar.
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
@@ -228,13 +227,24 @@ impl<'info> BeginHlpFlash<'info> {
         } else {
             a.market.quote_hlp_vault.hlp_supply
         };
+        let session_key = ctx.accounts.session.key();
+        let repayment_bump = [ctx.bumps.repayment_vault];
+        create_token_account(
+            &ctx.accounts.session.to_account_info(),
+            &a.buyer.to_account_info(),
+            &ctx.accounts.repayment_vault.to_account_info(),
+            &a.borrowed_mint.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            &a.borrowed_token_program.to_account_info(),
+            &[HLP_FLASH_PAYMENT_SEED, session_key.as_ref(), &repayment_bump],
+        )?;
         a.market.begin_hlp_flash_recovery(quote)?;
         ctx.accounts.session.set_inner(HlpFlashSession {
             market: a.market.key(),
             buyer: a.buyer.key(),
             quote,
             max_socialized_loss: args.max_socialized_loss,
-            payment_balance_before: ctx.accounts.repayment_vault.amount,
+            payment_balance_before: token_account_info_amount(&ctx.accounts.repayment_vault.to_account_info())?,
             hlp_supply,
             begin_index,
             settle_index: args.settle_index,
