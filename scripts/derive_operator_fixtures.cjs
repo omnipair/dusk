@@ -60,7 +60,7 @@ function adapt(value,type) {
   if(type.option)return value==null?null:adapt(value,type.option);
   const def=newIdl.types.find(t=>t.name===(type.defined.name??type.defined));
   if(def.type.kind==='enum')return value??{[def.type.variants[0].name]:{}};
-  return Object.fromEntries(def.type.fields.map(field=>[field.name,adapt(value?.[field.name] ?? (field.name==="revenue_escrow"?value?.protocol_escrow:field.name==="revenue_release_pending"?value?.protocol_release_pending:undefined),field.type)]));
+  return Object.fromEntries(def.type.fields.map(field=>[field.name,adapt(value?.[field.name],field.type)]));
 }
 function encode(data) {
   const old=oldCoder.decode('Market',data);
@@ -78,7 +78,9 @@ function encodeAccount(name,value) {
 }
 const oldAuthority=oldCoder.decode('FutarchyAuthority',original('programs/dusk/src/tests/fixtures/vob-authority-20260929.bin'));
 const authority=encodeAccount('FutarchyAuthority',adapt(oldAuthority,{defined:{name:'FutarchyAuthority'}}));
-const authorityTarget=`programs/dusk/src/tests/fixtures/vob-authority-layout${layout}.bin`;
+// The FutarchyAuthority layout has not changed since Market layout 18, so its
+// derived fixture keeps that name; a layout change shows up as a diff here.
+const authorityTarget='programs/dusk/src/tests/fixtures/vob-authority-layout18.bin';
 writeFileSync(authorityTarget,authority);
 process.stdout.write(`${authorityTarget} ${createHash('sha256').update(authority).digest('hex')}\n`);
 for(const name of ['hlp-entry','vob-market','hlp-entry-funding']) {
@@ -105,12 +107,18 @@ for (const account of batch.result.value.accounts) {
   if (account.owner===batch.programId) account.owner=nextProgram;
 }
 const adaptedMarket=newCoder.decode('Market',Buffer.from(batch.result.value.accounts[0].data[0],'base64'));
-batch.market=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
-  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram))[0].toBase58();
+const [marketAddress,marketBump]=PublicKey.findProgramAddressSync([Buffer.from('market_v2'),adaptedMarket.base_side.asset_mint.toBuffer(),
+  adaptedMarket.quote_side.asset_mint.toBuffer(),Buffer.from(adaptedMarket.params_hash)],new PublicKey(nextProgram));
+batch.market=marketAddress.toBase58();
+// The stored bump belongs to the market's address under the current program.
+if(adaptedMarket.bump!==marketBump){
+  adaptedMarket.bump=marketBump;
+  batch.result.value.accounts[0].data[0]=encodeAccount('Market',adaptedMarket).toString('base64');
+}
 batch.programId=nextProgram;
 batch.result.value.returnData.programId=nextProgram;
 batch.derivedFrom=`layout-13 regression fixture at ${predecessor}`;
-batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
+batch.schemaAdaptation=`Layout ${layout}: independent unconfigured continuous fee-auction curves, independent utilization and risk-coverage target bands, and amounts counted in at least ${minimumAmountDecimals} decimals. The two persistent hLP funding pricing offsets start at zero, and the accrued-interest ledger starts empty, so the first accrual recognizes the captured outstanding interest and credits it to the holders of record. Existing financial state is preserved: the former utilization admission threshold becomes the utilization rate upper target, and every stored curve, depth, retention, NAV and hLP offset quantity is restated at the twelve-decimal minimum.`;
 const batchTarget=`packages/dusk-sdk/scripts/fixtures/virtual-book-batch-layout${layout}.json`;
 writeFileSync(batchTarget,JSON.stringify(batch,null,2)+'\n');
 process.stdout.write(`${batchTarget}\n`);

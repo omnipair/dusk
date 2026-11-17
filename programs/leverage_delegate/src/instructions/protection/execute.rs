@@ -32,10 +32,6 @@ pub struct ExecuteProtectionOrder<'info> {
     #[account(mut)]
     pub payment_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub debt_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub borrowed_interest_vault: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
-    #[account(mut)]
     pub hlp_srlp_account: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
     #[account(mut, address = order.custody_lp_account,
         constraint = custody_lp_account.owner == order.key() @ LeverageDelegateError::InvalidTokenAccount,

@@ -1,79 +1,21 @@
-//! One shared index is limited before any debt, fee, or LP ledger is changed.
-//! Excess unrepresentable interest is forgone, never carried into a later slot.
+//! One shared index is limited before any debt or interest ledger changes.
+//! The only limit is the u64 atom domain of each debt bucket; interest is
+//! never forgone for bookkeeping reasons.
 use super::*;
 
 impl Market {
-    pub(crate) fn check_borrow_income_capacity(&self, asset: MarketAsset, projected: &Debt) -> Result<()> {
-        let (fixed, isolated, principal, funding) = match asset {
-            MarketAsset::Base => (
-                projected.fixed_base_debt()?,
-                projected.isolated_debt(asset)?,
-                [projected.fixed_base_principal, projected.isolated_base_principal],
-                &self.quote_hlp_vault,
-            ),
-            MarketAsset::Quote => (
-                projected.fixed_quote_debt()?,
-                projected.isolated_debt(asset)?,
-                [projected.fixed_quote_principal, projected.isolated_quote_principal],
-                &self.base_hlp_vault,
-            ),
+    /// New borrowing keeps every fixed and isolated debt bucket in the u64
+    /// atom domain that settlement and the accrual clip rely on.
+    pub(crate) fn check_borrow_debt_domain(&self, asset: MarketAsset, projected: &Debt) -> Result<()> {
+        let (fixed, isolated) = match asset {
+            MarketAsset::Base => (projected.fixed_base_debt()?, projected.isolated_debt(asset)?),
+            MarketAsset::Quote => (projected.fixed_quote_debt()?, projected.isolated_debt(asset)?),
         };
         require!(
             fixed <= u64::MAX as u128 && isolated <= u64::MAX as u128,
             ErrorCode::DebtMathOverflow
         );
-        let public = fixed
-            .saturating_sub(principal[0] as u128)
-            .checked_add(isolated.saturating_sub(principal[1] as u128))
-            .ok_or(ErrorCode::DebtMathOverflow)?;
-        let funding = Debt::shares_to_debt(funding.debt_shares, projected.borrow_index(asset))?
-            .saturating_sub(funding.debt_principal as u128);
-        let public = u64::try_from(public).map_err(|_| ErrorCode::DebtMathOverflow)?;
-        let funding = u64::try_from(funding).map_err(|_| ErrorCode::DebtMathOverflow)?;
-        require!(
-            self.income_accrual_fits(asset, public, funding)?,
-            ErrorCode::IncomeEpochNeedsRollover
-        );
         Ok(())
-    }
-
-    /// Check all accounting consumers of an index. Physical repayments and
-    /// individual debt buckets retain SPL's u64 atom domain; the aggregate
-    /// virtual reserve is wider because it includes cash and receivables.
-    #[inline(never)]
-    fn accrual_index_fits(&self, asset: MarketAsset, index: u128) -> Result<(bool, [u128; 3])> {
-        let (fixed, isolated, principal, funding) = match asset {
-            MarketAsset::Base => (
-                self.debt.fixed_base_shares,
-                self.debt.isolated_base_shares,
-                [self.debt.fixed_base_principal, self.debt.isolated_base_principal],
-                &self.quote_hlp_vault,
-            ),
-            MarketAsset::Quote => (
-                self.debt.fixed_quote_shares,
-                self.debt.isolated_quote_shares,
-                [self.debt.fixed_quote_principal, self.debt.isolated_quote_principal],
-                &self.base_hlp_vault,
-            ),
-        };
-        let fixed = Debt::shares_to_debt(fixed, index)?;
-        let isolated = Debt::shares_to_debt(isolated, index)?;
-        let funding_debt = Debt::shares_to_debt(funding.debt_shares, index)?;
-        if fixed > u64::MAX as u128 || isolated > u64::MAX as u128 || funding_debt > u64::MAX as u128 {
-            return Ok((false, [fixed, isolated, funding_debt]));
-        }
-        let public = fixed
-            .saturating_sub(principal[0] as u128)
-            .checked_add(isolated.saturating_sub(principal[1] as u128))
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        let funding = funding_debt.saturating_sub(funding.debt_principal as u128);
-        let (Ok(public), Ok(funding)) = (u64::try_from(public), u64::try_from(funding)) else {
-            return Ok((false, [fixed, isolated, funding_debt]));
-        };
-        Ok((
-            self.income_accrual_fits(asset, public, funding)?,
-            [fixed, isolated, funding_debt],
-        ))
     }
 
     #[inline(never)]
@@ -118,40 +60,23 @@ impl Market {
             .ok_or(ErrorCode::BrokenInvariant)?;
         require_gte!(ceiling, index, ErrorCode::BrokenInvariant);
         let desired = self.unbounded_accrual_index(index, remainder, integrated_apr);
-        let (candidate, next_remainder, clipped) = match desired {
-            Ok((next, fraction)) if next <= ceiling => (next, fraction, false),
-            Ok(_) => (ceiling, 0, true),
+        // No excess fractional growth survives a clipped checkpoint.
+        let (next, next_remainder) = match desired {
+            Ok((next, fraction)) if next <= ceiling => (next, fraction),
+            Ok(_) => (ceiling, 0),
             Err(anchor_lang::error::Error::AnchorError(detail))
                 if detail.error_code_number == u32::from(ErrorCode::MarketMathOverflow) =>
             {
-                (ceiling, 0, true)
+                (ceiling, 0)
             }
             Err(error) => return Err(error),
         };
-        let (fits, candidate_debt) = self.accrual_index_fits(asset, candidate)?;
-        if fits {
-            return Ok((candidate, if clipped { 0 } else { next_remainder }, candidate_debt));
-        }
-        if candidate == index {
-            return Ok((index, 0, candidate_debt));
-        }
-        // Only a numerical boundary takes this path. Keep a certified lower
-        // endpoint; rejected trial indexes never mutate any ownership ledger.
-        let mut low = index;
-        let (_, mut accepted_debt) = self.accrual_index_fits(asset, low)?;
-        let mut high = candidate - 1;
-        while low < high {
-            let middle = low + (high - low) / 2 + 1;
-            let (fits, debt) = self.accrual_index_fits(asset, middle)?;
-            if fits {
-                low = middle;
-                accepted_debt = debt;
-            } else {
-                high = middle - 1;
-            }
-        }
-        // No excess fractional growth survives a saturated checkpoint.
-        Ok((low, 0, accepted_debt))
+        let debt = [
+            Debt::shares_to_debt(shares[0], next)?,
+            Debt::shares_to_debt(shares[1], next)?,
+            Debt::shares_to_debt(shares[2], next)?,
+        ];
+        Ok((next, next_remainder, debt))
     }
 
     fn unbounded_accrual_index(&self, index: u128, remainder: u128, integrated_apr: u128) -> Result<(u128, u128)> {

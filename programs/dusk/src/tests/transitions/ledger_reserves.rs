@@ -1,3 +1,4 @@
+use crate::constants::*;
 use super::*;
 use proptest::prelude::*;
 
@@ -6,7 +7,6 @@ use proptest::prelude::*;
 fn empty_market() -> Market {
     Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),

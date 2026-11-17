@@ -142,7 +142,6 @@ fn isolated_repay_never_reduces_more_aggregate_debt_than_the_maximum() {
     assert_eq!(clearance.remaining_debt, 148);
     assert_eq!(clearance.principal_paid, 1);
     assert_eq!(clearance.interest_paid, 1);
-    assert_eq!(clearance.live_debit_for_cash_repay().unwrap(), 1);
     assert_eq!(position_shares, 99);
     assert_eq!(position_principal, 99);
     assert_eq!(debt.isolated_base_shares, 99);

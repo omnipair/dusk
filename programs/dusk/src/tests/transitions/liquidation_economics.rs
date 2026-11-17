@@ -30,21 +30,16 @@ struct AuditTotals { opened: u64, entry_debt: u64, flash: u64, emergency: u64, f
     repayment: u64,  writeoff: u64, canceled: u64, rewards: u64, fees: u64,
     eligible: u64, eligible_debt: u64, remaining: u64, failed: u64, admitted_error: String, path_error: String }
 
-fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, interest: u64, _slot: u64) -> Result<()> {
-    let native = m.side(side).fees.junior.initialized;
-    if fee.junior > 0 {
-        if native { m.side_mut(side).record_junior_liquidation_credit(fee.junior)?; }
+/// The settlement instruction's revenue leg: junior coverage enters reserve
+/// cash and the credited ledger, the protocol liquidation fee is booked, and
+/// the protocol share of any interest paid (already in `protocol_pending`) is
+/// booked. Paid interest itself stays in reserve cash.
+fn publish_audit_fee(m: &mut Market, side: MarketAsset, fee: LiquidationFeeAllocation, _interest: u64, _slot: u64) -> Result<()> {
+    if fee.junior > 0 && m.side(side).fees.junior.initialized {
+        m.record_junior_liquidation_credit(side, fee.junior)?;
     }
     m.side_mut(side).record_liquidation_protocol_credit(fee.protocol, ProtocolAuctionSplit::default())?;
-    let (fresh, frozen) = m.side_mut(side).fees.public_interest_advance.take_payment(interest)?;
-    if native {
-        m.record_receivable_income_credit(side, false, fresh + frozen, frozen, ProtocolAuctionSplit::default(), 0)?;
-    } else {
-        m.side_mut(side).record_interest_credit(fresh + frozen, 0, ProtocolAuctionSplit::default(), 0)?;
-    }
-    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, m.base_hlp_vault.srlp_shares)?;
-    m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, m.quote_hlp_vault.srlp_shares)?;
-    Ok(())
+    m.book_protocol_interest(ProtocolAuctionSplit::default())
 }
 
 // External venue: a deterministic $100k debt-side CPMM depth at the exogenous
@@ -88,7 +83,7 @@ fn audit_fill_sizes(m: &mut Market, p: &mut LeveragePosition, side: MarketAsset,
             } else {
                 let credit=f.unwind_credit(q.collateral_credit)?;
                 let mut swap=match (SwapRequest {current_slot:slot,current_unix_timestamp:now,asset_in:side.opposite(),reserve_credit:credit,protocol_fee_bps:0})
-                    .prepare_with_cash_policy(&mut trial,SwapCashPolicy::LiquidationQuote) {Ok(s)=>s,Err(_)=>continue};
+                    .prepare_with_cash_policy(&mut trial, SwapCashPolicy::LiquidationQuote) {Ok(s)=>s,Err(_)=>continue};
                 let owner=budget-repaid-fee.total;
                 let obligation=repaid+f.effective_gross_for_credit(fee.junior)?+f.effective_gross_for_credit(0u64+fee.protocol)?+f.effective_gross_for_credit(owner)?;
                 if swap.quote.amount_out<obligation {continue;}

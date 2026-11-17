@@ -390,8 +390,6 @@ test("protection execution checks its inputs before reading the order", async ()
     baseReserveVault: key(24),
     quoteReserveVault: key(25),
     paymentVault: key(26),
-    debtInterestVault: key(27),
-    borrowedInterestVault: null,
     hlpSrlpAccount: null,
     custodyLpAccount: key(12),
     custodyBaseAccount: key(28),

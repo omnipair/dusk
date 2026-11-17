@@ -163,7 +163,7 @@ impl<'info> IncreaseLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         let margin_credit = if args.margin_amount > 0 {
             let before = ctx.accounts.debt_reserve_vault.amount;
@@ -218,7 +218,6 @@ impl<'info> IncreaseLeverage<'info> {
             cash_policy,
         )?;
         let swap = prepared_swap.leverage_quote();
-        let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit =
             leverage_collateral_credit(&ctx.accounts.collateral_mint, swap.amount_out, current_epoch)?;
         require_gte!(collateral_credit, args.min_collateral_out, ErrorCode::SlippageExceeded);
@@ -259,21 +258,17 @@ impl<'info> IncreaseLeverage<'info> {
 
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            &ctx.accounts.debt_reserve_vault,
-            &ctx.accounts.collateral_reserve_vault,
-            &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             ctx.remaining_accounts,
             h_lp_accounts,
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
-            interest_eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        // No borrower interest is paid here, so nothing waits on a referral.
+        ctx.accounts
+            .market
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
 
         // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;

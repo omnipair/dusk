@@ -217,7 +217,7 @@ export class DuskLiquidations {
     const referralPartner = partner.equals(PublicKey.default) ? null : partner;
     const accounts = { ...r.readAccounts, buyer, buyerCollateralAccount, buyerRefundAccount, ownerDebtAccount,
       collateralVault: params.kind === "borrow" ? r.collateralSide.collateralVault : deriveLeverageCollateralVaultAddress(r.market, r.collateralSide.assetMint, this.program.programId)[0],
-      reserveVault: r.debtSide.reserveVault, interestVault: r.debtSide.interestVault,
+      reserveVault: r.debtSide.reserveVault,
       futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0], referralPartner,
       referralAccrual: referralPartner ? deriveReferralAccrualAddress(referralPartner, r.market, r.debtSide.assetMint, this.program.programId)[0] : null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram };
@@ -293,7 +293,7 @@ export class DuskLiquidations {
     const accounts = {
       ...r.readAccounts, buyer, buyerCollateralAccount, buyerRefundAccount: buyerDebtAccount, ownerDebtAccount,
       collateralVault: params.kind === "borrow" ? r.collateralSide.collateralVault : deriveLeverageCollateralVaultAddress(r.market, r.collateralSide.assetMint, this.program.programId)[0],
-      reserveVault: r.debtSide.reserveVault, interestVault: r.debtSide.interestVault,
+      reserveVault: r.debtSide.reserveVault,
       futarchyAuthority: deriveFutarchyAuthorityAddress(this.program.programId)[0], referralPartner,
       referralAccrual: referralPartner ? deriveReferralAccrualAddress(referralPartner, r.market, r.debtSide.assetMint, this.program.programId)[0] : null,
       tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, debtTokenProgram,

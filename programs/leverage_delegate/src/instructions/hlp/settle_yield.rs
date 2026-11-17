@@ -44,10 +44,6 @@ pub struct SettleHlpOrderYield<'info> {
     #[account(mut)]
     pub quote_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
-    pub base_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub quote_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
     pub base_yield_account: Box<Account<'info, YieldAccount>>,
     #[account(mut)]
     pub quote_yield_account: Box<Account<'info, YieldAccount>>,
@@ -141,9 +137,14 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.quote_yield_account.reload()?;
         }
 
+        // The custody transfer's hook and each harvest accrue the market,
+        // and accrual netting can take the protocol share from cash: read
+        // cash after them.
+        ctx.accounts.market.reload()?;
         claim_hlp_yield_if_available(
             ctx.accounts.base_yield_account.accrued_swap_fee_amount,
             ctx.accounts.base_yield_account.accrued_interest_amount,
+            ctx.accounts.market.base_side.reserves.cash_reserve,
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
@@ -153,7 +154,6 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.custody_hlp_account.to_account_info(),
             ctx.accounts.base_reserve_vault.to_account_info(),
-            ctx.accounts.base_interest_vault.to_account_info(),
             ctx.accounts.owner_base_account.to_account_info(),
             ctx.accounts.base_yield_account.to_account_info(),
             ctx.accounts.token_program.to_account_info(),
@@ -162,9 +162,11 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.remaining_accounts,
         )?;
         ctx.accounts.quote_yield_account.reload()?;
+        ctx.accounts.market.reload()?;
         claim_hlp_yield_if_available(
             ctx.accounts.quote_yield_account.accrued_swap_fee_amount,
             ctx.accounts.quote_yield_account.accrued_interest_amount,
+            ctx.accounts.market.quote_side.reserves.cash_reserve,
             ctx.accounts.dusk_program.to_account_info(),
             ctx.accounts.dusk_event_authority.to_account_info(),
             ctx.accounts.market.to_account_info(),
@@ -174,7 +176,6 @@ impl<'info> SettleHlpOrderYield<'info> {
             ctx.accounts.target_hlp_mint.to_account_info(),
             ctx.accounts.custody_hlp_account.to_account_info(),
             ctx.accounts.quote_reserve_vault.to_account_info(),
-            ctx.accounts.quote_interest_vault.to_account_info(),
             ctx.accounts.owner_quote_account.to_account_info(),
             ctx.accounts.quote_yield_account.to_account_info(),
             ctx.accounts.token_program.to_account_info(),

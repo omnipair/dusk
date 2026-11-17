@@ -11,7 +11,7 @@ use anchor_lang::prelude::*;
 
 impl Market {
     /// Direct Token-2022 burns donate future ownership to the permanent seed.
-    /// They cannot recreate the sender's abandoned, uncheckpointed income.
+    /// They cannot recreate the sender's abandoned, uncheckpointed interest.
     pub fn reconcile_junior_receipts(&mut self, live_mint_supply: u64) -> Result<()> {
         let expected = self
             .tranches
@@ -33,20 +33,7 @@ impl Market {
 
     pub fn checkpoint_junior_seed(&mut self) -> Result<()> {
         self.base_side.fees.junior.checkpoint_seed(&self.tranches)?;
-        self.quote_side.fees.junior.checkpoint_seed(&self.tranches)?;
-        self.checkpoint_seed_receivables()?;
-        for asset in [MarketAsset::Base, MarketAsset::Quote] {
-            let i = asset.code() as usize;
-            let amount = self.income.get()?.seed[i]
-                .claimable
-                .checked_add(self.income.get()?.seed[i + 2].claimable)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            self.income.get_mut()?.seed[i].claimable = 0;
-            self.income.get_mut()?.seed[i + 2].claimable = 0;
-            let seed = &mut self.side_mut(asset).fees.junior.seed_interest_amount;
-            *seed = seed.checked_add(amount).ok_or(ErrorCode::MarketMathOverflow)?;
-        }
-        Ok(())
+        self.quote_side.fees.junior.checkpoint_seed(&self.tranches)
     }
 
     pub fn synchronize_tranche_income(&mut self) {
@@ -56,7 +43,21 @@ impl Market {
 
     /// The reserve/debt settlement has already removed this funded loss.
     /// Burn junior's common reserve units to preserve senior units and value.
+    /// Once junior is wiped, `TrancheIncome::allocate` routes junior-lane
+    /// interest to the seed, so the wiped generation's index stops on its own.
+    /// The part of `loss` beyond LP capital is first recorded as the asset's
+    /// interest deficit, leaving `curve_reserve` at zero; capital absorbs
+    /// the rest. Credited claims are untouched.
     pub fn absorb_funded_credit_loss(&mut self, asset: MarketAsset, loss: u64) -> Result<()> {
+        let side = self.side_mut(asset);
+        let unabsorbed = side.unrecorded_interest_deficit()?;
+        side.fees.ledger.deficit = side
+            .fees
+            .ledger
+            .deficit
+            .checked_add(unabsorbed)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let loss = u128::from(loss).saturating_sub(unabsorbed) as u64;
         if loss == 0 || self.tranches.junior_reserve_shares == 0 {
             return Ok(());
         }
@@ -79,16 +80,7 @@ impl Market {
             .checked_add(value)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let mut supply = self.base_side.shares.srlp_supply;
-        let loss = self.tranches.absorb_loss(before, value, &mut supply)?;
-        if loss.junior_wiped {
-            for i in 0..4 {
-                self.income.get_mut()?.junior_end[i] = crate::state::IncomeExposureEnd {
-                    ended: true,
-                    epoch: self.income.get()?.books[i].epoch,
-                    growth: self.income.get()?.books[i].growth[1],
-                };
-            }
-        }
+        self.tranches.absorb_loss(before, value, &mut supply)?;
         self.base_side.shares.srlp_supply = supply;
         self.quote_side.shares.srlp_supply = supply;
         self.synchronize_tranche_income();
@@ -117,9 +109,8 @@ impl Market {
             .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
     }
 
-    /// Quote-denominated funded reserve value. An unfunded public-interest
-    /// receivable cannot increase underwriting capital. Cash-funded advances
-    /// remain reserve credit exposure until repayment/writeoff clears them.
+    /// Quote-denominated LP principal backing (`curve_reserve` of both assets)
+    /// at the mark. Credited interest belongs to holders and is excluded.
     pub fn funded_reserve_value(&self) -> Result<u128> {
         let mark = if self.amm.price_ema_nad > 0 {
             self.amm.price_ema_nad
@@ -135,16 +126,8 @@ impl Market {
         let mut values = [0_u128; 2];
         for asset in [MarketAsset::Base, MarketAsset::Quote] {
             let side = self.side(asset);
-            let unfunded = self
-                .public_unpaid_interest(asset)?
-                .checked_sub(side.fees.public_interest_advance.outstanding_gross as u128)
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            let funded = side
-                .reserves
-                .live_reserve
-                .checked_sub(unfunded)
-                .ok_or(ErrorCode::BrokenInvariant)?;
-            values[asset.code() as usize] = self.normalize_amount(funded, side.asset_decimals)?;
+            values[asset.code() as usize] =
+                self.normalize_amount(u128::from(side.curve_reserve()?), side.asset_decimals)?;
         }
         mul_div_u128(values[0], mark as u128, NAD as u128)?
             .checked_add(values[1])

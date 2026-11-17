@@ -1374,10 +1374,6 @@
           "writable": true
         },
         {
-          "name": "borrowed_interest_vault",
-          "writable": true
-        },
-        {
           "name": "custody_target_account",
           "writable": true
         },
@@ -1839,15 +1835,6 @@
           "writable": true
         },
         {
-          "name": "debt_interest_vault",
-          "writable": true
-        },
-        {
-          "name": "borrowed_interest_vault",
-          "writable": true,
-          "optional": true
-        },
-        {
           "name": "hlp_srlp_account",
           "writable": true,
           "optional": true
@@ -2264,14 +2251,6 @@
         },
         {
           "name": "quote_reserve_vault",
-          "writable": true
-        },
-        {
-          "name": "base_interest_vault",
-          "writable": true
-        },
-        {
-          "name": "quote_interest_vault",
           "writable": true
         },
         {
@@ -2695,7 +2674,7 @@
     {
       "code": 6009,
       "name": "UnclaimedYield",
-      "msg": "Harvest the order's earned yield before closing it"
+      "msg": "Harvest the order's swap fees before closing it"
     }
   ],
   "types": [
@@ -3613,10 +3592,10 @@
             "docs": [
               "Aggregate outstanding *principal* (borrowed token amount, excluding",
               "accrued interest) backing fixed margin debt on each side. Accrued",
-              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can",
-              "be routed to the interest vault (non-compounding) instead of",
-              "compounding into reserves. Principal is a raw token-atom balance and is",
-              "therefore bounded by the corresponding `u64` reserve custody domain."
+              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest is",
+              "credited to holders instead of compounding into reserves. Principal is",
+              "a raw token-atom balance and is therefore bounded by the corresponding",
+              "`u64` reserve custody domain."
             ],
             "type": "u64"
           },
@@ -3745,10 +3724,10 @@
             }
           },
           {
-            "name": "public_interest_advance",
+            "name": "ledger",
             "type": {
               "defined": {
-                "name": "PublicInterestAdvance"
+                "name": "InterestLedger"
               }
             }
           },
@@ -3758,6 +3737,10 @@
           },
           {
             "name": "interest_growth_index_q64",
+            "docs": [
+              "Ordinary srLP interest lane. Its denominator is srLP supply less junior",
+              "reserve shares and both hLP vaults' srLP."
+            ],
             "type": "u128"
           },
           {
@@ -3778,16 +3761,6 @@
             "type": "u64"
           },
           {
-            "name": "hlp_funding_interest_growth_remainder_scaled",
-            "docs": [
-              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
-              "uses a non-hLP denominator, while public interest uses total srLP",
-              "supply; sharing one carry across those denominators would eventually",
-              "leak rounding entitlement between the two populations."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "swap_fee_custody_balance",
             "docs": [
               "Claimable swap fees physically held in the reserve vault but excluded",
@@ -3796,23 +3769,11 @@
             "type": "u64"
           },
           {
-            "name": "interest_vault_balance",
-            "type": "u64"
-          },
-          {
             "name": "swap_fee_liability",
             "type": "u64"
           },
           {
-            "name": "interest_liability",
-            "type": "u64"
-          },
-          {
             "name": "unallocated_swap_fee_liability",
-            "type": "u64"
-          },
-          {
-            "name": "unallocated_interest_liability",
             "type": "u64"
           },
           {
@@ -3825,6 +3786,10 @@
           },
           {
             "name": "interest_protocol_fee_liability",
+            "docs": [
+              "Booked protocol interest revenue. Its atoms sit in the reserve vault",
+              "outside `cash_reserve`."
+            ],
             "type": "u64"
           },
           {
@@ -3833,13 +3798,6 @@
           },
           {
             "name": "referral_interest_liability",
-            "type": "u64"
-          },
-          {
-            "name": "revenue_interest_liability",
-            "docs": [
-              "Shared custody for operator claims and protocol fractional carry."
-            ],
             "type": "u64"
           },
           {
@@ -4092,6 +4050,9 @@
           },
           {
             "name": "base_interest_growth_index_q64",
+            "docs": [
+              "Holder index of interest credited to this vault at accrual."
+            ],
             "type": "u128"
           },
           {
@@ -4107,36 +4068,21 @@
             "type": "u128"
           },
           {
-            "name": "base_interest_checkpoint_q64",
-            "type": "u128"
-          },
-          {
             "name": "quote_swap_fee_checkpoint_q64",
-            "type": "u128"
-          },
-          {
-            "name": "quote_interest_checkpoint_q64",
             "type": "u128"
           },
           {
             "name": "base_swap_fee_remainder_q64",
             "docs": [
-              "Aggregate sub-atom srLP entitlement carried across hLP checkpoints.",
-              "These are distinct from each holder YieldAccount remainder: this layer",
-              "converts vault-owned srLP growth into hLP growth without double-flooring."
+              "Aggregate sub-atom srLP swap-fee entitlement carried across hLP",
+              "checkpoints. Distinct from each holder YieldAccount remainder: this",
+              "layer converts vault-owned srLP growth into hLP growth without",
+              "double-flooring."
             ],
             "type": "u64"
           },
           {
-            "name": "base_interest_remainder_q64",
-            "type": "u64"
-          },
-          {
             "name": "quote_swap_fee_remainder_q64",
-            "type": "u64"
-          },
-          {
-            "name": "quote_interest_remainder_q64",
             "type": "u64"
           },
           {
@@ -4198,150 +4144,82 @@
           {
             "name": "funding_apr_ema_last_slot",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "IncomeExposureEnd",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "ended",
-            "type": "bool"
           },
           {
-            "name": "epoch",
+            "name": "held_base_interest",
+            "docs": [
+              "Public interest credited to the vault's srLP while it was frozen,",
+              "net of funding netting. It stays in `credited` for the vault's",
+              "creditors: a terminal close applies it to the vault's debt, and a",
+              "recovery that unfreezes the vault publishes it to the holders."
+            ],
             "type": "u64"
           },
           {
-            "name": "growth",
-            "type": {
-              "defined": {
-                "name": "ReceivableGrowth"
-              }
-            }
+            "name": "held_quote_interest",
+            "type": "u64"
           }
         ]
       }
     },
     {
-      "name": "IncomeReceivableBook",
+      "name": "InterestLedger",
       "docs": [
-        "A bounded-denomination epoch of an unpaid-income pool. Public and hLP",
-        "funding income use separate books. Repayments/defaults are pooled within",
-        "each book; already funded advances do not remain unpaid claims."
+        "Per-asset interest ledger. Interest is credited to holders when it",
+        "accrues; claims are paid from reserve cash.",
+        "",
+        "With `C = cash_reserve + flash_receivable`, `D` borrower principal,",
+        "`I = public_recognized + funding_recognized`, `Q = credited`,",
+        "`Pu = protocol_unpaid` and `Δ = deficit`, every instruction preserves",
+        "`C + D + I + Δ = curve_reserve + Q + Pu`."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "epoch",
-            "type": "u64"
-          },
-          {
-            "name": "unpaid",
-            "type": "u64"
-          },
-          {
-            "name": "units",
-            "type": "u64"
-          },
-          {
-            "name": "paid_per_unit_q64",
-            "type": "u128"
-          },
-          {
-            "name": "paid_remainder",
-            "type": "u64"
-          },
-          {
-            "name": "growth",
+            "name": "public_recognized",
             "docs": [
-              "Ordinary senior, junior, base hLP, quote hLP."
+              "Public fixed and isolated interest outstanding (debt minus principal,",
+              "clamped as in `public_unpaid_interest`) as last recognized."
             ],
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "ReceivableGrowth"
-                  }
-                },
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "IncomeReceivableClaim",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "epoch",
-            "type": "u64"
-          },
-          {
-            "name": "units_q64",
             "type": "u128"
           },
           {
-            "name": "paid_checkpoint_q64",
+            "name": "funding_recognized",
+            "docs": [
+              "The opposite hLP vault's indexed funding debt in this asset minus its",
+              "`debt_principal` (including carried funding) as last recognized."
+            ],
             "type": "u128"
           },
           {
-            "name": "growth_checkpoint",
-            "type": {
-              "defined": {
-                "name": "ReceivableGrowth"
-              }
-            }
-          },
-          {
-            "name": "paid_fraction_q128",
+            "name": "credited",
+            "docs": [
+              "Credited, unclaimed interest of every holder lane, the junior seed,",
+              "both hLP holder indexes, checkpointed holder balances, the operator,",
+              "and index rounding dust. Includes `operator_claimable`."
+            ],
             "type": "u128"
-          },
-          {
-            "name": "claimable",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "InterestRevenueBook",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "gross_unpaid",
-            "type": "u64"
           },
           {
             "name": "protocol_unpaid",
-            "type": "u64"
-          },
-          {
-            "name": "operator_unpaid",
-            "type": "u64"
-          },
-          {
-            "name": "pending_gross",
-            "type": "u64"
-          },
-          {
-            "name": "pending_protocol_gross",
-            "type": "u64"
+            "docs": [
+              "Protocol share of recognized interest not yet paid or written off."
+            ],
+            "type": "u128"
           },
           {
             "name": "operator_claimable",
-            "type": "u64"
+            "docs": [
+              "Current operator recipient's credited, unclaimed share."
+            ],
+            "type": "u128"
           },
           {
             "name": "protocol_fraction_q64",
+            "docs": [
+              "Q64 sub-atom carries of the accrual split."
+            ],
             "type": "u64"
           },
           {
@@ -4349,8 +4227,23 @@
             "type": "u64"
           },
           {
-            "name": "protocol_cash_fraction_q64",
+            "name": "protocol_pending",
+            "docs": [
+              "Protocol share already removed from `cash_reserve`, still in the",
+              "reserve vault, awaiting `book_protocol_interest`."
+            ],
             "type": "u64"
+          },
+          {
+            "name": "deficit",
+            "docs": [
+              "Pool loss that LP capital could not absorb: the amount by which",
+              "credited interest and the protocol's unpaid share exceed everything",
+              "the pool holds or is owed. `curve_reserve` is zero while it is",
+              "nonzero. Credited claims are not reduced; they are paid from cash as",
+              "it allows. It never decreases."
+            ],
+            "type": "u128"
           }
         ]
       }
@@ -4894,14 +4787,6 @@
             }
           },
           {
-            "name": "income",
-            "type": {
-              "defined": {
-                "name": "MarketIncomeBooks"
-              }
-            }
-          },
-          {
             "name": "junior_exit_config",
             "type": {
               "defined": {
@@ -5102,115 +4987,6 @@
       }
     },
     {
-      "name": "MarketIncomeBooks",
-      "docs": [
-        "Public-loan and hLP-funding receivables are independent. The vault-owned",
-        "public-income claims preserve hLP's automatic funding-gap repayment."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "books",
-            "docs": [
-              "base public, quote public, base hLP funding, quote hLP funding."
-            ],
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "IncomeReceivableBook"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "revenue",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "InterestRevenueBook"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "pending",
-            "docs": [
-              "Gross settlement budget awaiting measured net custody credit."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                4
-              ]
-            }
-          },
-          {
-            "name": "seed",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "IncomeReceivableClaim"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "hlp",
-            "docs": [
-              "[hLP target][income asset], owned by the vault rather than its holders."
-            ],
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    {
-                      "defined": {
-                        "name": "IncomeReceivableClaim"
-                      }
-                    },
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "junior_end",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "IncomeExposureEnd"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "split_carry_bps",
-            "type": {
-              "array": [
-                "u16",
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "MarketSide",
       "type": {
         "kind": "struct",
@@ -5233,10 +5009,6 @@
           },
           {
             "name": "collateral_vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "interest_vault",
             "type": "pubkey"
           },
           {
@@ -5821,69 +5593,6 @@
       }
     },
     {
-      "name": "PublicInterestAdvance",
-      "docs": [
-        "Reserve-cash funding of public borrower interest. The revenue-fee portion is",
-        "held in the reserve vault until repayment, so cancellation can return it",
-        "to executable cash without a transfer or a second transfer fee."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "outstanding_gross",
-            "type": "u64"
-          },
-          {
-            "name": "revenue_escrow",
-            "type": "u64"
-          },
-          {
-            "name": "repayment_credit_pending",
-            "docs": [
-              "Native repayment has already restored this cash; its token handler",
-              "must exclude it from the new interest-vault transfer."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "revenue_release_pending",
-            "docs": [
-              "Frozen operator/protocol allocation released by repayment, still held in the",
-              "reserve vault until the same instruction completes token settlement."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "ReceivableGrowth",
-      "docs": [
-        "One exposure lane's newly issued receivable units per LP receipt. The",
-        "weighted paid index is kept at full Q128 precision: flooring it earlier can",
-        "give late entrants a fractional claim on money paid before their entry."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "units_q64",
-            "type": "u128"
-          },
-          {
-            "name": "weighted_paid_q128",
-            "type": {
-              "array": [
-                "u64",
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "ReferralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -6430,27 +6139,10 @@
             }
           },
           {
-            "name": "income_initialized",
-            "type": "bool"
-          },
-          {
-            "name": "income",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "IncomeReceivableClaim"
-                  }
-                },
-                2
-              ]
-            }
-          },
-          {
             "name": "escrow_balance",
             "docs": [
-              "Owner's junior exit escrow receipts. Historical unpaid-income ownership",
-              "is checkpointed here alongside the liquid balance."
+              "Owner's junior exit escrow receipts. They keep earning junior interest",
+              "and are checkpointed alongside the liquid balance."
             ],
             "type": "u64"
           }

@@ -380,9 +380,8 @@ const ix = await dusk.write.swapInstruction(
 `swapRpc(...)` fetch the market before building the swap and fill in the
 account map's `market` from the `market` option. Whenever either hLP
 side has nonzero supply or residual exposure, they prepend the canonical
-five-account prefix exactly once: `[srLP mint, base hLP srLP vault, quote hLP srLP
-vault, base interest vault, quote interest vault]`. Caller-provided remaining
-accounts remain after that prefix.
+three-account prefix exactly once: `[srLP mint, base hLP srLP vault, quote hLP
+srLP vault]`. Caller-provided remaining accounts remain after that prefix.
 
 The write client supplies the canonical event-CPI authority and Dusk program
 accounts for instructions that emit CPI events.
@@ -614,16 +613,18 @@ const claim = await dusk.operator.claim({market, assetMint, payer});
 // For an earlier recipient, pass its sealed revenueEpoch.
 ```
 
-Fees are earned on collection. A handoff preserves already collected cash for
-the previous recipient; later payments belong to the new one. `execute` returns
+Operator interest is credited when it accrues (`fees.ledger.operatorClaimable`)
+and claimed from reserve cash as it allows; the rest stays claimable. A handoff
+seals the interest already credited to the previous recipient in its revenue
+archive; later accruals belong to the new one. `execute` returns
 `setupInstructions` for a recipient archive when needed. Its `transaction`
 already includes them; PDA forwarding must prepend them before forwarding
 `instruction`. Neither claims nor swaps call the external governance program.
 
 Virtual-reserve fields and signed debt/collateral event deltas use 128-bit
 values. Keep decoded balances as `BN` or `bigint`; token transfer amounts still
-use the unsigned 64-bit SPL domain. Extreme accrual saturates coherently across
-debt and receivable books and advances its checkpoint without deferring excess
+use the unsigned 64-bit SPL domain. Extreme accrual saturates at the per-bucket
+64-bit debt limit and advances its checkpoint without deferring excess
 interest. This introduces no configurable APR cap.
 
 See [operator policy and protection details](../../docs/MARKET_OPERATOR.md).
@@ -695,8 +696,10 @@ const claimTx = await dusk.write.claimReferralInterestTransaction({
 ```
 
 `referralBindingInterestShareBps(...)` computes the admission-time capped share.
-Pass that stored share to `quoteReferralInterestShare(...)` to mirror the
-on-chain floor rounding for realized interest.
+Pass that stored share and the payment's protocol share
+(`quoteProtocolInterestShare(...)`) to `quoteReferralInterestShare(...)` to
+mirror the on-chain floor rounding for realized interest. Referral claims are
+paid from the asset's reserve vault.
 
 ## Get On-Chain State
 
@@ -1042,11 +1045,12 @@ market in a read-only simulation and settles the existing hedge in memory
 before reporting remaining funding capacity. Deposits use the same canonical
 srLP ownership and indexed-debt reconstruction as swaps, settling both vaults
 atomically with the entry. Existing hLP shares are priced at their current
-NAV, including their independently owned unpaid public-interest claims. These
-receivables remain excluded from swap-pricing reserves.
+NAV. Public interest credited to a vault is netted against the funding it owes
+in the same asset at accrual and the rest is published to its holders, so hLP
+NAV carries no unpaid coupon.
 
-`dusk.write.depositSingleSided` supplies the canonical backing-vault and
-interest-vault settlement prefix, including on the first deposit. Pass
+`dusk.write.depositSingleSided` supplies the canonical backing-vault settlement
+prefix, including on the first deposit. Pass
 `marketSnapshot` with the same coherent market snapshot used for the other
 accounts to avoid another market read. Its returned transaction includes a
 256 KiB heap and a 1.4M compute-unit limit for settlement. When composing a
@@ -1054,62 +1058,73 @@ transaction with your own budget, use `setupInstructions` and `actionInstruction
 instead. Low-level instruction builders must supply the settlement prefix
 themselves, before token-hook and oracle accounts.
 
+The first deposit into a side with no receipts must borrow at least one atom
+of the opposite asset, or it fails `HlpFirstDepositTooSmall`. On such a side the
+preview also reports `minFirstDepositNet` and `minFirstDepositGross`: two
+opposite atoms' worth at the reserve ratio behind the funding ceiling, after the
+recenter-bucket premium. Both are zero once the side has receipts. The exact
+boundary can be lower, so simulate the deposit for amounts below the quote.
+
 `Ready` and the capacity ceiling do not guarantee execution for every amount.
 Simulate the completed deposit transaction to check rounding, cash custody,
 transfer fees and slippage. Under concentration, an opposite-token-neutral
 hLP need not have a literal 2x gross-value/equity ratio.
 
-### Public-interest cash advance calculations
+### Interest accounting and claims
 
-`quoteInterestAdvanceAmounts` computes the cash-capped gross advance, frozen
-protocol escrow, LP transfer debit and measured-fee-adjusted LP credit. Pass
-amounts as `bigint` and the current `TransferFeeNotice`; pending transfer fees
-are reported separately by that notice and do not replace the effective fee.
-It follows both branches of `fund_interest`. After the side's junior income is
-initialized (`juniorInitialized`, default true), the frozen escrow is the
-advance's share of the synchronized fee book, `unpaidFeeInterest`. Before then
-the program splits the advance at the current
-`FutarchyAuthority.revenueShare.interestBps`, which the quote takes as
-`protocolInterestBps`. Reserve cash that backs hLP
-funding interest is never advanced: pass `hlpFundingInterest(market, asset)`,
-the opposite vault's indexed funding debt less its principal, as
-`hlpFundingInterest`.
-`allocateRepaidInterest` splits measured repayment custody credit between
-fresh LP/protocol revenue and the already-frozen protocol portion. Already
-funded LP interest must be excluded from `freshGrossInterest`.
+Borrower interest is credited to holders when it accrues, through per-lane
+growth indexes: ordinary srLP `fees.interestGrowthIndexQ64`, junior
+`fees.junior.interestGrowthQ64`, and each hLP vault's per-asset interest index.
+Claims are paid from the asset's reserve vault, limited by its reserve cash;
+whatever cash cannot cover stays claimable. There is no interest vault, no
+funding step and no catch-up transaction.
 
-For transaction composition, use the vault-aware yield client:
+`marketInterestLedger(market, asset)` reads one asset's `fees.ledger` as
+bigints: recognized public and hLP-funding interest, `credited` (unclaimed
+holder, seed and operator interest), `protocolUnpaid`, `operatorClaimable`,
+`protocolPending` and `deficit`. `credited` can exceed reserve cash. A nonzero
+`deficit` is a loss beyond LP capital; while either asset has one,
+`addLiquidity` and `depositSingleSided` fail with `InterestDeficit`.
+
+`interestGrowthIndexQ64({ market, kind, asset })` returns the index a holder
+checkpoints against (pass the decoded cohort for a retired junior generation
+or hLP cohort). `claimableInterest({ yieldAccount, lpBalance, growthIndexQ64 })`
+mirrors `YieldAccount::accrue`, including junior escrow receipts, and
+`harvestableInterest` caps it by reserve cash. The index covers interest up to
+the market's last accrual; harvest accrues first, so the paid amount can be
+slightly higher. `accrueGrowthQ64` is the underlying fixed-point step.
+
+The protocol share is paid only from interest borrowers pay:
+`quoteProtocolInterestShare` returns `floor(paid · protocolUnpaid / interest)`
+for a payment against the same accrued ledger. `hlpFundingInterest(market,
+asset)` is the opposite vault's indexed funding debt less its principal.
+A direct `repay` or `addLeverageMargin` on a transfer-fee debt mint charges the
+fee on the repayment only; interest cash stays in the reserve vault.
+
+For transaction composition, use the yield client:
 
 ```ts
-const quote = await dusk.yield.previewFunding({ market, caller });
 const plan = await dusk.yield.buildHarvest({
   market, owner, caller, kind: "baseHlp", asset: "quote",
-  // Optional per-asset gross advance caps, in raw atoms:
-  maxBaseGross: 0n, maxQuoteGross: 1_000_000n,
 });
 // Simulate the complete plan.transaction before signing and sending.
 ```
 
-`kind` accepts `srlp`, `baseHlp` and `quoteHlp`. The builder reads the owner's
-YieldAccount, respects its configured recipient and creates that recipient's
-ATA if needed. Existing yield accounts are required. Builders never sign or send.
-Set `fundAccruedInterest: false` to harvest existing funded claims without a new
-funding/rebalance attempt. `fundInstruction` is the standalone funding builder.
+`kind` accepts `srlp`, `junior`, `baseHlp` and `quoteHlp`. The builder reads
+the owner's YieldAccount, respects its configured recipient and creates that
+recipient's ATA if needed. Existing yield accounts are required. A harvest pays
+swap fees in full and credited interest as reserve cash allows;
+`YieldClaimed.interestRemaining` reports what stays claimable. Builders never
+sign or send.
 
-Funding moves only available cash. Newly earned hLP income first covers the
-vault-wide funding gap; existing funded holder claims are protected. The hedge
-reconstruction can change the AMM mark; the cash advance alone leaves swap
-reserves unchanged. `HlpInterestAllocated` distinguishes new holder yield from
-capital returned to reserves. Subtract its capital debits from gross
-`BorrowInterestPaid` credits when reconciling net interest-vault changes.
-
-Repayment builders supply the canonical accounts needed for both hLP vaults.
-Raw callers must include the five existing hLP accounts followed by both asset
-mints and reserve vaults when fresh public interest is settled with active hLP.
-The Market layout is version 11 with `fees.publicInterestAdvance` on both sides,
-per-vault flash locks, and non-cash `reserves.flashReceivable`;
-use the regenerated IDL. It also records a frozen hLP mask and per-vault
-curve offsets; older snapshots are incompatible.
+Leverage builders supply the canonical hLP settlement prefix while hLP is
+active: `[srLP mint, base hLP srLP vault, quote hLP srLP vault, base asset mint,
+quote asset mint, base reserve vault, quote reserve vault]`. The program reads
+the first three; the leverage delegate recognizes all seven. Everything after
+the first three is read as hook or callback accounts, so a raw
+`delegatedCloseLeverage` must place only the three-account prefix before its
+callback accounts. The Market layout is version 19; use the regenerated IDL.
+Older snapshots are incompatible.
 
 ### Vault-wide hLP flash recovery
 
@@ -1216,8 +1231,9 @@ already checkpointed in the holder's yield accounts.
 
 `srLP` is the default senior claim. `jrLP` owns productive first-loss capital;
 entering junior burns srLP and mints jrLP at their current values. `hLP` remains
-a hedged position backed by senior liquidity and cannot enter junior. Its own
-unpaid income remains in NAV, and collected income pays funding costs first.
+a hedged position backed by senior liquidity and cannot enter junior. Public
+interest credited to a vault first nets against the funding it owes; the rest
+is credited to its holders.
 
 ```ts
 const setup = await dusk.tranches.initialize({ market, payer });
@@ -1245,37 +1261,18 @@ the new request can be instructions in one atomic transaction. Conversion can
 also be blocked by an unsettled insolvent
 liquidation. A failed transaction does not silently extend a window.
 
-Income earned before an ordinary LP transfers or converts remains with that
-holder. Each asset has separate public-loan and hLP-funding income histories.
-The SDK exposes bounded maintenance transactions; none are submitted implicitly:
-
-1. Before issuing income into a fully collected book, call
-   `prepareDrainedIncomeBooks({ market, payer })` and submit its transactions.
-   For `IncomeEpochNeedsRollover` on a partially paid book, use `rollIncome` for
-   the affected book. The payer funds its immutable archive account. A book
-   rolls only once at least half its units are repaid or a counter reaches
-   half its numeric range (`incomeBookMayRoll`); anyone may roll it.
-2. For an existing srLP/jrLP holder, call
-   `prepareHolderIncome({ market, owner, kind: "senior" | "junior" })`.
-   Submit its transactions and repeat while `hasMore` is true. Each instruction
-   processes at most eight archived epochs for one source.
-3. Fetch again and build the transfer, conversion or harvest. A competing
-   maintenance transaction can require another catch-up; builders do not
-   guarantee that the market stays unchanged between fetch and submission.
-
-Archived history has no fixed lifetime limit. A caller that pays archival rent
-can roll after settlement, so repayment/roll churn can increase other holders'
-catch-up work. Eight epochs per instruction bounds transaction work, not total
-history. Integrators should maintain active holders, retry stale plans and expose
-maintenance transactions in their UX; this mechanism does not guarantee a
-single-transaction exit for an inactive holder.
-
-`checkpointIncome` also supports one asset/source batch and retired junior
-mints. Wiped receipts have no principal but may still own historical earnings.
-`burnRetired` removes those receipts without giving them new-generation capital.
+Interest credited before an ordinary LP transfers or converts remains with that
+holder: the transfer hook, deposits, withdrawals, conversions and harvest
+checkpoint every party against the lane's growth index, so no catch-up
+transaction exists. Interest credited to a junior generation before a wipe stays
+claimable from its retired cohort's frozen index; harvest it with
+`retiredJuniorMint`. Wiped receipts have no principal but may still own
+earnings. `burnRetired` removes those receipts without giving them
+new-generation capital.
 
 The permanent junior seed receives income even without external jrLP holders.
-`fundSeed` moves its collected interest to reserve custody. `compoundSeed`
+`fundSeed` moves its credited interest, as reserve cash allows, into seed-owned
+custody. `compoundSeed`
 reinvests balanced asset amounts without issuing senior tokens; unmatched assets
 remain seed-owned custody until a matching amount is available. These custody
 balances do not count as productive junior coverage until reinvested.
@@ -1292,17 +1289,3 @@ the manager immediately and invalidates its pending bundle. Operator-authored
 bundles are preserved. Every ownership transfer clears the manager; it cannot
 be retained or replaced in the handoff bundle. The successor appoints a manager
 through a separate full-notice announcement.
-
-### LP income projection
-
-`projectHolderIncome` projects funded interest belonging to a senior or junior
-receipt holder, including income retained after an exit. Supply the updated
-market's four income books, the decoded yield account, its wallet balance, and
-retired junior exposure ends when applicable. `readIncomeArchives` retrieves
-and authenticates the immutable historical denominations required by that
-projection, using the snapshot's minimum bank slot. Missing or excessive history
-raises `IncomeHistoryRequired`; it must not be displayed as zero income.
-
-These helpers never send a transaction. `dusk.tranches.prepareHolderIncome`
-prepares bounded checkpoint transactions when a holder needs to catch up before
-harvesting, transferring, or converting receipts.

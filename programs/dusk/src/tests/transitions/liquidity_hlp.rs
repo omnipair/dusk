@@ -41,20 +41,18 @@ fn hlp_vault_checkpoints_owned_srlp_revenue_into_hlp_indexes() {
 
     vault.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
 
+    // Swap fees pass through vault-held srLP; interest reaches hLP holders
+    // directly at accrual, so the srLP interest index is not passed through.
     assert_eq!(vault.base_swap_fee_growth_index_q64, 4 * YIELD_GROWTH_SCALE_Q64);
-    assert_eq!(vault.base_interest_growth_index_q64, 6 * YIELD_GROWTH_SCALE_Q64);
+    assert_eq!(vault.base_interest_growth_index_q64, 0);
     assert_eq!(
         vault.base_swap_fee_checkpoint_q64,
         base_side.fees.swap_fee_growth_index_q64
     );
-    assert_eq!(
-        vault.base_interest_checkpoint_q64,
-        base_side.fees.interest_growth_index_q64
-    );
 }
 
 #[test]
-fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
+fn split_hlp_checkpoints_preserve_both_swap_fee_remainders() {
     let mut split = HlpVault {
         srlp_shares: 1,
         hlp_supply: 1,
@@ -68,9 +66,7 @@ fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
     quote_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64 / 2;
     split.checkpoint_yield_from_srlp(&base_side, &quote_side).unwrap();
     assert_eq!(split.base_swap_fee_remainder_q64, 1_u64 << 63);
-    assert_eq!(split.base_interest_remainder_q64, 1_u64 << 63);
     assert_eq!(split.quote_swap_fee_remainder_q64, 1_u64 << 63);
-    assert_eq!(split.quote_interest_remainder_q64, 1_u64 << 63);
 
     base_side.fees.swap_fee_growth_index_q64 = YIELD_GROWTH_SCALE_Q64;
     base_side.fees.interest_growth_index_q64 = YIELD_GROWTH_SCALE_Q64;
@@ -101,9 +97,7 @@ fn split_hlp_checkpoints_preserve_all_four_aggregate_remainders() {
         combined.quote_interest_growth_index_q64
     );
     assert_eq!(split.base_swap_fee_remainder_q64, 0);
-    assert_eq!(split.base_interest_remainder_q64, 0);
     assert_eq!(split.quote_swap_fee_remainder_q64, 0);
-    assert_eq!(split.quote_interest_remainder_q64, 0);
 }
 
 #[test]
@@ -193,19 +187,16 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
     market.base_hlp_vault.unallocated_quote_swap_fee_amount = 5;
     market.base_hlp_vault.unallocated_quote_interest_amount = 7;
     market.base_hlp_vault.base_swap_fee_remainder_q64 = 1_u64 << 63;
-    market.base_hlp_vault.base_interest_remainder_q64 = 1_u64 << 63;
     market.base_hlp_vault.quote_swap_fee_remainder_q64 = 1_u64 << 63;
-    market.base_hlp_vault.quote_interest_remainder_q64 = 1_u64 << 63;
     // A distributor carry is always <2^64, hence strictly below one raw
-    // atom. Together with the srLP and holder half-atoms it telescopes to
-    // exactly one atom on final close.
+    // atom. Swap fees add the srLP layer's half atom; interest is credited
+    // to hLP holders directly, so only the holder and distributor carries
+    // telescope to exactly one atom on final close.
     market.base_hlp_vault.base_swap_fee_growth_remainder_scaled = u64::MAX / 2;
-    market.base_hlp_vault.base_interest_growth_remainder_scaled = u64::MAX / 2;
+    market.base_hlp_vault.base_interest_growth_remainder_scaled = u64::MAX;
     market.base_hlp_vault.quote_swap_fee_growth_remainder_scaled = u64::MAX / 2;
-    market.base_hlp_vault.quote_interest_growth_remainder_scaled = u64::MAX / 2;
+    market.base_hlp_vault.quote_interest_growth_remainder_scaled = u64::MAX;
     let mut base_account = YieldAccount {
-        income_initialized: false,
-        income: Default::default(),
         escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
@@ -223,8 +214,6 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
         bump: 0,
     };
     let mut quote_account = YieldAccount {
-        income_initialized: false,
-        income: Default::default(),
         escrow_balance: 0,
         harvest_authority: None,
         owner: Pubkey::default(),
@@ -275,9 +264,7 @@ fn final_hlp_exit_drains_both_asset_remainders_to_final_holder() {
     assert_eq!(market.base_hlp_vault.unallocated_quote_swap_fee_amount, 0);
     assert_eq!(market.base_hlp_vault.unallocated_quote_interest_amount, 0);
     assert_eq!(market.base_hlp_vault.base_swap_fee_remainder_q64, 0);
-    assert_eq!(market.base_hlp_vault.base_interest_remainder_q64, 0);
     assert_eq!(market.base_hlp_vault.quote_swap_fee_remainder_q64, 0);
-    assert_eq!(market.base_hlp_vault.quote_interest_remainder_q64, 0);
     assert_eq!(market.base_hlp_vault.base_swap_fee_growth_remainder_scaled, 0);
     assert_eq!(market.base_hlp_vault.base_interest_growth_remainder_scaled, 0);
     assert_eq!(market.base_hlp_vault.quote_swap_fee_growth_remainder_scaled, 0);

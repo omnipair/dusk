@@ -15,7 +15,9 @@ use crate::{
         BorrowPosition, FlashAmmLiquidationQuote, FlashLiquidationQuote, FutarchyAuthority, LeveragePosition,
         LiquidationHealth, Market, MarketAsset,
     },
-    token::{get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee},
+    token::{
+        get_transfer_fee, get_transfer_fee_for_epoch, get_transfer_inverse_fee, get_transfer_inverse_fee_for_epoch,
+    },
     transitions::{
         flash_liquidation::LiquidationPositionRef,
         liquidity::{
@@ -1074,6 +1076,16 @@ pub struct HlpDepositCapacityPreview {
     pub funding_limit_gross: u64,
     /// Greatest net target reserve credit supported by opposite-asset funding.
     pub funding_limit_net: u64,
+    /// Net first deposit that opens this side's empty vault; zero once the
+    /// side has receipts. A first deposit must borrow at least one atom of
+    /// the opposite asset or it fails `HlpFirstDepositTooSmall`. This quotes
+    /// two atoms' worth at the reserve ratio behind `funding_limit_net`,
+    /// after the recenter-bucket premium, so somewhat smaller first deposits
+    /// can still pass; simulate the deposit for the exact boundary.
+    pub min_first_deposit_net: u64,
+    /// `min_first_deposit_net` as a wallet debit at the current epoch's
+    /// transfer fee.
+    pub min_first_deposit_gross: u64,
 }
 
 impl<'info> PreviewHlpDepositCapacity<'info> {
@@ -1105,7 +1117,7 @@ impl<'info> PreviewHlpDepositCapacity<'info> {
         };
         validate_lp_mint(&accounts.target_hlp_mint, market_key, target_mint.decimals)?;
         let clock = Clock::get()?;
-        let (mut status, mut funding_limit_net) = preview_hlp_funding_limit(
+        let (mut status, mut funding_limit_net, min_first_deposit_net) = preview_hlp_funding_limit(
             &mut accounts.market,
             target,
             accounts.target_hlp_mint.supply,
@@ -1126,6 +1138,17 @@ impl<'info> PreviewHlpDepositCapacity<'info> {
             status = HlpDepositStatus::NoNetDeposit;
             funding_limit_net = 0;
         }
+        let min_first_deposit_gross = if min_first_deposit_net == 0 {
+            0
+        } else {
+            min_first_deposit_net
+                .checked_add(get_transfer_inverse_fee_for_epoch(
+                    &target_mint.to_account_info(),
+                    min_first_deposit_net,
+                    clock.epoch,
+                )?)
+                .ok_or(ErrorCode::MarketMathOverflow)?
+        };
         Ok(HlpDepositCapacityPreview {
             market: market_key,
             target_asset: target,
@@ -1135,6 +1158,8 @@ impl<'info> PreviewHlpDepositCapacity<'info> {
             status,
             funding_limit_gross,
             funding_limit_net,
+            min_first_deposit_net,
+            min_first_deposit_gross,
         })
     }
 }
@@ -1164,34 +1189,36 @@ fn preview_hlp_funding_limit(
     live_supply: u64,
     global_reduce_only: bool,
     clock: &Clock,
-) -> Result<(HlpDepositStatus, u64)> {
+) -> Result<(HlpDepositStatus, u64, u64)> {
     market.assert_current_version()?;
     market.require_hlp_flash_idle(target)?;
     market.require_hlp_flash_idle(target.opposite())?;
     if clock.unix_timestamp < market.config.start_time {
-        return Ok((HlpDepositStatus::NotStarted, 0));
+        return Ok((HlpDepositStatus::NotStarted, 0, 0));
     }
     if global_reduce_only || market.reduce_only {
-        return Ok((HlpDepositStatus::ReduceOnly, 0));
+        return Ok((HlpDepositStatus::ReduceOnly, 0, 0));
     }
     market.accrue_interest_to_slot(clock.slot)?;
     reconcile_live_hlp_supply(market, target, live_supply, false)?;
     if market.base_side.reserves.live_reserve == 0 || market.quote_side.reserves.live_reserve == 0 {
-        return Ok((HlpDepositStatus::NoLiquidity, 0));
+        return Ok((HlpDepositStatus::NoLiquidity, 0, 0));
     }
     // Entry applies a due, funded recenter first; preview the same state.
     market.prepare_amm_for_swap(clock.slot)?;
     market.advance_one_amm_controller_target(clock.slot)?;
     market.freeze_negative_hlp_vaults()?;
     if market.hlp_frozen(target) {
-        return Ok((HlpDepositStatus::Frozen, 0));
+        return Ok((HlpDepositStatus::Frozen, 0, 0));
     }
     if market.side(target.opposite()).reserves.cash_reserve == 0 {
-        return Ok((HlpDepositStatus::NoFundingCapacity, 0));
+        return Ok((HlpDepositStatus::NoFundingCapacity, 0, 0));
     }
     // Entry settles the existing hedge atomically. Preview the same endpoint
-    // before classifying readiness and calculating the remaining cash budget.
-    prepare_concentrated_hlp_transition_at_current_state(market)?.consume(market)?;
+    // and cash before classifying readiness and calculating the remaining
+    // budget.
+    prepare_concentrated_hlp_transition_at_current_state(market)?
+        .consume(market, crate::transitions::ProtocolCash::Required)?;
     market.checkpoint_hlp_vaults()?;
     let prices = current_hlp_curve_prices(market)?;
     let entry = current_hlp_entry_state_with_prices(market, target, prices)?;
@@ -1202,13 +1229,15 @@ fn preview_hlp_funding_limit(
         HlpEntryDisposition::Unhedgeable => HlpDepositStatus::Unhedgeable,
     };
     if status != HlpDepositStatus::Ready {
-        return Ok((status, 0));
+        return Ok((status, 0, 0));
     }
     market.observe_current_risk(clock.slot)?;
-    let target_reserve = market.side(target).reserves.live_reserve;
-    let opposite_reserve = market.side(target.opposite()).reserves.live_reserve;
+    // Entry borrows against LP principal. Paid funding and credited
+    // interest sit in the live reserve outside it.
+    let target_reserve = u128::from(market.curve_reserve(target)?);
+    let opposite_reserve = u128::from(market.curve_reserve(target.opposite())?);
     if target_reserve == 0 || opposite_reserve == 0 {
-        return Ok((HlpDepositStatus::NoLiquidity, 0));
+        return Ok((HlpDepositStatus::NoLiquidity, 0, 0));
     }
     let headroom = market.hlp_funding_headroom(target.opposite())?;
     // floor(deposit * opposite / target) <= headroom. Compare ratios first:
@@ -1227,9 +1256,37 @@ fn preview_hlp_funding_limit(
         u64::try_from(ceiling.saturating_sub(1)).map_err(|_| ErrorCode::MarketMathOverflow)?
     };
     if headroom == 0 || crate::math::mul_div_u128(u128::from(limit), opposite_reserve, target_reserve)? == 0 {
-        return Ok((HlpDepositStatus::NoFundingCapacity, 0));
+        return Ok((HlpDepositStatus::NoFundingCapacity, 0, 0));
     }
-    Ok((HlpDepositStatus::Ready, limit))
+    let open_supply = match target {
+        MarketAsset::Base => market.base_hlp_vault.hlp_supply,
+        MarketAsset::Quote => market.quote_hlp_vault.hlp_supply,
+    };
+    let min_first_deposit = if open_supply > 0 {
+        0
+    } else {
+        // The first cohort must borrow a debt atom. Back two atoms of the
+        // opposite asset, and two srLP shares, at the reserve ratio the
+        // funding limit uses, then add the slice the entry pays into the
+        // recenter bucket.
+        let srlp_supply = u128::from(market.base_side.shares.srlp_supply);
+        let backing = crate::math::mul_div_ceil_u128(2, target_reserve, opposite_reserve)?
+            .max(crate::math::mul_div_ceil_u128(2, target_reserve, srlp_supply)?)
+            .checked_add(2)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
+        let net = match market.protected_recenter_value(target, false)? {
+            Some((reserve_value, bucket_value)) => crate::math::mul_div_ceil_u128(
+                backing + 1,
+                reserve_value
+                    .checked_add(bucket_value)
+                    .ok_or(ErrorCode::MarketMathOverflow)?,
+                reserve_value,
+            )?,
+            None => backing,
+        };
+        u64::try_from(net).map_err(|_| ErrorCode::MarketMathOverflow)?
+    };
+    Ok((HlpDepositStatus::Ready, limit, min_first_deposit))
 }
 
 // Atomic liquidation previews

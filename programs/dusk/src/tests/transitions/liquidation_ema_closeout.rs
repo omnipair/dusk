@@ -7,7 +7,10 @@ fn custody_resources(m: &Market) -> [u128; 2] {
         let s = m.side(a);
         u128::from(s.reserves.cash_reserve)
             + u128::from(s.fees.swap_fee_custody_balance)
-            + u128::from(s.fees.interest_vault_balance)
+            + u128::from(s.fees.interest_protocol_fee_liability)
+            + u128::from(s.fees.interest_buyback_fee_liability)
+            + u128::from(s.fees.referral_interest_liability)
+            + u128::from(s.fees.ledger.protocol_pending)
             + u128::from(s.reserves.total_hlp_backing_inventory().unwrap())
             + u128::from(s.reserves.protected_recenter_reserve)
     })

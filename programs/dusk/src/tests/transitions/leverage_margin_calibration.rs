@@ -8,6 +8,11 @@ mod ema_settlement {
     include!("liquidation_ema_settlement.rs");
 }
 
+mod referral_booking {
+    use super::*;
+    include!("referral_booking.rs");
+}
+
 mod stored_margin_runtime {
     use super::*;
     include!("leverage_stored_margin_runtime.rs");

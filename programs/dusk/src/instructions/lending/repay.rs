@@ -10,12 +10,10 @@ use crate::{
     events::{MarketDebtUpdated, MarketEventMetadata, MarketHealthUpdated},
     instructions::leverage_collateral_fee,
     state::{BorrowPosition, FutarchyAuthority, Market, ReferralAccrual, ReferralPartner},
-    token::{get_transfer_fee, get_transfer_inverse_fee, transfer_checked_with_remaining_accounts},
+    token::transfer_checked_with_remaining_accounts,
 };
 
-use crate::instructions::accounts::{
-    require_reserve_custody, require_supported_asset_mint, token_program_for_mint, validate_interest_accounts,
-};
+use crate::instructions::accounts::{require_reserve_custody, require_supported_asset_mint, token_program_for_mint};
 
 use super::accounts::validate_debt_reserve_accounts;
 use crate::instructions::referral::accounting::{referral_interest_accrued_event_at_slot, validate_referral_binding};
@@ -57,9 +55,6 @@ pub struct Repay<'info> {
 
     #[account(mut)]
     pub reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(mut)]
-    pub interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub owner_debt_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -109,8 +104,6 @@ impl<'info> Repay<'info> {
             &self.reserve_vault,
             &self.owner_debt_account,
         )?;
-        let interest_asset = validate_interest_accounts(&self.market, &self.debt_asset_mint, &self.interest_vault)?;
-        require!(interest_asset == repay_asset, ErrorCode::InvalidVault);
         require_supported_asset_mint(&self.debt_asset_mint)?;
         self.borrow_position
             .assert_position(self.borrow_position.owner, self.market.key())?;
@@ -145,33 +138,38 @@ impl<'info> Repay<'info> {
             let expected_referral_partner = accounts.borrow_position.referral_partner(repay_asset);
             let referral_interest_share_bps = accounts.borrow_position.referral_interest_share_bps(repay_asset);
             let reserve_balance_before = accounts.reserve_vault.amount;
+            let epoch = Clock::get()?.epoch;
+            let debt_fee = leverage_collateral_fee(&accounts.debt_asset_mint, epoch)?;
 
-            // Convert the user's gross limit into the exact reserve credit required.
+            // Convert the user's gross limit into the exact repayment credit;
+            // the borrower pays the repayment's own transfer fee.
             let debt_token_program = token_program_for_mint(
                 &accounts.debt_asset_mint,
                 &accounts.token_program,
                 &accounts.token_2022_program,
             )?;
-            let max_repay_credit = args
-                .repay_amount
-                .checked_sub(get_transfer_fee(
-                    &accounts.debt_asset_mint.to_account_info(),
-                    args.repay_amount,
-                )?)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
             let repay_credit = accounts
                 .market
-                .fixed_repayment_for_max(&accounts.borrow_position, repay_asset, max_repay_credit)?
+                .fixed_repayment_for_max(
+                    &accounts.borrow_position,
+                    repay_asset,
+                    debt_fee.unwind_credit(args.repay_amount)?,
+                )?
                 .cash_repaid;
-            let repay_gross = repay_credit
-                .checked_add(get_transfer_inverse_fee(
-                    &accounts.debt_asset_mint.to_account_info(),
-                    repay_credit,
-                )?)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-            require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
 
-            // Transfer repayment and verify the reserve received the quoted credit.
+            let debt_receipt = accounts.market.repay_with_finalization_and_fee(
+                &mut accounts.borrow_position,
+                repay_asset,
+                repay_credit,
+                leverage_collateral_fee(&accounts.collateral_asset_mint, epoch)?,
+                Some(current_slot),
+            )?;
+            require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
+
+            // Interest stays in reserve cash; the measured reserve credit
+            // must equal the debt reduction.
+            let repay_gross = debt_fee.gross_for_credit(repay_credit)?;
+            require_gte!(args.repay_amount, repay_gross, ErrorCode::BrokenInvariant);
             transfer_checked_with_remaining_accounts(
                 accounts.owner.to_account_info(),
                 accounts.owner_debt_account.to_account_info(),
@@ -190,39 +188,17 @@ impl<'info> Repay<'info> {
                 .checked_sub(reserve_balance_before)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
             require_eq!(measured_repay_credit, repay_credit, ErrorCode::BrokenInvariant);
-
-            let debt_receipt = accounts.market.repay_with_finalization_and_fee(
-                &mut accounts.borrow_position,
-                repay_asset,
-                repay_credit,
-                leverage_collateral_fee(&accounts.collateral_asset_mint, Clock::get()?.epoch)?,
-                Some(current_slot),
-            )?;
-            require_eq!(debt_receipt.cash_repaid, repay_credit, ErrorCode::BrokenInvariant);
-
-            let eligibility = crate::transitions::HlpYieldEligibility {
-                srlp_supply: accounts.market.base_side.shares.srlp_supply,
-                base_hlp_srlp_shares: accounts.market.base_hlp_vault.srlp_shares,
-                quote_hlp_srlp_shares: accounts.market.quote_hlp_vault.srlp_shares,
-            };
-            let referral_receipt = crate::instructions::leverage::settlement::record_leverage_interest(
+            let referral_receipt = crate::instructions::leverage::settlement::record_interest_paid(
                 &mut accounts.market,
                 repay_asset,
                 &accounts.debt_asset_mint,
-                &mut accounts.reserve_vault,
-                &mut accounts.interest_vault,
-                &accounts.token_program,
-                &accounts.token_2022_program,
                 &accounts.futarchy_authority,
                 expected_referral_partner,
                 referral_interest_share_bps,
                 accounts.referral_partner.as_deref(),
                 accounts.referral_accrual.as_deref_mut(),
                 debt_receipt.interest_paid,
-                eligibility,
-                remaining_accounts,
-                accounts.event_authority.to_account_info(),
-                None,
+                debt_receipt.protocol_paid,
             )?;
             accounts.reserve_vault.reload()?;
 

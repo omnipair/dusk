@@ -107,11 +107,6 @@ impl SwapRequest {
         scratch: &mut Option<Box<Market>>,
         reads: &mut LiquidationReads,
     ) -> Result<Box<PreparedSwap>> {
-        // A kept reference must not share the income books while the market
-        // accrues: copy-on-write would allocate a second set on the SBF heap.
-        if let Some(reference) = scratch.as_mut() {
-            reference.income = LazyIncomeBooks::default();
-        }
         market.accrue_interest_to_slot(self.current_slot)?;
         market.prepare_amm_for_swap(self.current_slot)?;
         reads.market_changed();

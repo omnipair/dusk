@@ -6,13 +6,10 @@ fn runtime_open(market: &mut Market, debt_asset: MarketAsset, margin: u64, slot:
         reserve_credit: margin * 2,
         protocol_fee_bps: 0,
     }
-    .prepare_with_cash_policy(
-        market,
-        SwapCashPolicy::Borrow {
+    .prepare_with_cash_policy(market, SwapCashPolicy::Borrow {
             asset: debt_asset,
             amount: margin,
-        },
-    )
+        })
     .unwrap();
     let quote = prepared.leverage_quote();
     let mut position = empty_position();
@@ -88,15 +85,12 @@ fn runtime_terms_survive_other_traders_and_lp_activity_across_concentrated_hlp_m
                         reserve_credit: slice.collateral_amount,
                         protocol_fee_bps: 0,
                     }
-                    .prepare_with_cash_policy(
-                        &mut market,
-                        SwapCashPolicy::Close {
+                    .prepare_with_cash_policy(&mut market, SwapCashPolicy::Close {
                             debt_asset,
                             debt_shares: first.debt_shares,
                             debt_principal: first.debt_principal,
                             shares_to_burn: slice.debt_shares,
-                        },
-                    )
+                        })
                     .unwrap();
                     let quote = prepared.leverage_quote();
                     market

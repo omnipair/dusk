@@ -1,15 +1,15 @@
 use anchor_lang::prelude::*;
 
 pub const OPERATOR_REVENUE_SEED: &[u8] = b"operator_revenue";
-/// A sealed recipient's collected cash. Unpaid interest fees follow the current
-/// recipient and become earned only when borrower cash reaches custody.
+/// A sealed recipient's credited, unclaimed operator interest per asset (base,
+/// quote). Claims are paid from reserve cash as it allows.
 #[account]
 #[derive(InitSpace)]
 pub struct OperatorRevenueAccount {
     pub market: Pubkey,
     pub recipient: Pubkey,
     pub revenue_epoch: u64,
-    pub claimable: [u64; 4],
+    pub claimable: [u128; 2],
     pub sealed: bool,
     pub bump: u8,
 }

@@ -6,7 +6,7 @@ use crate::{
     generate_market_seeds,
     instructions::{
         accounts::{require_reserve_custody, token_account_info_amount, token_program_for_mint, HlpSwapAccountLayout},
-        leverage::settlement::{record_leverage_interest, settle_inline_leverage_hlp},
+        leverage::settlement::{record_interest_paid, settle_inline_leverage_hlp},
         leverage_collateral_fee,
     },
     state::*,
@@ -96,18 +96,18 @@ pub(super) fn settle_with_amm<'info>(
         &ctx.accounts.instructions,
         false,
     )?;
-    let collateral_credit =
-        leverage_collateral_fee(&a.collateral_mint, clock.epoch)?.unwind_credit(q.collateral_credit)?;
+    let collateral_fee = leverage_collateral_fee(&a.collateral_mint, clock.epoch)?;
+    let collateral_credit = collateral_fee.unwind_credit(q.collateral_credit)?;
     require_gt!(collateral_credit, 0, ErrorCode::InsufficientAmount);
     let debt_fee = leverage_collateral_fee(&a.debt_mint, clock.epoch)?;
-    let junior_fee_debit = debt_fee.effective_gross_for_credit(fee.junior)?;
-    let revenue_fee_debit = debt_fee.effective_gross_for_credit(fee.protocol)?;
+    // Junior and protocol fees stay in the reserve vault: no transfer, no
+    // transfer fee.
     let owner_debit = debt_fee.effective_gross_for_credit(owner_surplus)?;
     require_eq!(
         obligation,
         repayment
-            .checked_add(junior_fee_debit)
-            .and_then(|v| v.checked_add(revenue_fee_debit))
+            .checked_add(fee.junior)
+            .and_then(|v| v.checked_add(fee.protocol))
             .and_then(|v| v.checked_add(owner_debit))
             .ok_or(ErrorCode::MarketMathOverflow)?,
         ErrorCode::BrokenInvariant
@@ -136,7 +136,6 @@ pub(super) fn settle_with_amm<'info>(
     swap.bind_liquidation(&a.market, policy)?;
     let swap_quote = swap.leverage_quote();
     let swap_fee = LeverageSwapFeeCredit::from_total_actual_credit(&swap_quote, swap.quote.fee.claimable_fee_debit)?;
-    let eligibility = swap.interest_eligibility;
     let (partner, share) = a.referral(asset)?;
     let layout = HlpSwapAccountLayout::try_from((&**a.market, ctx.remaining_accounts))?;
     let hooks = layout.hook_accounts(ctx.remaining_accounts);
@@ -183,26 +182,16 @@ pub(super) fn settle_with_amm<'info>(
     }
     settle_inline_leverage_hlp(
         &mut a.market,
-        &a.futarchy_authority,
-        asset,
-        &a.debt_mint,
-        &a.collateral_mint,
-        &a.reserve_vault,
-        collateral_reserve,
-        &a.token_program,
         &a.token_2022_program,
         ctx.remaining_accounts,
         layout,
         finalized.base_rebalance,
         finalized.quote_rebalance,
-        eligibility,
         ctx.accounts.event_authority.to_account_info(),
     )?;
     for (destination, debit, credit) in [
         (a.buyer_refund_account.to_account_info(), buyer_debit, buyer_credit),
         (a.owner_debt_account.to_account_info(), owner_debit, owner_surplus),
-        (a.interest_vault.to_account_info(), junior_fee_debit, fee.junior),
-        (a.interest_vault.to_account_info(), revenue_fee_debit, fee.protocol),
     ] {
         if debit == 0 {
             continue;
@@ -227,36 +216,25 @@ pub(super) fn settle_with_amm<'info>(
             ErrorCode::BrokenInvariant
         );
     }
-    if fee.junior > 0 {
-        a.market.side_mut(asset).record_junior_liquidation_credit(fee.junior)?;
-    }
+    // The swap kernel debited cash for the whole output; the junior fee
+    // returns to cash as credited junior interest, and the protocol fee is
+    // booked as liabilities held outside cash.
+    a.market.record_junior_liquidation_credit(asset, fee.junior)?;
     a.market
         .side_mut(asset)
         .record_liquidation_protocol_credit(fee.protocol, a.futarchy_authority.protocol_auction_split)?;
-    a.interest_vault.reload()?;
-    let referral_receipt = record_leverage_interest(
+    let referral_receipt = record_interest_paid(
         &mut a.market,
         asset,
         &a.debt_mint,
-        &mut a.reserve_vault,
-        &mut a.interest_vault,
-        &a.token_program,
-        &a.token_2022_program,
         &a.futarchy_authority,
         partner,
         share,
         a.referral_partner.as_deref(),
         a.referral_accrual.as_deref_mut(),
         loss.interest_paid,
-        eligibility,
-        ctx.remaining_accounts,
-        ctx.accounts.event_authority.to_account_info(),
-        None,
+        finalized.lifecycle.protocol_paid,
     )?;
-    a.market
-        .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
-    a.market
-        .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
     super::flash_liquidation::emit_liquidation_interest(
         a,
         asset,
@@ -284,11 +262,6 @@ pub(super) fn settle_with_amm<'info>(
     collateral_reserve.reload()?;
     require_reserve_custody(a.reserve_vault.amount, a.market.side(asset))?;
     require_reserve_custody(collateral_reserve.amount, a.market.side(asset.opposite()))?;
-    require_gte!(
-        a.interest_vault.amount,
-        a.market.side(asset).fees.interest_vault_balance,
-        ErrorCode::UnbackedFeeLiability
-    );
     match (&mut a.borrow_position, &mut a.leverage_position) {
         (Some(p), None) => p.active_liquidation_session = Pubkey::default(),
         (None, Some(p)) => p.active_liquidation_session = Pubkey::default(),

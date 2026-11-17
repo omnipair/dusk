@@ -12,18 +12,11 @@ use anchor_lang::prelude::*;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct SwapCashFloors {
-    base: u64,
-    quote: u64,
+    pub(crate) base: u64,
+    pub(crate) quote: u64,
 }
 
 impl SwapCashFloors {
-    pub(crate) fn set(&mut self, asset: MarketAsset, amount: u64) {
-        match asset {
-            MarketAsset::Base => self.base = amount,
-            MarketAsset::Quote => self.quote = amount,
-        }
-    }
-
     pub(crate) fn available(self, market: &Market) -> bool {
         self.available_amounts(
             market.base_side.reserves.cash_reserve,
@@ -163,6 +156,7 @@ impl Market {
         self.base_side.shares.mint(internal_mint_amount)?;
         self.quote_side.shares.mint(internal_mint_amount)?;
         self.scale_hlp_pricing_offsets(supply_before)?;
+        self.scale_frozen_hlp_carve_out(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
@@ -190,12 +184,13 @@ impl Market {
         mut max_base_reserve_credit: u64,
         mut max_quote_reserve_credit: u64,
     ) -> Result<AddLiquidityReceipt> {
+        self.require_no_interest_deficit()?;
         require!(
             max_base_reserve_credit > 0 && max_quote_reserve_credit > 0,
             ErrorCode::AmountZero
         );
-        // Historical unpaid income belongs to the exposed holders' income
-        // accounts. New principal cannot buy those claims through reserve units.
+        // Credited interest belongs to the holders of record and is outside
+        // curve reserves. New principal cannot buy it through reserve units.
         let base_reserve_before = self.curve_reserve(MarketAsset::Base)?;
         let quote_reserve_before = self.curve_reserve(MarketAsset::Quote)?;
         if base_reserve_before > 0 || quote_reserve_before > 0 {
@@ -337,27 +332,24 @@ impl Market {
         self.base_side.shares.burn(srlp_amount)?;
         self.quote_side.shares.burn(srlp_amount)?;
         self.scale_hlp_pricing_offsets(supply_before)?;
+        self.scale_frozen_hlp_carve_out(supply_before)?;
         self.base_side.assert_share_backing()?;
         self.quote_side.assert_share_backing()?;
 
         // The instruction checkpoints the departing holder before this burn.
-        // Once only the permanently burned minimum remains outside the two
-        // hLP vaults, discard source-specific funding dust so a later srLP
+        // Once only the permanently burned minimum remains in the ordinary
+        // srLP interest lane, discard its sub-atom carry so a later srLP
         // cohort cannot inherit a fraction left by the prior cohort.
-        let hlp_srlp_shares = self
-            .base_hlp_vault
-            .srlp_shares
-            .checked_add(self.quote_hlp_vault.srlp_shares)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        let non_hlp_srlp_supply = self
+        let ordinary_supply = self
             .base_side
             .shares
             .srlp_supply
-            .checked_sub(hlp_srlp_shares)
-            .ok_or(ErrorCode::BrokenInvariant)?;
-        if non_hlp_srlp_supply == MIN_LIQUIDITY {
-            self.base_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
-            self.quote_side.fees.hlp_funding_interest_growth_remainder_scaled = 0;
+            .saturating_sub(self.tranches.junior_reserve_shares)
+            .saturating_sub(self.base_hlp_vault.srlp_shares)
+            .saturating_sub(self.quote_hlp_vault.srlp_shares);
+        if ordinary_supply <= MIN_LIQUIDITY {
+            self.base_side.fees.interest_growth_remainder_scaled = 0;
+            self.quote_side.fees.interest_growth_remainder_scaled = 0;
         }
 
         Ok(RemoveLiquidityReceipt {

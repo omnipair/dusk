@@ -72,10 +72,7 @@ fn cmp_nav(m: &Market, debt: MarketAsset, mark: u64) -> Result<[f64; 6]> {
         let s = t.side(asset);
         let f = &s.fees;
         lpfees += cmp_value(
-            f.swap_fee_liability
-                + f.interest_liability
-                + f.unallocated_swap_fee_liability
-                + f.unallocated_interest_liability,
+            f.swap_fee_liability + u64::try_from(f.ledger.credited).unwrap() + f.unallocated_swap_fee_liability,
             asset,
             debt,
             mark,
@@ -219,9 +216,10 @@ fn cmp_v1_inventory(
     };
     // Hypothetical inventory exchange: cancel receivable, receive collateral.
     // Native ledger kernel ensures no fictional debt-token cash is introduced.
+    let inventory = t.ordinary_inventory_point_nad()?;
     t.apply_leverage_lifecycle_transition(policy, collateral, credit, a.debt, a.debt)?;
     t.apply_liquidation_position(&mut Mut::Leverage(&mut q), debt, a, seized, full)?;
-    t.finalize_amm_socialized_loss_and_observe_risk(2)?;
+    t.finalize_amm_socialized_loss_and_observe_risk(2, inventory)?;
     t.assert_market_invariants()?;
     let after = t.flash_liquidation_health(&Ref::Leverage(&q), debt, f)?;
     let improves = full || health.improves(after)?;
@@ -617,7 +615,9 @@ fn cmp_publish_fee(
     _slot: u64,
     e: HlpYieldEligibility,
 ) -> Result<()> {
-    m.side_mut(side).record_junior_liquidation_credit(fee.junior)?;
+    if fee.junior > 0 && m.side(side).fees.junior.initialized {
+        m.record_junior_liquidation_credit(side, fee.junior)?;
+    }
     m.side_mut(side).record_liquidation_protocol_credit(fee.protocol, ProtocolAuctionSplit::default())?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, e.base_hlp_srlp_shares)?;
     m.checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, e.quote_hlp_srlp_shares)?;

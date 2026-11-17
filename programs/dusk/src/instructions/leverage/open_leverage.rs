@@ -261,7 +261,7 @@ impl<'info> OpenLeverage<'info> {
             &mut ctx.accounts.market,
             current_slot,
             ctx.accounts.event_authority.to_account_info(),
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
+            &ctx.accounts.futarchy_authority,
         )?;
         let margin_credit = deposit_credit;
 
@@ -294,8 +294,6 @@ impl<'info> OpenLeverage<'info> {
             amount: debt_amount,
         };
         let prepared_swap = prepare_leverage_swap(&mut ctx.accounts.market, request, policy)?;
-
-        let interest_eligibility = prepared_swap.interest_eligibility;
         let collateral_credit = leverage_collateral_credit(
             &ctx.accounts.collateral_mint,
             prepared_swap.leverage_quote().amount_out,
@@ -353,21 +351,17 @@ impl<'info> OpenLeverage<'info> {
         }
         settle_inline_leverage_hlp(
             &mut ctx.accounts.market,
-            &ctx.accounts.futarchy_authority,
-            debt_asset,
-            &ctx.accounts.debt_mint,
-            &ctx.accounts.collateral_mint,
-            &ctx.accounts.debt_reserve_vault,
-            &ctx.accounts.collateral_reserve_vault,
-            &ctx.accounts.token_program,
             &ctx.accounts.token_2022_program,
             ctx.remaining_accounts,
             h_lp_accounts,
             receipt.base_hlp_rebalance,
             receipt.quote_hlp_rebalance,
-            interest_eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        // No borrower interest is paid here, so nothing waits on a referral.
+        ctx.accounts
+            .market
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
         // Reconcile physical reserve custody after inline settlement.
         ctx.accounts.debt_reserve_vault.reload()?;
         ctx.accounts.collateral_reserve_vault.reload()?;

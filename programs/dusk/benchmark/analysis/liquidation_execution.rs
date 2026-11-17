@@ -98,7 +98,6 @@ impl Liquidation {
 
     pub fn apply(self, market: &mut Market, borrow_position: &mut BorrowPosition) -> Result<LiquidationReceipt> {
         borrow_position.require_idle()?;
-        let unpaid_before = market.public_unpaid_interest(self.debt_asset)?;
         let debt_before = position_debt(market, borrow_position, self.debt_asset)?;
         require_gte!(debt_before, self.repay_credit as u128, ErrorCode::InsufficientDebt);
         require_gte!(
@@ -214,7 +213,7 @@ impl Liquidation {
         // Track the principal/interest split for cash-backed repayment without
         // treating socialized loss or share-rounding writeoff as received
         // interest.
-        let (interest_paid, principal_credit) = market.clear_fixed_position_principal(
+        let (interest_paid, _) = market.clear_fixed_position_principal(
             borrow_position,
             self.debt_asset,
             cash_repaid,
@@ -254,25 +253,19 @@ impl Liquidation {
             }
         }
 
-        let live_debit = debt_clearance
-            .aggregate_debt_reduction
-            .checked_sub(principal_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        market.settle_public_debt_reserves(
+        market.settle_public_debt(
             self.debt_asset,
-            unpaid_before,
+            cash_repaid,
             interest_paid,
-            live_debit,
-            principal_credit,
+            debt_clearance.aggregate_debt_reduction,
         )?;
         if junior_fee_funded > 0 {
-            market
-                .side_mut(self.debt_asset.opposite())
-                .record_junior_liquidation_credit(
-                    self.collateral_fee
-                        .unwrap_or_default()
-                        .unwind_credit(junior_fee_funded)?,
-                )?;
+            market.record_junior_liquidation_credit(
+                self.debt_asset.opposite(),
+                self.collateral_fee
+                    .unwrap_or_default()
+                    .unwind_credit(junior_fee_funded)?,
+            )?;
         }
 
         market.refresh_risk()?;

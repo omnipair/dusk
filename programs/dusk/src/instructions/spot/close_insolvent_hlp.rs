@@ -5,7 +5,7 @@ use anchor_spl::{
 };
 
 use crate::{
-    constants::{BPS_DENOMINATOR, HLP_TERMINAL_CALLER_BPS, MARKET_V2_SEED_PREFIX},
+    constants::MARKET_V2_SEED_PREFIX,
     errors::ErrorCode,
     events::HlpTerminalLiquidated,
     generate_market_seeds,
@@ -14,11 +14,10 @@ use crate::{
             require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
             validate_lp_mint, validate_owner_asset_account,
         },
-        record_hlp_interest_credit, validate_hlp_authority_pdas,
+        validate_hlp_authority_pdas,
     },
     state::{FutarchyAuthority, Market, MarketAsset},
     token::{token_burn, transfer_checked_with_remaining_accounts},
-    transitions::HlpYieldEligibility,
 };
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -39,8 +38,6 @@ pub struct CloseInsolventHlp<'info> {
     pub borrowed_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(mut)]
     pub borrowed_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-    #[account(mut)]
-    pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub caller_bounty_account: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
@@ -78,21 +75,22 @@ impl<'info> CloseInsolventHlp<'info> {
             self.borrowed_reserve_vault.key(),
             ErrorCode::InvalidVault
         );
-        require_keys_eq!(
-            borrowed_side.interest_vault,
-            self.borrowed_interest_vault.key(),
-            ErrorCode::InvalidVault
-        );
         require_keys_eq!(self.market.srlp_mint, self.srlp_mint.key(), ErrorCode::InvalidLpMintKey);
         require_keys_eq!(
             target_vault.srlp_vault,
             self.target_hlp_srlp_vault.key(),
             ErrorCode::InvalidVault
         );
-        for account in [&self.borrowed_reserve_vault, &self.borrowed_interest_vault] {
-            require_keys_eq!(account.mint, self.borrowed_mint.key(), ErrorCode::InvalidVault);
-            require_keys_eq!(account.owner, self.market.key(), ErrorCode::InvalidVault);
-        }
+        require_keys_eq!(
+            self.borrowed_reserve_vault.mint,
+            self.borrowed_mint.key(),
+            ErrorCode::InvalidVault
+        );
+        require_keys_eq!(
+            self.borrowed_reserve_vault.owner,
+            self.market.key(),
+            ErrorCode::InvalidVault
+        );
         validate_owner_asset_account(self.caller.key(), &self.borrowed_mint, &self.caller_bounty_account)?;
         require_keys_eq!(
             self.target_hlp_srlp_vault.mint,
@@ -115,7 +113,7 @@ impl<'info> CloseInsolventHlp<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
-            self.futarchy_authority.revenue_share.interest_bps,
+            &self.futarchy_authority,
         )?;
         // The ordinary `Market::update` checkpoints hLP settlement and must
         // reject an already-insolvent vault. This terminal path instead
@@ -128,11 +126,6 @@ impl<'info> CloseInsolventHlp<'info> {
     pub fn handle(ctx: Context<'_, '_, '_, 'info, Self>, args: CloseInsolventHlpArgs, current_slot: u64) -> Result<()> {
         let target_asset = MarketAsset::try_from_code(args.target_asset)?;
         let borrowed_asset = target_asset.opposite();
-        let eligibility = HlpYieldEligibility {
-            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
-        };
         let plan = ctx.accounts.market.prepare_terminal_hlp_waterfall(
             target_asset,
             current_slot,
@@ -146,6 +139,8 @@ impl<'info> CloseInsolventHlp<'info> {
             &ctx.accounts.token_2022_program,
         )?;
         let receipt = plan.consume(&mut ctx.accounts.market, args.max_socialized_loss)?;
+        // consume already rebased the curve for its loss.
+        let inventory_after_consume = ctx.accounts.market.ordinary_inventory_point_nad()?;
 
         if receipt.srlp_burn_amount > 0 {
             token_burn(
@@ -157,21 +152,9 @@ impl<'info> CloseInsolventHlp<'info> {
                 &[&generate_market_seeds!(ctx.accounts.market)[..]],
             )?;
         }
-        let caller_bounty = if receipt.interest_paid == 0 {
-            0
-        } else {
-            u64::try_from(
-                (receipt.interest_paid as u128)
-                    .checked_mul(HLP_TERMINAL_CALLER_BPS as u128)
-                    .and_then(|amount| amount.checked_div(BPS_DENOMINATOR as u128))
-                    .ok_or(ErrorCode::MarketMathOverflow)?,
-            )
-            .map_err(|_| ErrorCode::MarketMathOverflow)?
-        };
-        let interest_for_yield = receipt
-            .interest_paid
-            .checked_sub(caller_bounty)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        // The waterfall paid the bounty from pool cash and absorbed it with
+        // the terminal loss, junior first.
+        let caller_bounty = receipt.caller_bounty;
         let caller_bounty_before = ctx.accounts.caller_bounty_account.amount;
         if caller_bounty > 0 {
             transfer_checked_with_remaining_accounts(
@@ -195,39 +178,11 @@ impl<'info> CloseInsolventHlp<'info> {
             ErrorCode::SlippageExceeded
         );
 
-        let interest_before = ctx.accounts.borrowed_interest_vault.amount;
-        let mut actual_interest_credit = 0;
-        if interest_for_yield > 0 {
-            transfer_checked_with_remaining_accounts(
-                ctx.accounts.market.to_account_info(),
-                ctx.accounts.borrowed_reserve_vault.to_account_info(),
-                ctx.accounts.borrowed_interest_vault.to_account_info(),
-                ctx.accounts.borrowed_mint.to_account_info(),
-                borrowed_token_program,
-                interest_for_yield,
-                ctx.accounts.borrowed_mint.decimals,
-                &[&generate_market_seeds!(ctx.accounts.market)[..]],
-                ctx.remaining_accounts,
-            )?;
-            ctx.accounts.borrowed_interest_vault.reload()?;
-            ctx.accounts.borrowed_reserve_vault.reload()?;
-            actual_interest_credit = token_account_credit(interest_before, &ctx.accounts.borrowed_interest_vault)?;
-        }
-        let protocol_interest_revenue = ctx
-            .accounts
+        // Paid funding interest stays in reserve cash; its protocol share
+        // left cash inside the waterfall and is booked here.
+        ctx.accounts
             .market
-            .quote_interest_revenue_credit(borrowed_asset, true, actual_interest_credit)?
-            .protocol;
-        // A bounty or transfer fee can consume the entire payment. Even then
-        // clear the authenticated pending settlement budget without issuing cash.
-        record_hlp_interest_credit(
-            &mut ctx.accounts.market,
-            borrowed_asset,
-            actual_interest_credit,
-            ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-            ctx.accounts.futarchy_authority.protocol_auction_split,
-            eligibility,
-        )?;
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
         crate::instructions::accounting::emit_interest_paid(
             &ctx.accounts.market,
             borrowed_asset,
@@ -235,8 +190,7 @@ impl<'info> CloseInsolventHlp<'info> {
             None,
             crate::state::ReferralInterestQuote::with_protocol_revenue(
                 receipt.interest_paid,
-                actual_interest_credit,
-                protocol_interest_revenue,
+                receipt.protocol_paid,
                 None,
             )?,
             caller_bounty,
@@ -244,7 +198,7 @@ impl<'info> CloseInsolventHlp<'info> {
         )?;
         ctx.accounts
             .market
-            .finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
+            .finalize_amm_socialized_loss_and_observe_risk(current_slot, inventory_after_consume)?;
         // This is the terminal recovery path for an already-insolvent hLP.
         // A changed fee on either market mint can leave global health below
         // the floor; requiring that floor here would strand the debt instead
@@ -259,7 +213,7 @@ impl<'info> CloseInsolventHlp<'info> {
             target_asset: target_asset.code(),
             debt_closed: receipt.debt_closed,
             srlp_burned: receipt.srlp_burn_amount,
-            interest_paid: actual_interest_credit,
+            interest_paid: receipt.interest_paid,
             caller_bounty: caller_bounty_credit,
             socialized_loss: receipt.socialized_loss,
             interest_canceled: receipt.interest_canceled,

@@ -24,8 +24,8 @@ const provider = {
 const program = new anchor.Program(IDL, provider);
 program.account.market.fetch = async () => ({ version: MARKET_LAYOUT_VERSION,
   srlpMint: key(7),
-  baseSide: { assetMint: baseMint, interestVault: key(15), reserveVault: key(17) },
-  quoteSide: { assetMint: quoteMint, interestVault: key(16), reserveVault: key(18) },
+  baseSide: { assetMint: baseMint, reserveVault: key(17) },
+  quoteSide: { assetMint: quoteMint, reserveVault: key(18) },
   baseHlpVault: { srlpVault: key(13), hlpSupply: new BN(0), residualExposure: new BN(0) },
   quoteHlpVault: { srlpVault: key(14), hlpSupply: new BN(0), residualExposure: new BN(0) },
 });
@@ -353,7 +353,7 @@ test("referred open leverage puts the active-hLP prefix first, once", async () =
     };
     const referral = { payer: owner, referrer: key(34), market, debtMint: baseMint, accounts };
     const prefix = await write.hlpRemainingAccounts(market);
-    assert.equal(prefix.length, 9);
+    assert.equal(prefix.length, 3);
     const fixed = IDL.instructions.find((ix) => ix.name === "open_leverage").accounts.length;
     const suffix = (build) => build.actionInstruction.keys.slice(fixed);
 

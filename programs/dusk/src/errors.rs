@@ -409,10 +409,6 @@ pub enum ErrorCode {
 
     #[msg("Partial liquidation does not improve health after costs")]
     LiquidationDoesNotImproveHealth,
-    #[msg("Archive and roll the income epoch before issuing new receivables")]
-    IncomeEpochNeedsRollover,
-    #[msg("Prepare this holder's income history before changing its balance")]
-    IncomeHistoryRequired,
     #[msg("The market's configured oracle account was not supplied")]
     OracleAccountMissing,
     #[msg("Oracle account owner, identity or verification failed")]
@@ -429,4 +425,8 @@ pub enum ErrorCode {
     CurveTailShareBelowMinimum,
     #[msg("Concentrated curves require a base swap fee of at least 1 bps")]
     ConcentratedSwapFeeBelowMinimum,
+    #[msg("A first hLP deposit must borrow at least one atom of the opposite asset; see min_first_deposit_net in the hLP deposit capacity preview")]
+    HlpFirstDepositTooSmall,
+    #[msg("Market has an interest deficit: no new capital, credit or curve-priced exit")]
+    InterestDeficit,
 }

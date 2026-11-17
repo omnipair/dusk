@@ -20,7 +20,6 @@ fn concentrated_config() -> AmmConfig {
 fn market_with_liquidity(config: AmmConfig) -> Market {
     let reserve = 1_000_000 * NAD;
     Market {
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         junior_mint: Pubkey::default(),
@@ -208,6 +207,7 @@ fn frozen_hlp_terminal_close_restores_ordinary_swaps() {
     market.deposit_single_sided(MarketAsset::Base, 20_000 * NAD, 1).unwrap();
     market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
     market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+    market.recognize_interest(MarketAsset::Quote).unwrap();
     market.risk.base_price_ema_nad = NAD;
     market.risk.quote_price_ema_nad = NAD;
     market.prepare_amm_for_swap(2).unwrap();
@@ -260,6 +260,8 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     market.deposit_single_sided(MarketAsset::Quote, 20_000 * NAD, 1).unwrap();
     market.debt.quote_borrow_index_nad = 3 * NAD as u128;
     market.debt.base_borrow_index_nad = 3 * NAD as u128;
+    market.recognize_interest(MarketAsset::Base).unwrap();
+    market.recognize_interest(MarketAsset::Quote).unwrap();
     market.risk.base_price_ema_nad = NAD;
     market.risk.quote_price_ema_nad = NAD;
     market.prepare_amm_for_swap(2).unwrap();
@@ -283,6 +285,91 @@ fn closing_one_of_two_frozen_hlp_vaults_keeps_the_other_isolated() {
     assert_eq!(market.quote_hlp_vault.srlp_shares, quote_shares);
     assert_eq!(market.quote_hlp_vault.debt_shares, quote_debt);
     market.assert_market_invariants().unwrap();
+}
+
+/// A frozen vault is priced as a fixed carve-out. After the price has moved
+/// since the freeze, a pro-rata srLP add or remove must still leave the
+/// executable price unchanged, as it does without a frozen vault.
+#[test]
+fn srlp_add_and_remove_with_a_frozen_vault_keep_the_executable_price() {
+    use crate::transitions::{amm::SwapRequest, liquidity::SwapCashPolicy, LeverageSwapFeeCredit};
+
+    fn swap(market: &mut Market, asset_in: MarketAsset, reserve_credit: u64, slot: u64) {
+        let mut prepared = SwapRequest {
+            current_slot: slot,
+            current_unix_timestamp: 0,
+            asset_in,
+            reserve_credit,
+            protocol_fee_bps: 0,
+        }
+        .prepare(market)
+        .unwrap();
+        let credit = LeverageSwapFeeCredit::from_total_actual_credit(
+            &prepared.leverage_quote(),
+            prepared.quote.fee.claimable_fee_debit,
+        )
+        .unwrap();
+        prepared
+            .apply(market, SwapCashPolicy::Spot, credit, slot, 0, ProtocolAuctionSplit::default(), None)
+            .unwrap();
+    }
+    let spot = |market: &Market| market.current_concentrated_spot_price_nad().unwrap().unwrap();
+
+    for config in [AmmConfig::default(), concentrated_config()] {
+        for frozen_mask in [0_u8, 1, 3] {
+            let mut market = market_with_liquidity(config);
+            market.deposit_single_sided(MarketAsset::Base, 500_000 * NAD, 1).unwrap();
+            if frozen_mask == 3 {
+                market.deposit_single_sided(MarketAsset::Quote, 500_000 * NAD, 1).unwrap();
+            }
+            market.prepare_amm_for_swap(2).unwrap();
+            if frozen_mask != 0 {
+                market.debt.quote_borrow_index_nad = 3 * NAD as u128;
+                if frozen_mask == 3 {
+                    market.debt.base_borrow_index_nad = 3 * NAD as u128;
+                }
+                market.freeze_negative_hlp_vaults().unwrap();
+            }
+            assert_eq!(market.amm.frozen_hlp_mask, frozen_mask);
+            // Move the price after the freeze, so each frozen carve-out no
+            // longer equals the vault's pro-rata claim.
+            swap(&mut market, MarketAsset::Quote, 20_000 * NAD, 2);
+            let price = spot(&market);
+            assert!(price.abs_diff(market.amm.center_price_nad) > NAD / 200);
+            let ordinary = market.base_side.shares.srlp_supply
+                - market.base_hlp_vault.srlp_shares
+                - market.quote_hlp_vault.srlp_shares;
+
+            let mut added = market.clone();
+            added
+                .add_liquidity(
+                    added.curve_reserve(MarketAsset::Base).unwrap() * 9,
+                    added.curve_reserve(MarketAsset::Quote).unwrap() * 9,
+                )
+                .unwrap();
+            added.finalize_amm_transition_and_observe_risk(2).unwrap();
+
+            let mut removed = market.clone();
+            removed.remove_liquidity(ordinary * 9 / 10).unwrap();
+            removed.finalize_amm_transition_and_observe_risk(2).unwrap();
+
+            // Point coordinates are ~1e15 NAD units and every rescale term
+            // rounds by under one unit, far below the 1e-9 resolution of the
+            // spot price; one unit covers a floor flip of spot itself. The
+            // unscaled carve-out moved spot by 3e6 to 2e8 units here.
+            for (moved, label) in [(&added, "add 9x"), (&removed, "remove 90%")] {
+                assert!(
+                    spot(moved).abs_diff(price) <= 1,
+                    "{label}, mask {frozen_mask}: spot {} -> {}",
+                    price,
+                    spot(moved)
+                );
+                moved.assert_market_invariants().unwrap();
+            }
+            assert_eq!(added.amm.frozen_hlp_mask, frozen_mask);
+            assert_eq!(removed.amm.frozen_hlp_mask, frozen_mask);
+        }
+    }
 }
 
 #[test]
@@ -824,7 +911,7 @@ fn bounded_oracle_carry_is_not_recharged_by_repeated_materialization() {
                 let previous_point=market.ordinary_curve_point_nad()?;
                 market.side_mut(side).credit_reserve(quote.fee.amount_in_for_quote,true)?;
                 market.side_mut(side.opposite()).debit_reserve(quote.gross_amount_out,true)?;
-                plan.consume(&mut market)?;
+                plan.consume(&mut market, crate::transitions::ProtocolCash::Required)?;
                 market.checkpoint_amm_neutral_inventory_raw(2,quote.post_fee_curve_cache)?;
                 market.assert_market_invariants()?;
                 let after=market.ordinary_curve_point_nad()?;

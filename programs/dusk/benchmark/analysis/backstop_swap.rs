@@ -30,9 +30,10 @@ impl Market {
             let receipt = finalized.liquidation.ok_or(ErrorCode::BrokenInvariant)?;
             Ok((Some(finalized), receipt))
         } else {
+            let before = self.ordinary_inventory_point_nad()?;
             let receipt = settlement.apply(self, 0)?;
             if receipt.liquidation.socialized_loss > 0 {
-                self.finalize_amm_socialized_loss_and_observe_risk(current_slot)?;
+                self.finalize_amm_socialized_loss_and_observe_risk(current_slot, before)?;
             } else {
                 self.finalize_amm_transition_and_observe_risk(current_slot)?;
             }

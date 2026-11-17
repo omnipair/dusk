@@ -11,18 +11,14 @@ use crate::{
     generate_market_seeds,
     state::{FutarchyAuthority, Market, MarketAsset, YieldAccount, YieldTokenKind},
     token::{token_burn, transfer_checked_with_remaining_accounts},
-    transitions::HlpYieldEligibility,
 };
 
 use crate::instructions::accounts::{
     require_reserve_custody, require_supported_asset_mint, token_account_credit, token_program_for_mint,
-    validate_interest_accounts, validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account,
-    validate_side_vault_accounts,
+    validate_lp_mint, validate_owner_asset_account, validate_owner_lp_account, validate_side_vault_accounts,
 };
 
-use super::{
-    reconcile_live_hlp_supply, record_hlp_interest_credit, validate_hlp_authority_pdas, validate_hlp_yield_account_pda,
-};
+use super::{reconcile_live_hlp_supply, validate_hlp_authority_pdas, validate_hlp_yield_account_pda};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct WithdrawSingleSidedArgs {
@@ -53,9 +49,6 @@ pub struct WithdrawSingleSided<'info> {
     pub base_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
     #[account(mut)]
     pub quote_reserve_vault: Box<InterfaceAccount<'info, TokenAccount>>,
-
-    #[account(mut)]
-    pub borrowed_interest_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(mut)]
     pub owner_target_account: Box<InterfaceAccount<'info, TokenAccount>>,
@@ -115,18 +108,11 @@ impl<'info> WithdrawSingleSided<'info> {
             MarketAsset::Base => &self.base_mint,
             MarketAsset::Quote => &self.quote_mint,
         };
-        let borrowed_asset = target_asset.opposite();
-        let borrowed_mint = match borrowed_asset {
-            MarketAsset::Base => &self.base_mint,
-            MarketAsset::Quote => &self.quote_mint,
-        };
         require_keys_eq!(
             self.market.side(target_asset).hlp_mint,
             self.target_hlp_mint.key(),
             ErrorCode::InvalidMint
         );
-        let interest_asset = validate_interest_accounts(&self.market, borrowed_mint, &self.borrowed_interest_vault)?;
-        require!(interest_asset == borrowed_asset, ErrorCode::InvalidVault);
         validate_owner_asset_account(self.owner.key(), target_mint, &self.owner_target_account)?;
         validate_owner_lp_account(self.owner.key(), &self.target_hlp_mint, &self.owner_hlp_account)?;
         if self.target_hlp_mint.supply == 0 {
@@ -209,7 +195,7 @@ impl<'info> WithdrawSingleSided<'info> {
             &mut self.market,
             current_slot,
             self.event_authority.to_account_info(),
-            self.futarchy_authority.revenue_share.interest_bps,
+            &self.futarchy_authority,
         )?;
         self.market.update_for_liquidity_change()?;
         Ok(())
@@ -223,13 +209,8 @@ impl<'info> WithdrawSingleSided<'info> {
             .market
             .asset_for_hlp_mint(ctx.accounts.target_hlp_mint.key())?;
         let terminal_burn = ctx.accounts.market.hlp_terminally_closed(target_asset);
-        let interest_eligibility = HlpYieldEligibility {
-            srlp_supply: ctx.accounts.market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: ctx.accounts.market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: ctx.accounts.market.quote_hlp_vault.srlp_shares,
-        };
         require_eq!(
-            interest_eligibility.srlp_supply,
+            ctx.accounts.market.base_side.shares.srlp_supply,
             ctx.accounts.market.quote_side.shares.srlp_supply,
             ErrorCode::BrokenInvariant
         );
@@ -278,68 +259,25 @@ impl<'info> WithdrawSingleSided<'info> {
             .market
             .withdraw_single_sided(target_asset, args.hlp_amount)?;
         if receipt.interest_paid > 0 {
-            let interest_vault_balance_before = ctx.accounts.borrowed_interest_vault.amount;
-            let borrowed_asset = target_asset.opposite();
-            let (borrowed_reserve_vault, borrowed_mint, borrowed_decimals) = match borrowed_asset {
-                MarketAsset::Base => (
-                    ctx.accounts.base_reserve_vault.to_account_info(),
-                    ctx.accounts.base_mint.to_account_info(),
-                    ctx.accounts.base_mint.decimals,
-                ),
-                MarketAsset::Quote => (
-                    ctx.accounts.quote_reserve_vault.to_account_info(),
-                    ctx.accounts.quote_mint.to_account_info(),
-                    ctx.accounts.quote_mint.decimals,
-                ),
-            };
-            let borrowed_token_program = token_program_for_mint(
-                match borrowed_asset {
-                    MarketAsset::Base => &ctx.accounts.base_mint,
-                    MarketAsset::Quote => &ctx.accounts.quote_mint,
-                },
-                &ctx.accounts.token_program,
-                &ctx.accounts.token_2022_program,
-            )?;
-            transfer_checked_with_remaining_accounts(
-                ctx.accounts.market.to_account_info(),
-                borrowed_reserve_vault,
-                ctx.accounts.borrowed_interest_vault.to_account_info(),
-                borrowed_mint,
-                borrowed_token_program,
-                receipt.interest_paid,
-                borrowed_decimals,
-                &[&generate_market_seeds!(ctx.accounts.market)[..]],
-                ctx.remaining_accounts,
-            )?;
-            ctx.accounts.borrowed_interest_vault.reload()?;
-            let interest_vault_credit =
-                token_account_credit(interest_vault_balance_before, &ctx.accounts.borrowed_interest_vault)?;
+            // The funding interest stays in reserve cash; only its protocol
+            // share left cash inside the settlement.
             crate::instructions::accounting::emit_interest_paid(
                 &ctx.accounts.market,
-                borrowed_asset,
+                target_asset.opposite(),
                 crate::events::DebtSource::Hlp,
                 None,
                 crate::state::ReferralInterestQuote::with_protocol_revenue(
                     receipt.interest_paid,
-                    interest_vault_credit,
-                    ctx.accounts
-                        .market
-                        .quote_interest_revenue_credit(borrowed_asset, true, interest_vault_credit)?
-                        .protocol,
+                    receipt.protocol_paid,
                     None,
                 )?,
                 0,
                 ctx.accounts.event_authority.to_account_info(),
             )?;
-            record_hlp_interest_credit(
-                &mut ctx.accounts.market,
-                borrowed_asset,
-                interest_vault_credit,
-                ctx.accounts.futarchy_authority.revenue_share.interest_bps,
-                ctx.accounts.futarchy_authority.protocol_auction_split,
-                interest_eligibility,
-            )?;
         }
+        ctx.accounts
+            .market
+            .book_protocol_interest(ctx.accounts.futarchy_authority.protocol_auction_split)?;
         if receipt.hlp_supply == 0 {
             ctx.accounts.market.drain_hlp_unallocated_yield(
                 target_asset,

@@ -5,6 +5,7 @@ use crate::{
     constants::{DEFAULT_BORROW_APR_NAD, MARKET_LAYOUT_VERSION, MS_PER_YEAR, NAD, TARGET_MS_PER_SLOT},
     state::{Debt, HlpVault, MarketConfig, MarketSide, Reserves, Risk},
 };
+use spl_token_2022::extension::transfer_fee::TransferFee;
 
 fn slots_for_ms(ms: u64) -> u64 {
     ms / TARGET_MS_PER_SLOT
@@ -18,12 +19,15 @@ fn rate_input(signal_nad: Option<u128>) -> crate::math::borrow_controller::RiskR
 }
 
 fn test_market(base_cash: u64, quote_cash: u64) -> Market {
+    // Accrual credits interest to srLP holders, so every market with debt
+    // holds at least the permanently burned minimum.
     let base_side = MarketSide {
         reserves: Reserves {
             live_reserve: u128::from(base_cash),
             cash_reserve: base_cash,
             ..Reserves::default()
         },
+        shares: crate::state::ReserveShares { srlp_supply: crate::constants::MIN_LIQUIDITY },
         ..MarketSide::default()
     };
     let quote_side = MarketSide {
@@ -32,11 +36,11 @@ fn test_market(base_cash: u64, quote_cash: u64) -> Market {
             cash_reserve: quote_cash,
             ..Reserves::default()
         },
+        shares: crate::state::ReserveShares { srlp_supply: crate::constants::MIN_LIQUIDITY },
         ..MarketSide::default()
     };
     Market {
         oracle: Default::default(),
-        income: Default::default(),
         tranches: Default::default(),
         junior_exit_config: Default::default(),
         tranche_policy: Default::default(),
@@ -422,7 +426,13 @@ fn long_idle_uncapped_interest_saturates_without_corrupting_shared_debt() {
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     assert!(market.base_side.reserves.live_reserve > u64::MAX as u128);
     assert!(market.debt.fixed_base_debt().unwrap() <= u64::MAX as u128);
-    assert!(market.public_unpaid_interest(MarketAsset::Base).unwrap() <= u64::MAX as u128);
+    // The per-bucket u64 debt clip bounds each public bucket; the summed
+    // interest may exceed u64 and is credited in full.
+    assert!(market.debt.isolated_debt(MarketAsset::Base).unwrap() <= u64::MAX as u128);
+    assert_eq!(
+        market.base_side.fees.ledger.public_recognized,
+        market.public_unpaid_interest(MarketAsset::Base).unwrap()
+    );
     let saturated = market.debt.base_borrow_index_nad;
     market.accrue_interest_to_slot(slot + 1).unwrap();
     assert_eq!(market.debt.base_borrow_index_nad, saturated);
@@ -447,33 +457,34 @@ fn numeric_limit_market() -> Market {
 }
 
 #[test]
-fn saturation_books_matching_lp_and_fee_receivables_without_inventing_cash() {
+fn saturation_credits_lp_operator_and_protocol_without_inventing_cash() {
     let mut market = numeric_limit_market();
-    market.base_side.fees.junior.initialized = true;
-    market.quote_side.fees.junior.initialized = true;
     market.protocol_interest_markup_bps = 10_000;
     market.operator.interest_share_bps = 5_000;
+    let cash = market.base_side.reserves.cash_reserve;
+    let curve = market.curve_reserve(MarketAsset::Base).unwrap();
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
     accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
-    let books = market.income.get().unwrap();
-    let revenue = *books.revenue[0];
-    let unpaid_lp = books.books[0].unpaid;
-    assert_eq!(market.public_unpaid_interest(MarketAsset::Base).unwrap(), revenue.gross_unpaid as u128);
-    assert_eq!(revenue.gross_unpaid, unpaid_lp + revenue.unpaid_fees().unwrap());
-    assert!(revenue.operator_unpaid > 0 && revenue.protocol_unpaid > 0 && unpaid_lp > 0);
-    assert_eq!(revenue.operator_claimable, 0);
-    assert_eq!(market.base_side.fees.interest_vault_balance, 0);
+    let ledger = market.base_side.fees.ledger;
+    let public = market.public_unpaid_interest(MarketAsset::Base).unwrap();
+    assert_eq!(ledger.public_recognized, public);
+    // Every recognized atom is either credited to holders and the operator
+    // or the protocol's unpaid share; nothing reaches cash before payment.
+    assert_eq!(ledger.credited + ledger.protocol_unpaid, public);
+    assert!(ledger.operator_claimable > 0 && ledger.protocol_unpaid > 0);
+    assert!(ledger.credited > ledger.operator_claimable);
+    assert_eq!(market.base_side.reserves.cash_reserve, cash);
+    assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), curve);
     let index = market.debt.base_borrow_index_nad;
     accrue_side::<false>(&mut market, MarketAsset::Base, slot + 100, rate_input(Some(0))).unwrap();
     assert_eq!(market.debt.base_borrow_index_nad, index);
-    assert_eq!(*market.income.get().unwrap().revenue[0], revenue);
+    assert_eq!(market.base_side.fees.ledger, ledger);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
-fn a_full_operator_share_books_no_lp_interest_through_advance_and_repayment() {
+fn a_full_operator_share_credits_no_lp_interest_and_repayment_pays_the_protocol() {
     let mut market = numeric_limit_market();
-    market.base_side.fees.junior.initialized = true;
-    market.quote_side.fees.junior.initialized = true;
     market.protocol_interest_markup_bps = 2_000;
     market.operator.interest_share_bps = crate::state::MAX_OPERATOR_INTEREST_SHARE_BPS;
     let mut position = BorrowPosition {
@@ -484,39 +495,30 @@ fn a_full_operator_share_books_no_lp_interest_through_advance_and_repayment() {
     };
     let slot = slots_for_ms(10 * crate::constants::MS_PER_DAY);
     accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
-    let lp_book = (*market.income.get().unwrap().books[0]).clone();
-    let revenue = *market.income.get().unwrap().revenue[0];
-    assert!(revenue.gross_unpaid > 0);
-    assert_eq!(lp_book.unpaid, 0);
-    assert_eq!(revenue.unpaid_fees().unwrap(), revenue.gross_unpaid);
-    assert!(revenue.operator_unpaid > revenue.protocol_unpaid && revenue.protocol_unpaid > 0);
+    let ledger = market.base_side.fees.ledger;
+    assert!(ledger.public_recognized > 0);
+    assert_eq!(ledger.credited, ledger.operator_claimable);
+    assert!(ledger.operator_claimable > ledger.protocol_unpaid && ledger.protocol_unpaid > 0);
+    assert_eq!(market.base_side.fees.interest_growth_index_q64, 0);
 
-    // With no LP interest outstanding, an advance escrows fee revenue only.
-    let (gross, lp_credit) = market
-        .fund_public_interest(MarketAsset::Base, revenue.gross_unpaid / 2, 0)
-        .unwrap();
-    assert!(gross > 0 && gross <= revenue.gross_unpaid / 2);
-    assert_eq!(lp_credit, 0);
-    let advance = market.base_side.fees.public_interest_advance;
-    assert_eq!(advance.revenue_escrow, advance.outstanding_gross);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-
-    // Repaying releases escrowed fees and books every paid atom as fee cash.
+    // Repaying moves the protocol's pro-rata share out of cash; the operator
+    // and LP credit stays credited.
+    let cash = market.base_side.reserves.cash_reserve;
     let debt = u64::try_from(position.fixed_base_debt(&market.debt).unwrap()).unwrap();
     let pay = market.fixed_repayment_for_max(&position, MarketAsset::Base, debt / 2).unwrap();
     let receipt = market.repay(&mut position, MarketAsset::Base, pay.cash_repaid).unwrap();
     assert!(receipt.interest_paid > 0);
-    let advance = market.base_side.fees.public_interest_advance;
-    assert!(advance.repayment_credit_pending > 0);
-    assert_eq!(advance.revenue_release_pending, advance.repayment_credit_pending);
-    assert_eq!(advance.revenue_escrow, advance.outstanding_gross);
-    let income = market.income.get().unwrap();
-    assert_eq!(*income.books[0], lp_book);
-    let revenue_after = *income.revenue[0];
-    assert!(revenue_after.gross_unpaid < revenue.gross_unpaid);
-    assert_eq!(revenue_after.unpaid_fees().unwrap(), revenue_after.gross_unpaid);
-    assert_eq!(revenue_after.pending_gross, revenue.gross_unpaid - revenue_after.gross_unpaid);
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+    let expected = u64::try_from(
+        u128::from(receipt.interest_paid) * ledger.protocol_unpaid / ledger.public_recognized,
+    )
+    .unwrap();
+    assert_eq!(receipt.protocol_paid, expected);
+    let after = market.base_side.fees.ledger;
+    assert_eq!(after.protocol_pending, expected);
+    assert_eq!(after.protocol_unpaid, ledger.protocol_unpaid - u128::from(expected));
+    assert_eq!(after.credited, ledger.credited);
+    assert_eq!(market.base_side.reserves.cash_reserve, cash + pay.cash_repaid - expected);
+    market.assert_market_invariants().unwrap();
 }
 
 #[test]
@@ -579,6 +581,11 @@ fn saturation_allows_partial_repayment_then_resumes_only_future_interest() {
 #[test]
 fn saturation_allows_full_repayment_across_the_signed_u64_boundary() {
     let mut market = numeric_limit_market();
+    // Paid interest stays in reserve cash, which is a u64 token balance. Start
+    // with every atom lent so a full repayment near u64::MAX still fits.
+    let idle = market.base_side.reserves.cash_reserve;
+    market.base_side.reserves.cash_reserve = 0;
+    market.base_side.reserves.live_reserve -= u128::from(idle);
     let mut position = BorrowPosition {
         fixed_base_shares: market.debt.fixed_base_shares,
         fixed_base_principal: market.debt.fixed_base_principal,
@@ -598,42 +605,10 @@ fn saturation_allows_full_repayment_across_the_signed_u64_boundary() {
     assert_eq!(market.debt.base_borrow_index_nad, NAD as u128);
 }
 
-#[test]
-fn exhausted_income_unit_capacity_pauses_accrual_and_keeps_repayments_available() {
-    let mut market = numeric_limit_market();
-    market.base_side.fees.junior.initialized = true;
-    market.quote_side.fees.junior.initialized = true;
-    let mut position = BorrowPosition {
-        fixed_base_shares: market.debt.fixed_base_shares,
-        fixed_base_principal: market.debt.fixed_base_principal,
-        auction_debt_asset: u8::MAX,
-        ..BorrowPosition::default()
-    };
-    let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
-    let pay = market.fixed_repayment_for_max(&position, MarketAsset::Base, u64::MAX / 2).unwrap();
-    let receipt = market.repay(&mut position, MarketAsset::Base, pay.cash_repaid).unwrap();
-    market.record_receivable_income_credit(MarketAsset::Base, false, receipt.interest_paid, 0,
-        crate::state::ProtocolAuctionSplit::default(), 0).unwrap();
-    let remaining_before = market.debt.fixed_base_debt().unwrap();
-    let end = slot + slots_for_ms(crate::constants::MS_PER_DAY);
-    accrue_side::<false>(&mut market, MarketAsset::Base, end, rate_input(Some(0))).unwrap();
-    let books = market.income.get().unwrap();
-    assert!(books.books[0].units > u64::MAX - 2_000_000_000_000);
-    assert_eq!(books.books[0].unpaid, books.revenue[0].gross_unpaid);
-    assert!(market.debt.fixed_base_debt().unwrap() >= remaining_before);
-    assert!(market.debt.fixed_base_debt().unwrap() < u64::MAX as u128);
-    assert_eq!(market.debt.base_last_accrual_slot, end);
-    assert_eq!(market.debt.base_borrow_index_remainder, 0);
-    let pay = market.fixed_repayment_for_max(&position, MarketAsset::Base, u64::MAX / 4).unwrap();
-    market.repay(&mut position, MarketAsset::Base, pay.cash_repaid).unwrap();
-    market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
-}
-
 proptest::proptest! {
     #![proptest_config(proptest::test_runner::Config::with_cases(96))]
     #[test]
-    fn numerical_boundary_conserves_all_three_debt_buckets_and_frozen_fees(
+    fn numerical_boundary_conserves_all_three_debt_buckets_and_the_ledger(
         principal in 1_u64..u64::MAX / 8,
         cash in 1_u64..u64::MAX / 8,
         markup in 0_u16..=10_000,
@@ -650,23 +625,21 @@ proptest::proptest! {
         market.quote_hlp_vault.debt_principal = principal;
         market.quote_hlp_vault.base_hlp_live_reserve = principal;
         market.base_side.reserves.live_reserve = cash as u128 + 3 * principal as u128;
-        market.base_side.fees.junior.initialized = true;
-        market.quote_side.fees.junior.initialized = true;
         market.protocol_interest_markup_bps = markup;
         market.operator.interest_share_bps = operator_share;
         let curve = market.curve_reserve(MarketAsset::Base).unwrap();
         let slot = slots_for_ms(days * crate::constants::MS_PER_DAY);
         accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
         let public = market.public_unpaid_interest(MarketAsset::Base).unwrap();
-        let funding = market.hlp_funding_debt(MarketAsset::Base).unwrap() - principal as u128;
-        let income = market.income.get().unwrap();
-        proptest::prop_assert_eq!(income.books[0].unpaid as u128 + income.revenue[0].unpaid_fees().unwrap() as u128, public);
-        proptest::prop_assert_eq!(income.books[2].unpaid as u128 + income.revenue[2].unpaid_fees().unwrap() as u128, funding);
-        proptest::prop_assert!(public <= u64::MAX as u128 && funding <= u64::MAX as u128);
+        let funding = market.funding_unpaid_interest(MarketAsset::Base).unwrap();
+        let ledger = market.base_side.fees.ledger;
+        proptest::prop_assert_eq!(ledger.public_recognized, public);
+        proptest::prop_assert_eq!(ledger.funding_recognized, funding);
+        proptest::prop_assert_eq!(ledger.credited + ledger.protocol_unpaid, public + funding);
+        proptest::prop_assert!(public <= 2 * u64::MAX as u128 && funding <= u64::MAX as u128);
         proptest::prop_assert!(market.debt.fixed_base_debt().unwrap() <= u64::MAX as u128);
         proptest::prop_assert_eq!(market.curve_reserve(MarketAsset::Base).unwrap(), curve);
         proptest::prop_assert_eq!(market.debt.base_last_accrual_slot, slot);
-        proptest::prop_assert_eq!(market.base_side.fees.interest_vault_balance, 0);
         market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
     }
 }
@@ -674,14 +647,66 @@ proptest::proptest! {
 #[test]
 fn saturated_interest_does_not_block_an_otherwise_cash_backed_lp_exit() {
     let mut market = numeric_limit_market();
-    market.base_side.fees.junior.initialized = true;
-    market.quote_side.fees.junior.initialized = true;
     let slot = slots_for_ms(60 * crate::constants::MS_PER_DAY);
     accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
-    let before = (*market.income.get().unwrap().books[0]).clone();
+    let before = market.base_side.fees.ledger;
     let receipt = market.remove_liquidity(100_000_000_000).unwrap();
     assert_eq!(receipt.base_amount_out, 200_000_000_000);
     assert_eq!(receipt.quote_amount_out, 100_000_000_000);
-    assert_eq!(*market.income.get().unwrap().books[0], before);
+    assert_eq!(market.base_side.fees.ledger, before);
     market.assert_virtual_reserve_invariant(MarketAsset::Base).unwrap();
+}
+
+
+fn transfer_fee_schedule(bps: u16, maximum_fee: u64) -> (TransferFee, LeverageCollateralFee) {
+    let fee = TransferFee {
+        epoch: 0.into(),
+        maximum_fee: maximum_fee.into(),
+        transfer_fee_basis_points: bps.into(),
+    };
+    (fee, LeverageCollateralFee::new(Some(fee)))
+}
+
+/// A borrower's direct repayment pays its own transfer fee and nothing more:
+/// interest stays in reserve cash, so there is no second transfer to gross up.
+#[test]
+fn fee_token_repayment_pays_only_its_own_transfer_fee() {
+    let setup = || {
+        let mut market = numeric_limit_market();
+        market.protocol_interest_markup_bps = 2_000;
+        market.operator.interest_share_bps = 2_000;
+        let position = BorrowPosition {
+            fixed_base_shares: market.debt.fixed_base_shares,
+            fixed_base_principal: market.debt.fixed_base_principal,
+            auction_debt_asset: u8::MAX,
+            ..BorrowPosition::default()
+        };
+        let slot = slots_for_ms(10 * crate::constants::MS_PER_DAY);
+        accrue_side::<false>(&mut market, MarketAsset::Base, slot, rate_input(Some(0))).unwrap();
+        (market, position)
+    };
+    for (bps, maximum_fee) in [(0_u16, 0), (1, u64::MAX), (50, u64::MAX), (500, 11)] {
+        let (fee, schedule) = transfer_fee_schedule(bps, maximum_fee);
+        let (mut market, mut position) = setup();
+        let (mut fee_free, mut free_position) = setup();
+        let debt = u64::try_from(position.fixed_base_debt(&market.debt).unwrap()).unwrap();
+        let max_gross = debt * 2;
+        let repay_credit = market
+            .fixed_repayment_for_max(&position, MarketAsset::Base, schedule.unwind_credit(max_gross).unwrap())
+            .unwrap()
+            .cash_repaid;
+        assert_eq!(repay_credit, debt, "bps={bps}");
+        let gross = schedule.gross_for_credit(repay_credit).unwrap();
+        assert!(gross <= max_gross);
+        assert_eq!(gross - fee.calculate_fee(gross).unwrap(), repay_credit, "bps={bps}");
+        assert_eq!(gross > repay_credit, bps > 0, "bps={bps}");
+        let receipt = market.repay(&mut position, MarketAsset::Base, repay_credit).unwrap();
+        let free_receipt = fee_free.repay(&mut free_position, MarketAsset::Base, repay_credit).unwrap();
+        assert_eq!(receipt, free_receipt, "bps={bps}");
+        assert!(receipt.interest_paid > 0 && receipt.protocol_paid > 0);
+        assert_eq!(market.base_side.fees.ledger, fee_free.base_side.fees.ledger, "bps={bps}");
+        assert_eq!(market.base_side.fees.ledger.public_recognized, 0);
+        assert_eq!(market.base_side.fees.ledger.protocol_unpaid, 0);
+        market.assert_market_invariants().unwrap();
+    }
 }

@@ -167,8 +167,6 @@ async function main() {
         {pubkey:srlpMint,isWritable:true,isSigner:false},
         {pubkey:new PublicKey(market.baseHlpSrlpVault),isWritable:true,isSigner:false},
         {pubkey:new PublicKey(market.quoteHlpSrlpVault),isWritable:true,isSigner:false},
-        {pubkey:marketAccount.baseSide.interestVault,isWritable:true,isSigner:false},
-        {pubkey:marketAccount.quoteSide.interestVault,isWritable:true,isSigner:false},
         ...oracleReadAccounts(marketAccount.oracle.policy),
       ])
       .preInstructions([
@@ -227,16 +225,6 @@ async function main() {
         pubkey:
           refreshedMarket.quoteHlpVault.srlpVault ??
           deriveHlpSrlpVaultAddress(program.programId, marketAddress, quoteHlpMint, srlpMint),
-        isWritable: true,
-        isSigner: false,
-      },
-      {
-        pubkey: new PublicKey(market.baseInterestVault),
-        isWritable: true,
-        isSigner: false,
-      },
-      {
-        pubkey: new PublicKey(market.quoteInterestVault),
         isWritable: true,
         isSigner: false,
       }

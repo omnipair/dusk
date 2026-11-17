@@ -40,8 +40,8 @@ Dusk exposes the current market instruction set:
 
 - `initialize_market` (including all three LP metadata records), `update_lp_metadata`, `initialize_yield_accounts`, `initialize_lp_transfer_hook`, `set_market_reduce_only`
 - `announce_operator_change`, `execute_operator_change`, `resolve_operator_change`, `remove_market_manager`, `initialize_operator_revenue`, `claim_operator_revenue`
-- `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`, `initialize_junior`, `fund_junior_seed`, `compound_junior_seed`, `convert_tranche`, `checkpoint_income`, `roll_income_epoch`, `burn_retired_junior`
-- `set_yield_recipient`, `set_harvest_authority`, `fund_interest`, `harvest`
+- `add_liquidity`, `open_liquidity_gates`, `remove_liquidity`, `initialize_junior`, `fund_junior_seed`, `compound_junior_seed`, `convert_tranche`, `burn_retired_junior`
+- `set_yield_recipient`, `set_harvest_authority`, `harvest`
 - `swap`, `close_insolvent_hlp`
 - `preview_hlp_flash`, `begin_hlp_flash`, `settle_hlp_flash`
 - `deposit_collateral`, `withdraw_collateral`, `donate_collateral`, `withdraw_all_collateral`, `borrow`, `repay`
@@ -54,8 +54,8 @@ Dusk exposes the current market instruction set:
 - Futarchy and revenue administration: `init_futarchy_authority`, `update_futarchy_authority`, `update_protocol_revenue`, `update_revenue_recipients`, `update_protocol_auction_config`, `update_protocol_auction_recipients`, `update_protocol_auction_route`, `set_global_reduce_only`, `settle_protocol_auction`
 
 `settle_protocol_auction` requires an explicit revenue `source` in addition to
-the `fee` or `buyback` lane. `swap` sources sell from reserve-vault custody;
-`interest` sources sell from the side-specific interest vault. Settlement
+the `fee` or `buyback` lane. Both `swap` and `interest` sources sell from
+reserve-vault custody. Settlement books pending protocol interest first and
 debits only the liability bucket selected by that lane/source pair.
 
 Protocol-auction governance is intentionally retroactive for unsettled
@@ -129,7 +129,7 @@ There is no fixed 1:1 protected-principal LP or separate public fee-eligibility 
 
 Those buckets belong to the holders of record until a recenter deploys them, so new ownership is priced including them. `add_liquidity` takes reserve credits for the curve reserves alone and mints shares valued against reserves plus buckets at the executable price. An hLP entry pays into the bucket the slice its vault's new srLP will claim: `deposit × bucket / (target reserve + bucket)`, in target units, because its backing buys only the target side. An entrant ahead of a deployment therefore recovers what it paid and no more. Before `add_liquidity`, `remove_liquidity`, `deposit_single_sided` and `withdraw_single_sided` change ownership, they apply a due, funded recenter through the one-per-slot controller path swaps use. A deployable bucket then reaches the holders who earned it and the entrant pays no premium, and a failed attempt schedules the target for a later slot, so no later operation in that slot deploys a bucket an entrant did not pay for.
 
-A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder becomes a non-compounding swap-fee liability held in reserve-vault custody outside executable `cash_reserve`; interest liabilities stay in the side-specific interest vault. Public-borrow interest uses the all-srLP Q64 lane and public carry. hLP funding interest publishes into ordinary srLP's existing interest-growth index using the operation-frozen total-srLP-minus-both-hLP denominator and a dedicated source carry. Both hLP checkpoints advance across that delta with zero eligible shares, and the source carry is cleared when only `MIN_LIQUIDITY` remains outside the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary srLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
+A governed share of the LP-owned base fee and non-retained dynamic surcharge may compound into ordinary reserve principal. The remainder becomes a non-compounding swap-fee liability held in reserve-vault custody outside executable `cash_reserve`. Borrower interest is credited to holders at accrual through the side's interest ledger and per-lane Q64 indexes, and claims are paid from reserve cash as it allows (see `docs/LP_INTEREST_ACCOUNTING.md`). Senior public interest is split pro rata across ordinary srLP and the two hLP vaults' srLP; hLP funding interest credits ordinary srLP and junior only, with both vaults' srLP excluded from the denominator. The ordinary lane's sub-atom carry is cleared when only `MIN_LIQUIDITY` remains outside junior and the hLP vaults. While recenter protection is being funded, retained dynamic surcharge accumulates in side-specific, non-quoteable protected reserves. A funded recenter deploys those atoms once; ordinary srLP withdrawals cannot claim them. `YieldAccount` stores its LP mint, owner checkpoints, Q64 remainders, accrued revenue, and an optional external revenue recipient for treasury or protocol-owned liquidity flows.
 
 Token-2022 does not invoke transfer hooks for arbitrary `Burn`. An untracked
 direct srLP burn is therefore an intentional, irreversible donation: Dusk's
@@ -237,15 +237,15 @@ Referrals are permissioned. `configure_referral_partner` lets the Futarchy autho
 
 An active partner may be bound when a borrow debt side is first opened or when `open_leverage` creates a position. Dusk snapshots `min(partner.interest_share_bps, max_referral_interest_share_bps)` into the position at binding. The partner and share are immutable while that debt exists: later borrowing and leverage increases retain them, full repayment or closure clears them, and existing unbound debt cannot be retroactively referred. Deactivation blocks new bindings only and does not change existing referral terms, debt, liquidation terms, or claimable revenue.
 
-Referral adds no fee or debt to the user. On each interest realization, Dusk takes a share only from the DAO's configured interest revenue:
+Referral adds no fee or debt to the user. On each interest payment, Dusk takes a share only from the protocol's paid share of that payment:
 
 ```text
-protocol_interest_revenue = floor(actual_interest_vault_credit * protocol_interest_bps / 10_000)
+protocol_interest_revenue = floor(interest_paid * protocol_unpaid / recognized_interest)
 bound_referral_share      = min(partner.interest_share_bps, max_referral_interest_share_bps) at binding
 referral_accrual          = floor(protocol_interest_revenue * bound_referral_share / 10_000)
 ```
 
-The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market interest vault. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and admitted Token-2022 assets, including transfer fees.
+The runtime cap is governed through `update_protocol_revenue` and applies when a new binding is admitted; later cap or partner changes do not reprice existing debt. `ReferralAccrual` records the claimable liability for one partner, market, and debt mint while the backing tokens remain in the market reserve vault outside cash. `claim_referral_interest` pays the partner's current recipient. Realization and claims support legacy SPL Token and admitted Token-2022 assets, including transfer fees.
 
 ## Swaps And Rebalancing
 
@@ -260,7 +260,7 @@ bounds decide whether the resulting market quote is acceptable.
 
 One-times `peak_amplification` with zero widths is exact CPMM. Concentrated markets expose three product controls: peak amplification, core half-width, and fade width. Dusk derives a nonzero full-range CPMM tail plus a nested core and shoulder from those values. Quotes use at most five closed-form segments and four precomputed boundary crossings. Fees, EMA half-life, adjustment threshold, and recenter cadence remain separate controller settings. A trade is hedged and committed at its quoted endpoint before its observation can schedule a later, protected center move. Dusk never consults an external oracle.
 
-hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. A live-basis srLP burn still realizes accrued-but-unpaid interest, and positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with a caller-supplied socialized-loss bound.
+hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and funding debt algebraically so each vault's opposite-asset claim equals its debt to the canonical atom. The quote therefore prices the hedge through ordinary reserves; hLP leverage is not advertised as free trader-visible depth. There is no finite-difference, Jacobian, or Broyden solve in the swap path. Positive funding transitions remain cash-capped. This is admission-only and never reserves cash from ordinary exits, repayment, liquidation, or deleveraging. Terminal exhausted-hLP recovery is handled separately by `close_insolvent_hlp` with a caller-supplied socialized-loss bound.
 
 ## PDA Map
 
@@ -269,7 +269,6 @@ hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and fund
 | `Market` | `market_v2`, `base_mint`, `quote_mint`, `params_hash` | `deriveMarketAddress` |
 | Reserve vault | `market_reserve`, `market`, `asset_mint` | `deriveMarketReserveVaultAddress` |
 | Collateral vault | `market_collateral`, `market`, `asset_mint` | `deriveMarketCollateralVaultAddress` |
-| Interest vault | `market_interest`, `market`, `asset_mint` | `deriveMarketInterestVaultAddress` |
 | Borrow position | `borrow_position_v2`, `market`, `position_id` | `deriveBorrowPositionAddress` |
 | Referral partner | `referral_partner`, `referrer` | `deriveReferralPartnerAddress` |
 | Referral accrual | `referral_accrual`, `referral_partner`, `market`, `asset_mint` | `deriveReferralAccrualAddress` |
@@ -285,7 +284,7 @@ hLP checkpointing computes endpoint NAV and reconstructs srLP ownership and fund
 
 srLP and hLP mints are supplied to `initialize_market`. The two asset mints and all three LP mints must be pairwise distinct, and each LP mint is validated by mint authority, decimals, Token-2022 owner, immutable Dusk transfer hook, fee-free extension rules, no freeze authority, vanity suffix, and zero supply at market creation. All three LP metadata records are created in that transaction; clients prepare an address lookup table first to fit the account list. The permissionless, idempotent `initialize_yield_accounts` creates both asset-stream accounts for one owner and LP mint; `initialize_lp_transfer_hook` creates and validates the canonical Token-2022 extra-account-meta PDA on-chain without a seeded client fixture. The list has nine entries: the market, both asset mints, the four source and destination yield accounts, then the event authority and the Dusk program so the hook can publish `LpTransferred`. A mint initialized with the earlier seven-entry list keeps it: re-initialization accepts that layout unchanged, and its transfers publish no receipt.
 
-Referral accruals are market-specific liabilities. Their backing remains in the corresponding market interest vault until the referrer claims to the partner's current recipient.
+Referral accruals are market-specific liabilities. Their backing remains in the corresponding market reserve vault, outside cash, until the referrer claims to the partner's current recipient.
 
 ## Event Surface
 
@@ -362,8 +361,8 @@ different.
 
 - srLP supply is backed by paired base/quote principal accounting.
 - No operation mints srLP without corresponding reserve value.
-- srLP principal reserves exclude reserve-custodied swap-fee liabilities, protected recenter reserves, and interest-vault balances. Retained surcharge becomes srLP principal only in the center move it funds.
-- A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve`; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Interest liabilities must be backed by the interest vault.
+- srLP principal reserves (`curve_reserve`) exclude reserve-custodied swap-fee liabilities, protected recenter reserves, credited interest and the protocol's unpaid interest share. Retained surcharge becomes srLP principal only in the center move it funds.
+- A physical reserve vault must contain at least executable `cash_reserve + swap_fee_custody_balance + base_hlp_backing_inventory + quote_hlp_backing_inventory + protected_recenter_reserve` plus the protocol's booked and pending interest liabilities; protocol transitions conserve that accounted total exactly, while unsolicited token donations are tolerated but remain non-executable. Credited interest is paid from `cash_reserve` as it allows.
 - Base fees and lending interest never fund concentration recentering.
 - A normal trade checkpoints the current curve as economically neutral; retained dynamic surcharge is the only swap path that creates protected recentering budget.
 - Recenter and parameter-update endpoints are admitted only when their curve-depth-per-share impairment is funded.
@@ -463,4 +462,9 @@ authority can change the rate. Borrow capacity uses the collateral expected to
 reach reserves on unwind at the current fee; liquidation measures the actual
 reserve credit. Auction payment remains excluded for transfer-fee mints.
 LP receipt mints keep a separate, narrower policy: only `MetadataPointer`, `TokenMetadata`,
-and the mandatory immutable Dusk `TransferHook` are allowed.
+and the mandatory immutable Dusk `TransferHook` are allowed. A `MetadataPointer` must
+leave its authority unset or set to the market, and point nowhere or at the mint
+itself. A `TokenMetadata` extension must leave its update authority unset or set to
+the market, so no outside key can rename a receipt after the market issues it.
+The SDK's LP mint builders add only the transfer hook; display metadata lives in
+the Metaplex account the program creates with the market as update authority.

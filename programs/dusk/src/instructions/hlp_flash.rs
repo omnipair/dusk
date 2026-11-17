@@ -12,7 +12,7 @@ use crate::{
     },
     state::*,
     token::{create_token_account, transfer_checked_with_remaining_accounts},
-    transitions::{liquidity::HlpFlashQuote, HlpYieldEligibility},
+    transitions::liquidity::HlpFlashQuote,
 };
 use anchor_lang::{
     prelude::*,
@@ -181,7 +181,7 @@ impl<'info> BeginHlpFlash<'info> {
             &mut a.market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
-            a.futarchy_authority.revenue_share.interest_bps,
+            &a.futarchy_authority,
         )?;
         a.market.advance_amm_clock(clock.slot)?;
         let quote = a.market.quote_hlp_flash_recovery(
@@ -344,19 +344,10 @@ impl<'info> SettleHlpFlash<'info> {
             q.reserve_credit,
             ErrorCode::BrokenInvariant
         );
-        let eligibility = HlpYieldEligibility {
-            srlp_supply: a.market.base_side.shares.srlp_supply,
-            base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
-            quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
-        };
         let layout = HlpSwapAccountLayout::try_from((&**a.market, ctx.remaining_accounts))?;
         let terminal = if q.full {
-            a.market.settle_terminal_hlp_flash(
-                q,
-                leverage_collateral_fee(&a.borrowed_mint, clock.epoch)?,
-                session.max_socialized_loss,
-                clock.slot,
-            )?
+            a.market
+                .settle_terminal_hlp_flash(q, session.max_socialized_loss, clock.slot)?
         } else {
             let (base, quote) = a.market.settle_hlp_flash_recovery(q, clock.slot)?;
             crate::transitions::liquidity::HlpFlashTerminalSettlement {
@@ -366,47 +357,17 @@ impl<'info> SettleHlpFlash<'info> {
             }
         };
         let (base, quote) = (terminal.base, terminal.quote);
-        if terminal.surplus_debit > 0 {
-            let index = if target == MarketAsset::Base { 4 } else { 3 };
-            let interest = &ctx.remaining_accounts[index];
-            let before = crate::instructions::accounts::token_account_info_amount(interest)?;
-            transfer_checked_with_remaining_accounts(
-                a.market.to_account_info(),
-                a.borrowed_reserve.to_account_info(),
-                interest.clone(),
-                a.borrowed_mint.to_account_info(),
-                a.borrowed_token_program.to_account_info(),
-                terminal.surplus_debit,
-                a.borrowed_mint.decimals,
-                &[&generate_market_seeds!(a.market)[..]],
-                layout.hook_accounts(ctx.remaining_accounts),
-            )?;
-            require_eq!(
-                crate::instructions::accounts::token_account_info_credit(before, interest)?,
-                terminal.surplus_credit,
-                ErrorCode::BrokenInvariant
-            );
-        }
-        let target_accounts = (a.target_mint.to_account_info(), a.target_reserve.to_account_info());
-        let borrowed_accounts = (a.borrowed_mint.to_account_info(), a.borrowed_reserve.to_account_info());
-        let assets = if target == MarketAsset::Base {
-            [target_accounts, borrowed_accounts]
-        } else {
-            [borrowed_accounts, target_accounts]
-        };
         settle_inline_hlp_accounts(
             &mut a.market,
-            &a.futarchy_authority,
-            assets,
-            &a.token_program,
             &a.token_2022_program,
             ctx.remaining_accounts,
             layout,
             base,
             quote,
-            eligibility,
             ctx.accounts.event_authority.to_account_info(),
         )?;
+        a.market
+            .book_protocol_interest(a.futarchy_authority.protocol_auction_split)?;
         // Return the whole balance. Tokens that reached the vault outside a
         // session never count as payment and have no other way out.
         ctx.accounts.repayment_vault.reload()?;
@@ -439,7 +400,7 @@ impl<'info> SettleHlpFlash<'info> {
                 quote_hlp_srlp_burned: quote.srlp_burn_amount,
                 funding_interest_paid: [base.interest_paid, quote.interest_paid],
                 loss: terminal.loss,
-                surplus_credit: terminal.surplus_credit,
+                surplus_credit: terminal.surplus,
             },
             ctx.accounts.event_authority.to_account_info(),
         )?;

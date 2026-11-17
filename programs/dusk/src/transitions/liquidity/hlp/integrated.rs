@@ -1,9 +1,10 @@
 //! Integrated curve and opposite-asset-neutral hLP settlement.
 //!
-//! Cash flow and full-value ownership have separate coordinates when public
-//! interest is unpaid. With no such hLP receivable, quoting stays analytic.
-//! Otherwise, a bounded, certified search prices the actual reconstructed
-//! endpoint so updating ownership cannot reset the curve between two trades.
+//! Cash flow and full-value ownership have separate coordinates while hLP
+//! funding is carried or a vault is frozen. Otherwise quoting stays analytic;
+//! in those cases a bounded, certified search prices the actual
+//! reconstructed endpoint so updating ownership cannot reset the curve
+//! between two trades.
 
 use anchor_lang::prelude::*;
 
@@ -48,20 +49,10 @@ pub(crate) struct IntegratedCurveState {
     /// safely pay it from reserve cash. It is not executable AMM principal.
     pub base_hlp_quote_carry: u64,
     pub quote_hlp_base_carry: u64,
-    // Book ownership includes accrued public interest; the trading coordinates
-    // above do not. Offsets are frozen for one quote, so trader cash moves both
-    // ledgers equally without inserting an unpaid receivable into the curve.
+    // Book ownership translated from the trading coordinates above. Offsets
+    // are frozen for one quote, so trader cash moves both ledgers equally.
     pub ordinary_base_book_offset: i128,
     pub ordinary_quote_book_offset: i128,
-    pub base_unpaid_interest: u128,
-    pub quote_unpaid_interest: u128,
-    /// With tranche receivables, equities above are funded target claims.
-    /// These independently owned coupons restore each vault's full NAV.
-    pub receivable_hedge: bool,
-    pub hlp_unpaid: [[u128; 2]; 2],
-    /// [whole units, owned whole units, gross value] of target coupons bought
-    /// by the reserve to settle a funding gap exceeding funded target equity.
-    pub hlp_capitalized: [[u64; 3]; 2],
     /// Compounded revenue changes junior common units, never senior wallet units.
     pub junior_compound: Option<(u64, u64, u8, u16)>,
     /// Rebuild income remains seed-only custody until the wiped cohort is archived.
@@ -148,44 +139,21 @@ impl IntegratedCurveState {
 
     pub(crate) fn uses_book_hedge(self) -> bool {
         self.frozen_hlp_mask != 0
-            || self.hlp_unpaid.iter().flatten().any(|amount| *amount != 0)
             || ((self.base_hlp_equity > 0 || self.quote_hlp_equity > 0)
                 && (self.ordinary_base_book_offset != 0 || self.ordinary_quote_book_offset != 0))
     }
 
     // Reconstruct the curve coordinates that the completed full-value hedge
-    // will actually expose. This is separate from the cash-flow coordinates:
-    // changing ownership also changes the fraction of excluded receivables.
+    // will actually expose. This is separate from the cash-flow coordinates.
     #[inline(never)]
     pub(crate) fn reconstructed_curve_point(self) -> Result<Option<ConcentratedCurvePoint>> {
         let endpoint = reconstruct_hlp_endpoint(self)?;
-        let base_live = endpoint
-            .total_base
-            .checked_add(self.base_unpaid_interest)
-            .ok_or(ErrorCode::ReserveOverflow)?;
-        let quote_live = endpoint
-            .total_quote
-            .checked_add(self.quote_unpaid_interest)
-            .ok_or(ErrorCode::ReserveOverflow)?;
         if endpoint.total_base == 0 || endpoint.total_quote == 0 {
             return Ok(None);
         }
-        let (base_backing, quote_backing) = self.backing_equities()?;
-        let (base_claim, base_opposite, quote_claim, quote_opposite) = if self.receivable_hedge {
-            (
-                base_backing,
-                mul_div_u128(base_backing, endpoint.total_quote, endpoint.total_base)?,
-                quote_backing,
-                mul_div_u128(quote_backing, endpoint.total_base, endpoint.total_quote)?,
-            )
-        } else {
-            (
-                mul_div_u128(base_backing, endpoint.total_base, base_live)?,
-                mul_div_u128(base_backing, endpoint.total_quote, base_live)?,
-                mul_div_u128(quote_backing, endpoint.total_quote, quote_live)?,
-                mul_div_u128(quote_backing, endpoint.total_base, quote_live)?,
-            )
-        };
+        let (base_claim, quote_claim) = self.backing_equities()?;
+        let base_opposite = mul_div_u128(base_claim, endpoint.total_quote, endpoint.total_base)?;
+        let quote_opposite = mul_div_u128(quote_claim, endpoint.total_base, endpoint.total_quote)?;
         let signed = |v: u128| i128::try_from(v).map_err(|_| ErrorCode::MarketMathOverflow);
         let base_quote_backing = endpoint
             .base_hlp_quote_debt
@@ -411,9 +379,7 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
     let (base_backing, quote_backing) = state.backing_equities()?;
     require!(base > 0 && quote > 0, ErrorCode::InsufficientLiquidity);
     if state.frozen_hlp_mask & 2 == 0 {
-        state.quote_hlp_base_debt = mul_div_u128(quote_backing, base, quote)?
-            .checked_add(state.hlp_unpaid[1][0])
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        state.quote_hlp_base_debt = mul_div_u128(quote_backing, base, quote)?;
         if state.quote_hlp_base_carry > 0 {
             state.quote_hlp_base_debt = state
                 .quote_hlp_base_debt
@@ -426,9 +392,7 @@ pub(crate) fn reconstruct_hlp_endpoint(mut state: IntegratedCurveState) -> Resul
         }
     }
     if state.frozen_hlp_mask & 1 == 0 {
-        state.base_hlp_quote_debt = mul_div_u128(base_backing, quote, base)?
-            .checked_add(state.hlp_unpaid[0][1])
-            .ok_or(ErrorCode::MarketMathOverflow)?;
+        state.base_hlp_quote_debt = mul_div_u128(base_backing, quote, base)?;
         if state.base_hlp_quote_carry > 0 {
             state.base_hlp_quote_debt = state
                 .base_hlp_quote_debt
@@ -599,12 +563,10 @@ pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<I
     let total_base = base
         .checked_add(base_backing)
         .and_then(|value| value.checked_add(state.quote_hlp_base_debt))
-        .and_then(|value| value.checked_sub(state.base_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     let total_quote = quote
         .checked_add(quote_backing)
         .and_then(|value| value.checked_add(state.base_hlp_quote_debt))
-        .and_then(|value| value.checked_sub(state.quote_unpaid_interest))
         .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(IntegratedHlpEndpoint {
         total_base,
@@ -615,8 +577,8 @@ pub(crate) fn materialized_hlp_endpoint(state: IntegratedCurveState) -> Result<I
 }
 
 /// Quotes exact trader cash flow and the matching hLP ownership endpoint.
-/// Public receivables stay outside pricing principal; an active full-value
-/// hedge must nevertheless use its reconstructed endpoint in the invariant.
+/// An active full-value hedge uses its reconstructed endpoint in the
+/// invariant.
 /// Retained fees do not feed back into the trade that generated them.
 #[inline(never)]
 pub(crate) fn quote_integrated_exact_in(
@@ -636,11 +598,7 @@ pub(crate) fn quote_integrated_exact_in(
         IntegratedSwapDirection::QuoteToBase => ConcentratedCurveDirection::QuoteToBase,
     };
     if state.uses_book_hedge()
-        && (state.base_unpaid_interest > 0
-            || state.quote_unpaid_interest > 0
-            || state.base_hlp_quote_carry > 0
-            || state.quote_hlp_base_carry > 0
-            || state.frozen_hlp_mask != 0)
+        && (state.base_hlp_quote_carry > 0 || state.quote_hlp_base_carry > 0 || state.frozen_hlp_mask != 0)
     {
         let start = state
             .reconstructed_curve_point()?

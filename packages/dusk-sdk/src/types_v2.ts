@@ -159,10 +159,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "debtInterestVault",
-          "writable": true
-        },
-        {
           "name": "ownerDebtAccount",
           "writable": true
         },
@@ -613,10 +609,6 @@ export type Dusk = {
             },
             {
               "name": "reserveVault",
-              "writable": true
-            },
-            {
-              "name": "interestVault",
               "writable": true
             },
             {
@@ -1484,77 +1476,6 @@ export type Dusk = {
       ]
     },
     {
-      "name": "checkpointIncome",
-      "discriminator": [
-        48,
-        103,
-        250,
-        65,
-        201,
-        100,
-        178,
-        237
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  118,
-                  50
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market.base_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.quote_side.asset_mint",
-                "account": "market"
-              },
-              {
-                "kind": "account",
-                "path": "market.params_hash",
-                "account": "market"
-              }
-            ]
-          }
-        },
-        {
-          "name": "lpMint"
-        },
-        {
-          "name": "ownerLp"
-        },
-        {
-          "name": "yieldAccount",
-          "writable": true
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "checkpointIncomeArgs"
-            }
-          }
-        }
-      ]
-    },
-    {
       "name": "claimOperatorRevenue",
       "docs": [
         "Permissionlessly pay earned interest fees to the immutable recipient ATA."
@@ -1619,7 +1540,7 @@ export type Dusk = {
           "name": "assetMint"
         },
         {
-          "name": "interestVault",
+          "name": "reserveVault",
           "writable": true
         },
         {
@@ -1810,7 +1731,7 @@ export type Dusk = {
           }
         },
         {
-          "name": "interestVault",
+          "name": "reserveVault",
           "writable": true
         },
         {
@@ -1867,8 +1788,10 @@ export type Dusk = {
         "cannot cover funding debt. Native recovery uses EMA price, smoothed depth,",
         "concentration and configured fees. Recovery protects principal first;",
         "junior absorbs principal loss before senior; unpaid interest is canceled.",
-        "Realized funding interest is cash-limited and funds the bounded caller",
-        "reward. Existing funded holder claims remain claimable after cleanup."
+        "Interest the vault held while frozen counts as recovery. The bounded",
+        "caller reward and the protocol share of the funding paid take only what",
+        "borrowed-asset cash allows. Existing funded holder claims remain",
+        "claimable after cleanup."
       ],
       "discriminator": [
         158,
@@ -1898,10 +1821,6 @@ export type Dusk = {
         },
         {
           "name": "borrowedReserveVault",
-          "writable": true
-        },
-        {
-          "name": "borrowedInterestVault",
           "writable": true
         },
         {
@@ -2056,10 +1975,6 @@ export type Dusk = {
         },
         {
           "name": "collateralReserveVault",
-          "writable": true
-        },
-        {
-          "name": "debtInterestVault",
           "writable": true
         },
         {
@@ -3098,10 +3013,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "debtInterestVault",
-          "writable": true
-        },
-        {
           "name": "ownerDebtAccount",
           "writable": true
         },
@@ -3303,10 +3214,6 @@ export type Dusk = {
         },
         {
           "name": "collateralReserveVault",
-          "writable": true
-        },
-        {
-          "name": "debtInterestVault",
           "writable": true
         },
         {
@@ -4049,10 +3956,6 @@ export type Dusk = {
               "writable": true
             },
             {
-              "name": "interestVault",
-              "writable": true
-            },
-            {
               "name": "buyerCollateralAccount",
               "writable": true
             },
@@ -4337,113 +4240,6 @@ export type Dusk = {
       "args": []
     },
     {
-      "name": "fundInterest",
-      "docs": [
-        "Fund accrued public LP interest from available cash, settle both hLP",
-        "funding gaps from their new income, and publish remaining holder yield."
-      ],
-      "discriminator": [
-        108,
-        148,
-        82,
-        224,
-        231,
-        52,
-        86,
-        59
-      ],
-      "accounts": [
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "futarchyAuthority"
-        },
-        {
-          "name": "caller",
-          "signer": true
-        },
-        {
-          "name": "baseMint"
-        },
-        {
-          "name": "quoteMint"
-        },
-        {
-          "name": "baseReserveVault",
-          "writable": true
-        },
-        {
-          "name": "quoteReserveVault",
-          "writable": true
-        },
-        {
-          "name": "baseInterestVault",
-          "writable": true
-        },
-        {
-          "name": "quoteInterestVault",
-          "writable": true
-        },
-        {
-          "name": "tokenProgram",
-          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        },
-        {
-          "name": "token2022Program",
-          "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        },
-        {
-          "name": "eventAuthority",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  95,
-                  95,
-                  101,
-                  118,
-                  101,
-                  110,
-                  116,
-                  95,
-                  97,
-                  117,
-                  116,
-                  104,
-                  111,
-                  114,
-                  105,
-                  116,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "program"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "fundInterestArgs"
-            }
-          }
-        }
-      ],
-      "returns": {
-        "defined": {
-          "name": "fundInterestReceipt"
-        }
-      }
-    },
-    {
       "name": "fundJuniorSeed",
       "discriminator": [
         245,
@@ -4497,12 +4293,7 @@ export type Dusk = {
           "name": "assetMint"
         },
         {
-          "name": "reserveVault",
-          "writable": true
-        },
-        {
-          "name": "interestVault",
-          "writable": true
+          "name": "reserveVault"
         },
         {
           "name": "tokenProgram",
@@ -4653,10 +4444,6 @@ export type Dusk = {
         },
         {
           "name": "reserveVault",
-          "writable": true
-        },
-        {
-          "name": "interestVault",
           "writable": true
         },
         {
@@ -5848,78 +5635,6 @@ export type Dusk = {
                   114,
                   97,
                   108
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "quoteMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "baseInterestVault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  105,
-                  110,
-                  116,
-                  101,
-                  114,
-                  101,
-                  115,
-                  116
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "market"
-              },
-              {
-                "kind": "account",
-                "path": "baseMint"
-              }
-            ]
-          }
-        },
-        {
-          "name": "quoteInterestVault",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  109,
-                  97,
-                  114,
-                  107,
-                  101,
-                  116,
-                  95,
-                  105,
-                  110,
-                  116,
-                  101,
-                  114,
-                  101,
-                  115,
-                  116
                 ]
               },
               {
@@ -8086,10 +7801,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "interestVault",
-          "writable": true
-        },
-        {
           "name": "ownerDebtAccount",
           "writable": true
         },
@@ -8349,10 +8060,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "debtInterestVault",
-          "writable": true
-        },
-        {
           "name": "ownerDebtAccount",
           "writable": true
         },
@@ -8567,48 +8274,6 @@ export type Dusk = {
         {
           "name": "cancel",
           "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "rollIncomeEpoch",
-      "discriminator": [
-        4,
-        217,
-        228,
-        135,
-        97,
-        80,
-        174,
-        100
-      ],
-      "accounts": [
-        {
-          "name": "payer",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "market",
-          "writable": true
-        },
-        {
-          "name": "incomeEpoch",
-          "writable": true
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "args",
-          "type": {
-            "defined": {
-              "name": "rollIncomeEpochArgs"
-            }
-          }
         }
       ]
     },
@@ -9387,10 +9052,6 @@ export type Dusk = {
             },
             {
               "name": "reserveVault",
-              "writable": true
-            },
-            {
-              "name": "interestVault",
               "writable": true
             },
             {
@@ -11341,10 +11002,6 @@ export type Dusk = {
           "writable": true
         },
         {
-          "name": "borrowedInterestVault",
-          "writable": true
-        },
-        {
           "name": "ownerTargetAccount",
           "writable": true
         },
@@ -11502,19 +11159,6 @@ export type Dusk = {
         116,
         166,
         126
-      ]
-    },
-    {
-      "name": "incomeEpoch",
-      "discriminator": [
-        180,
-        248,
-        84,
-        87,
-        99,
-        16,
-        62,
-        246
       ]
     },
     {
@@ -11816,19 +11460,6 @@ export type Dusk = {
         119,
         141,
         71
-      ]
-    },
-    {
-      "name": "hlpInterestAllocated",
-      "discriminator": [
-        12,
-        174,
-        16,
-        115,
-        243,
-        133,
-        131,
-        49
       ]
     },
     {
@@ -12284,19 +11915,6 @@ export type Dusk = {
         43,
         200,
         39
-      ]
-    },
-    {
-      "name": "publicInterestFunded",
-      "discriminator": [
-        34,
-        55,
-        82,
-        224,
-        42,
-        7,
-        154,
-        156
       ]
     },
     {
@@ -13141,53 +12759,53 @@ export type Dusk = {
     },
     {
       "code": 6139,
-      "name": "incomeEpochNeedsRollover",
-      "msg": "Archive and roll the income epoch before issuing new receivables"
-    },
-    {
-      "code": 6140,
-      "name": "incomeHistoryRequired",
-      "msg": "Prepare this holder's income history before changing its balance"
-    },
-    {
-      "code": 6141,
       "name": "oracleAccountMissing",
       "msg": "The market's configured oracle account was not supplied"
     },
     {
-      "code": 6142,
+      "code": 6140,
       "name": "oracleAuthenticationFailed",
       "msg": "Oracle account owner, identity or verification failed"
     },
     {
-      "code": 6143,
+      "code": 6141,
       "name": "oracleInvalidObservation",
       "msg": "Oracle report is invalid, future-dated, halted or too uncertain"
     },
     {
-      "code": 6144,
+      "code": 6142,
       "name": "oracleStale",
       "msg": "Oracle source observation is stale"
     },
     {
-      "code": 6145,
+      "code": 6143,
       "name": "oracleReplay",
       "msg": "Oracle sequence or source observation regressed"
     },
     {
-      "code": 6146,
+      "code": 6144,
       "name": "launchSettingsImmutable",
       "msg": "Launch-only settings are immutable after the market starts"
     },
     {
-      "code": 6147,
+      "code": 6145,
       "name": "curveTailShareBelowMinimum",
       "msg": "Concentrated curve tails must hold at least 0.01% of liquidity; lower the peak amplification or narrow the core or fade"
     },
     {
-      "code": 6148,
+      "code": 6146,
       "name": "concentratedSwapFeeBelowMinimum",
       "msg": "Concentrated curves require a base swap fee of at least 1 bps"
+    },
+    {
+      "code": 6147,
+      "name": "hlpFirstDepositTooSmall",
+      "msg": "A first hLP deposit must borrow at least one atom of the opposite asset; see min_first_deposit_net in the hLP deposit capacity preview"
+    },
+    {
+      "code": 6148,
+      "name": "interestDeficit",
+      "msg": "Market has an interest deficit: no new capital, credit or curve-priced exit"
     }
   ],
   "types": [
@@ -13935,6 +13553,27 @@ export type Dusk = {
           {
             "name": "hlpInterest",
             "type": "u128"
+          },
+          {
+            "name": "protocolCredit",
+            "docs": [
+              "Split of the interest recognized by this accrual: protocol share",
+              "(paid only), operator and LP credits, and hLP vault public interest",
+              "netted against its funding debt."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "operatorCredit",
+            "type": "u64"
+          },
+          {
+            "name": "lpCredit",
+            "type": "u64"
+          },
+          {
+            "name": "vaultNetted",
+            "type": "u64"
           }
         ]
       }
@@ -13980,21 +13619,15 @@ export type Dusk = {
           {
             "name": "interestPaid",
             "docs": [
-              "Gross interest collected, including any terminal hLP caller bounty."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "interestVaultCredit",
-            "docs": [
-              "Net tokens credited to the interest vault after transfer fees/bounty."
+              "Interest collected. It stays in reserve cash, credited to holders at",
+              "accrual; only the protocol share leaves cash."
             ],
             "type": "u64"
           },
           {
             "name": "protocolInterestRevenue",
             "docs": [
-              "Protocol allocation from vault credit, before the referral allocation."
+              "Protocol share of `interest_paid`, before the referral allocation."
             ],
             "type": "u64"
           },
@@ -14423,18 +14056,6 @@ export type Dusk = {
           {
             "name": "amount",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "checkpointIncomeArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "source",
-            "type": "u8"
           }
         ]
       }
@@ -14869,10 +14490,10 @@ export type Dusk = {
             "docs": [
               "Aggregate outstanding *principal* (borrowed token amount, excluding",
               "accrued interest) backing fixed margin debt on each side. Accrued",
-              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest can",
-              "be routed to the interest vault (non-compounding) instead of",
-              "compounding into reserves. Principal is a raw token-atom balance and is",
-              "therefore bounded by the corresponding `u64` reserve custody domain."
+              "interest is `fixed_*_debt - fixed_*_principal`; tracked so interest is",
+              "credited to holders instead of compounding into reserves. Principal is",
+              "a raw token-atom balance and is therefore bounded by the corresponding",
+              "`u64` reserve custody domain."
             ],
             "type": "u64"
           },
@@ -15450,10 +15071,10 @@ export type Dusk = {
             }
           },
           {
-            "name": "publicInterestAdvance",
+            "name": "ledger",
             "type": {
               "defined": {
-                "name": "publicInterestAdvance"
+                "name": "interestLedger"
               }
             }
           },
@@ -15463,6 +15084,10 @@ export type Dusk = {
           },
           {
             "name": "interestGrowthIndexQ64",
+            "docs": [
+              "Ordinary srLP interest lane. Its denominator is srLP supply less junior",
+              "reserve shares and both hLP vaults' srLP."
+            ],
             "type": "u128"
           },
           {
@@ -15483,16 +15108,6 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "hlpFundingInterestGrowthRemainderScaled",
-            "docs": [
-              "Source-scoped Q64 carry for interest paid by hLP funding debt. Funding",
-              "uses a non-hLP denominator, while public interest uses total srLP",
-              "supply; sharing one carry across those denominators would eventually",
-              "leak rounding entitlement between the two populations."
-            ],
-            "type": "u64"
-          },
-          {
             "name": "swapFeeCustodyBalance",
             "docs": [
               "Claimable swap fees physically held in the reserve vault but excluded",
@@ -15501,23 +15116,11 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "interestVaultBalance",
-            "type": "u64"
-          },
-          {
             "name": "swapFeeLiability",
             "type": "u64"
           },
           {
-            "name": "interestLiability",
-            "type": "u64"
-          },
-          {
             "name": "unallocatedSwapFeeLiability",
-            "type": "u64"
-          },
-          {
-            "name": "unallocatedInterestLiability",
             "type": "u64"
           },
           {
@@ -15530,6 +15133,10 @@ export type Dusk = {
           },
           {
             "name": "interestProtocolFeeLiability",
+            "docs": [
+              "Booked protocol interest revenue. Its atoms sit in the reserve vault",
+              "outside `cash_reserve`."
+            ],
             "type": "u64"
           },
           {
@@ -15538,13 +15145,6 @@ export type Dusk = {
           },
           {
             "name": "referralInterestLiability",
-            "type": "u64"
-          },
-          {
-            "name": "revenueInterestLiability",
-            "docs": [
-              "Shared custody for operator claims and protocol fractional carry."
-            ],
             "type": "u64"
           },
           {
@@ -15798,96 +15398,6 @@ export type Dusk = {
               "defined": {
                 "name": "liquidationPositionState"
               }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "fundInterestArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "maxBaseGross",
-            "docs": [
-              "Gross public interest to fund, including the frozen protocol allocation."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "maxQuoteGross",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "fundInterestReceipt",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "grossFunded",
-            "type": {
-              "array": [
-                "u64",
-                2
-              ]
-            }
-          },
-          {
-            "name": "lpCustodyCredit",
-            "type": {
-              "array": [
-                "u64",
-                2
-              ]
-            }
-          },
-          {
-            "name": "hlpYieldPublished",
-            "docs": [
-              "[hLP target side][income side], after covering the funding gap."
-            ],
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "hlpCapitalGross",
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "hlpCapitalCredit",
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
             }
           }
         ]
@@ -16215,6 +15725,26 @@ export type Dusk = {
               "Greatest net target reserve credit supported by opposite-asset funding."
             ],
             "type": "u64"
+          },
+          {
+            "name": "minFirstDepositNet",
+            "docs": [
+              "Net first deposit that opens this side's empty vault; zero once the",
+              "side has receipts. A first deposit must borrow at least one atom of",
+              "the opposite asset or it fails `HlpFirstDepositTooSmall`. This quotes",
+              "two atoms' worth at the reserve ratio behind `funding_limit_net`,",
+              "after the recenter-bucket premium, so somewhat smaller first deposits",
+              "can still pass; simulate the deposit for the exact boundary."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "minFirstDepositGross",
+            "docs": [
+              "`min_first_deposit_net` as a wallet debit at the current epoch's",
+              "transfer fee."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -16449,67 +15979,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "hlpInterestAllocated",
-      "docs": [
-        "Fresh public repayment follows the same funding-before-yield policy as a",
-        "cash advance. The standard hLP prefix is followed by both mints/reserves."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "published",
-            "docs": [
-              "[hLP target side][income asset]. Historical holder growth is unchanged."
-            ],
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "capitalDebit",
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "capitalCredit",
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    "u64",
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "hlpOpened",
       "type": {
         "kind": "struct",
@@ -16665,14 +16134,15 @@ export type Dusk = {
           {
             "name": "baseHlpFundingInterestPaid",
             "docs": [
-              "Gross quote tokens paid from reserve cash to the interest vault."
+              "Quote funding interest the base-target hLP paid. Only its protocol",
+              "share leaves reserve cash."
             ],
             "type": "u64"
           },
           {
             "name": "quoteHlpFundingInterestPaid",
             "docs": [
-              "Gross base tokens paid from reserve cash to the interest vault."
+              "Base funding interest the quote-target hLP paid."
             ],
             "type": "u64"
           }
@@ -16832,6 +16302,9 @@ export type Dusk = {
           },
           {
             "name": "baseInterestGrowthIndexQ64",
+            "docs": [
+              "Holder index of interest credited to this vault at accrual."
+            ],
             "type": "u128"
           },
           {
@@ -16847,36 +16320,21 @@ export type Dusk = {
             "type": "u128"
           },
           {
-            "name": "baseInterestCheckpointQ64",
-            "type": "u128"
-          },
-          {
             "name": "quoteSwapFeeCheckpointQ64",
-            "type": "u128"
-          },
-          {
-            "name": "quoteInterestCheckpointQ64",
             "type": "u128"
           },
           {
             "name": "baseSwapFeeRemainderQ64",
             "docs": [
-              "Aggregate sub-atom srLP entitlement carried across hLP checkpoints.",
-              "These are distinct from each holder YieldAccount remainder: this layer",
-              "converts vault-owned srLP growth into hLP growth without double-flooring."
+              "Aggregate sub-atom srLP swap-fee entitlement carried across hLP",
+              "checkpoints. Distinct from each holder YieldAccount remainder: this",
+              "layer converts vault-owned srLP growth into hLP growth without",
+              "double-flooring."
             ],
             "type": "u64"
           },
           {
-            "name": "baseInterestRemainderQ64",
-            "type": "u64"
-          },
-          {
             "name": "quoteSwapFeeRemainderQ64",
-            "type": "u64"
-          },
-          {
-            "name": "quoteInterestRemainderQ64",
             "type": "u64"
           },
           {
@@ -16938,146 +16396,19 @@ export type Dusk = {
           {
             "name": "fundingAprEmaLastSlot",
             "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "incomeEpoch",
-      "docs": [
-        "Immutable closing state of one unpaid-income denomination. Holders use it",
-        "to carry their existing units and unpaid cash fractions into the next epoch."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
           },
           {
-            "name": "bookIndex",
-            "type": "u8"
-          },
-          {
-            "name": "book",
-            "type": {
-              "defined": {
-                "name": "incomeReceivableBook"
-              }
-            }
-          },
-          {
-            "name": "bump",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "incomeExposureEnd",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "ended",
-            "type": "bool"
-          },
-          {
-            "name": "epoch",
-            "type": "u64"
-          },
-          {
-            "name": "growth",
-            "type": {
-              "defined": {
-                "name": "receivableGrowth"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "incomeReceivableBook",
-      "docs": [
-        "A bounded-denomination epoch of an unpaid-income pool. Public and hLP",
-        "funding income use separate books. Repayments/defaults are pooled within",
-        "each book; already funded advances do not remain unpaid claims."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "epoch",
-            "type": "u64"
-          },
-          {
-            "name": "unpaid",
-            "type": "u64"
-          },
-          {
-            "name": "units",
-            "type": "u64"
-          },
-          {
-            "name": "paidPerUnitQ64",
-            "type": "u128"
-          },
-          {
-            "name": "paidRemainder",
-            "type": "u64"
-          },
-          {
-            "name": "growth",
+            "name": "heldBaseInterest",
             "docs": [
-              "Ordinary senior, junior, base hLP, quote hLP."
+              "Public interest credited to the vault's srLP while it was frozen,",
+              "net of funding netting. It stays in `credited` for the vault's",
+              "creditors: a terminal close applies it to the vault's debt, and a",
+              "recovery that unfreezes the vault publishes it to the holders."
             ],
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "receivableGrowth"
-                  }
-                },
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "incomeReceivableClaim",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "epoch",
             "type": "u64"
           },
           {
-            "name": "unitsQ64",
-            "type": "u128"
-          },
-          {
-            "name": "paidCheckpointQ64",
-            "type": "u128"
-          },
-          {
-            "name": "growthCheckpoint",
-            "type": {
-              "defined": {
-                "name": "receivableGrowth"
-              }
-            }
-          },
-          {
-            "name": "paidFractionQ128",
-            "type": "u128"
-          },
-          {
-            "name": "claimable",
+            "name": "heldQuoteInterest",
             "type": "u64"
           }
         ]
@@ -17333,36 +16664,63 @@ export type Dusk = {
       }
     },
     {
-      "name": "interestRevenueBook",
+      "name": "interestLedger",
+      "docs": [
+        "Per-asset interest ledger. Interest is credited to holders when it",
+        "accrues; claims are paid from reserve cash.",
+        "",
+        "With `C = cash_reserve + flash_receivable`, `D` borrower principal,",
+        "`I = public_recognized + funding_recognized`, `Q = credited`,",
+        "`Pu = protocol_unpaid` and `Δ = deficit`, every instruction preserves",
+        "`C + D + I + Δ = curve_reserve + Q + Pu`."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "grossUnpaid",
-            "type": "u64"
+            "name": "publicRecognized",
+            "docs": [
+              "Public fixed and isolated interest outstanding (debt minus principal,",
+              "clamped as in `public_unpaid_interest`) as last recognized."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "fundingRecognized",
+            "docs": [
+              "The opposite hLP vault's indexed funding debt in this asset minus its",
+              "`debt_principal` (including carried funding) as last recognized."
+            ],
+            "type": "u128"
+          },
+          {
+            "name": "credited",
+            "docs": [
+              "Credited, unclaimed interest of every holder lane, the junior seed,",
+              "both hLP holder indexes, checkpointed holder balances, the operator,",
+              "and index rounding dust. Includes `operator_claimable`."
+            ],
+            "type": "u128"
           },
           {
             "name": "protocolUnpaid",
-            "type": "u64"
-          },
-          {
-            "name": "operatorUnpaid",
-            "type": "u64"
-          },
-          {
-            "name": "pendingGross",
-            "type": "u64"
-          },
-          {
-            "name": "pendingProtocolGross",
-            "type": "u64"
+            "docs": [
+              "Protocol share of recognized interest not yet paid or written off."
+            ],
+            "type": "u128"
           },
           {
             "name": "operatorClaimable",
-            "type": "u64"
+            "docs": [
+              "Current operator recipient's credited, unclaimed share."
+            ],
+            "type": "u128"
           },
           {
             "name": "protocolFractionQ64",
+            "docs": [
+              "Q64 sub-atom carries of the accrual split."
+            ],
             "type": "u64"
           },
           {
@@ -17370,8 +16728,23 @@ export type Dusk = {
             "type": "u64"
           },
           {
-            "name": "protocolCashFractionQ64",
+            "name": "protocolPending",
+            "docs": [
+              "Protocol share already removed from `cash_reserve`, still in the",
+              "reserve vault, awaiting `book_protocol_interest`."
+            ],
             "type": "u64"
+          },
+          {
+            "name": "deficit",
+            "docs": [
+              "Pool loss that LP capital could not absorb: the amount by which",
+              "credited interest and the protocol's unpaid share exceed everything",
+              "the pool holds or is owed. `curve_reserve` is zero while it is",
+              "nonzero. Credited claims are not reduced; they are paid from cash as",
+              "it allows. It never decreases."
+            ],
+            "type": "u128"
           }
         ]
       }
@@ -17381,19 +16754,6 @@ export type Dusk = {
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "incomeEnd",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "incomeExposureEnd"
-                  }
-                },
-                4
-              ]
-            }
-          },
           {
             "name": "market",
             "type": "pubkey"
@@ -18831,14 +18191,6 @@ export type Dusk = {
             }
           },
           {
-            "name": "income",
-            "type": {
-              "defined": {
-                "name": "marketIncomeBooks"
-              }
-            }
-          },
-          {
             "name": "juniorExitConfig",
             "type": {
               "defined": {
@@ -19527,115 +18879,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "marketIncomeBooks",
-      "docs": [
-        "Public-loan and hLP-funding receivables are independent. The vault-owned",
-        "public-income claims preserve hLP's automatic funding-gap repayment."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "books",
-            "docs": [
-              "base public, quote public, base hLP funding, quote hLP funding."
-            ],
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "incomeReceivableBook"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "revenue",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "interestRevenueBook"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "pending",
-            "docs": [
-              "Gross settlement budget awaiting measured net custody credit."
-            ],
-            "type": {
-              "array": [
-                "u64",
-                4
-              ]
-            }
-          },
-          {
-            "name": "seed",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "incomeReceivableClaim"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "hlp",
-            "docs": [
-              "[hLP target][income asset], owned by the vault rather than its holders."
-            ],
-            "type": {
-              "array": [
-                {
-                  "array": [
-                    {
-                      "defined": {
-                        "name": "incomeReceivableClaim"
-                      }
-                    },
-                    2
-                  ]
-                },
-                2
-              ]
-            }
-          },
-          {
-            "name": "juniorEnd",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "incomeExposureEnd"
-                  }
-                },
-                4
-              ]
-            }
-          },
-          {
-            "name": "splitCarryBps",
-            "type": {
-              "array": [
-                "u16",
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "marketParameterUpdate",
       "type": {
         "kind": "enum",
@@ -19827,10 +19070,6 @@ export type Dusk = {
           },
           {
             "name": "collateralVault",
-            "type": "pubkey"
-          },
-          {
-            "name": "interestVault",
             "type": "pubkey"
           },
           {
@@ -20220,8 +19459,8 @@ export type Dusk = {
     {
       "name": "operatorRevenueAccount",
       "docs": [
-        "A sealed recipient's collected cash. Unpaid interest fees follow the current",
-        "recipient and become earned only when borrower cash reaches custody."
+        "A sealed recipient's credited, unclaimed operator interest per asset (base,",
+        "quote). Claims are paid from reserve cash as it allows."
       ],
       "type": {
         "kind": "struct",
@@ -20242,8 +19481,8 @@ export type Dusk = {
             "name": "claimable",
             "type": {
               "array": [
-                "u64",
-                4
+                "u128",
+                2
               ]
             }
           },
@@ -21508,93 +20747,6 @@ export type Dusk = {
       }
     },
     {
-      "name": "publicInterestAdvance",
-      "docs": [
-        "Reserve-cash funding of public borrower interest. The revenue-fee portion is",
-        "held in the reserve vault until repayment, so cancellation can return it",
-        "to executable cash without a transfer or a second transfer fee."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "outstandingGross",
-            "type": "u64"
-          },
-          {
-            "name": "revenueEscrow",
-            "type": "u64"
-          },
-          {
-            "name": "repaymentCreditPending",
-            "docs": [
-              "Native repayment has already restored this cash; its token handler",
-              "must exclude it from the new interest-vault transfer."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "revenueReleasePending",
-            "docs": [
-              "Frozen operator/protocol allocation released by repayment, still held in the",
-              "reserve vault until the same instruction completes token settlement."
-            ],
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "publicInterestFunded",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "market",
-            "type": "pubkey"
-          },
-          {
-            "name": "caller",
-            "type": "pubkey"
-          },
-          {
-            "name": "receipt",
-            "type": {
-              "defined": {
-                "name": "fundInterestReceipt"
-              }
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "receivableGrowth",
-      "docs": [
-        "One exposure lane's newly issued receivable units per LP receipt. The",
-        "weighted paid index is kept at full Q128 precision: flooring it earlier can",
-        "give late entrants a fractional claim on money paid before their entry."
-      ],
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "unitsQ64",
-            "type": "u128"
-          },
-          {
-            "name": "weightedPaidQ128",
-            "type": {
-              "array": [
-                "u64",
-                4
-              ]
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "referralAccrual",
       "docs": [
         "Claimable referral revenue for one partner, market, and debt asset."
@@ -21704,10 +20856,6 @@ export type Dusk = {
           },
           {
             "name": "interestPaid",
-            "type": "u64"
-          },
-          {
-            "name": "interestVaultCredit",
             "type": "u64"
           },
           {
@@ -22191,22 +21339,6 @@ export type Dusk = {
           },
           {
             "name": "halfLifeMs",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "rollIncomeEpochArgs",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "bookIndex",
-            "type": "u8"
-          },
-          {
-            "name": "epoch",
             "type": "u64"
           }
         ]
@@ -23426,27 +22558,10 @@ export type Dusk = {
             }
           },
           {
-            "name": "incomeInitialized",
-            "type": "bool"
-          },
-          {
-            "name": "income",
-            "type": {
-              "array": [
-                {
-                  "defined": {
-                    "name": "incomeReceivableClaim"
-                  }
-                },
-                2
-              ]
-            }
-          },
-          {
             "name": "escrowBalance",
             "docs": [
-              "Owner's junior exit escrow receipts. Historical unpaid-income ownership",
-              "is checkpointed here alongside the liquid balance."
+              "Owner's junior exit escrow receipts. They keep earning junior interest",
+              "and are checkpointed alongside the liquid balance."
             ],
             "type": "u64"
           }
@@ -23488,6 +22603,16 @@ export type Dusk = {
           },
           {
             "name": "interestAmount",
+            "docs": [
+              "Interest paid now, limited by reserve cash."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "interestRemaining",
+            "docs": [
+              "Credited interest still claimable by the holder after this claim."
+            ],
             "type": "u64"
           },
           {
@@ -23698,11 +22823,6 @@ export type Dusk = {
       "value": "200000000"
     },
     {
-      "name": "marketInterestVaultSeedPrefix",
-      "type": "bytes",
-      "value": "[109, 97, 114, 107, 101, 116, 95, 105, 110, 116, 101, 114, 101, 115, 116]"
-    },
-    {
       "name": "marketLayoutVersion",
       "docs": [
         "Serialized `Market` account layout discriminator, and the only layout the",
@@ -23712,10 +22832,12 @@ export type Dusk = {
         "This layout counts token amounts in at least `MIN_AMOUNT_DECIMALS`",
         "decimals and sets independent lower/upper utilization rate targets.",
         "Aggregate virtual reserves use u128; physical token amounts remain u64.",
-        "Separate hLP funding offsets preserve pricing principal through payment."
+        "Separate hLP funding offsets preserve pricing principal through payment.",
+        "Interest is credited at accrual through a per-asset interest ledger and",
+        "per-lane growth indexes."
       ],
       "type": "u8",
-      "value": "17"
+      "value": "19"
     },
     {
       "name": "marketParamsHashDomain",

@@ -9,8 +9,7 @@ use crate::{
     },
     errors::ErrorCode,
     instructions::{
-        leverage_position_pda, reconcile_live_hlp_supply, record_hlp_interest_credit, record_inline_hlp_interest_credit,
-        BorrowCapacityPreview,
+        leverage_position_pda, reconcile_live_hlp_supply, BorrowCapacityPreview,
     },
     math::{ceil_div, health_bps},
     state::{
@@ -110,7 +109,6 @@ pub struct BenchmarkAssetCashFlow {
     pub reserve_vault_debit: u64,
     pub collateral_vault_credit: u64,
     pub collateral_vault_debit: u64,
-    pub interest_vault_credit: u64,
     pub recipient_credit: u64,
 }
 
@@ -136,18 +134,19 @@ pub struct BenchmarkRevenueSideCheckpoint {
     pub interest_growth_index_q64: u128,
     pub swap_fee_growth_remainder_scaled: u64,
     pub interest_growth_remainder_scaled: u64,
-    pub hlp_funding_interest_growth_remainder_scaled: u64,
     pub lp_swap_fee_liability: u64,
-    pub lp_interest_liability: u64,
+    /// Interest credited to holders, the seed and the operator, unclaimed.
+    pub credited_interest: u128,
+    /// Protocol share of recognized interest not yet repaid.
+    pub protocol_unpaid_interest: u128,
+    pub operator_claimable_interest: u128,
     pub unallocated_lp_swap_fee_liability: u64,
-    pub unallocated_lp_interest_liability: u64,
     pub protocol_swap_fee_liability: u64,
     pub protocol_interest_fee_liability: u64,
     pub buyback_swap_fee_liability: u64,
     pub buyback_interest_fee_liability: u64,
     pub referral_interest_liability: u64,
     pub swap_fee_custody_balance: u64,
-    pub interest_vault_balance: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -211,8 +210,7 @@ pub struct BenchmarkMarketCheckpoint {
 /// Aggregate unpaid public-borrow interest at one native market checkpoint.
 ///
 /// Fixed-margin and isolated debt are intentionally kept in the same public
-/// lane here. hLP funding debt is excluded because its entitlement is created
-/// only when the hLP settlement pays the interest vault.
+/// lane here. hLP funding debt is a separate ledger source and is excluded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkPublicInterestCheckpoint {
     pub base: u128,
@@ -228,12 +226,11 @@ impl BenchmarkPublicInterestCheckpoint {
     }
 }
 
-/// Exact token-program outcome for public interest removed by one transition.
-/// Principal transfers and hLP funding settlements must not be included.
+/// Public interest a transition removed with borrower cash. Paid interest
+/// stays in reserve cash. Principal and hLP funding settlements are excluded.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkPublicInterestPayment {
     pub gross_cash_interest_paid: u64,
-    pub net_interest_vault_credit: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -256,7 +253,6 @@ pub struct BenchmarkPublicInterestSideTransition {
     pub clock_accrued: u128,
     pub transition_interest_created: u128,
     pub gross_cash_interest_paid: u128,
-    pub net_interest_vault_credit: u128,
     pub total_interest_removed: u128,
     pub interest_written_off: u128,
 }
@@ -387,17 +383,14 @@ pub struct BenchmarkHlpOwnedCheckpoint {
     pub hlp_mint_supply: u64,
     pub holder_hlp_token_balance: u64,
     pub hlp_vault_srlp_balance: u64,
-    pub measured_base_interest_vault_credits: u64,
-    pub measured_quote_interest_vault_credits: u64,
     pub base_yield_account: BenchmarkYieldAccountCheckpoint,
     pub quote_yield_account: BenchmarkYieldAccountCheckpoint,
 }
 
+/// hLP funding settled inside an entry. Paid funding stays in reserve cash;
+/// its protocol share is booked with this split.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BenchmarkHlpFundingSettlement {
-    /// Exact reserve debits and measured interest-vault credits, by hLP target.
-    pub transfers: [BenchmarkTokenTransferOutcome; 2],
-    pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
 }
 
@@ -417,10 +410,7 @@ pub struct BenchmarkHlpWithdrawRequest {
     pub hlp_amount: u64,
     /// Exact gross reserve debit and net owner credit for released principal.
     pub target_transfer: BenchmarkTokenTransferOutcome,
-    /// Exact gross borrowed-reserve debit and net interest-vault credit.
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub min_target_recipient_credit: u64,
-    pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
 }
 
@@ -434,7 +424,6 @@ pub struct BenchmarkHlpEntryReceipt {
 pub struct BenchmarkHlpWithdrawReceipt {
     pub native: SingleSidedLiquidityReceipt,
     pub target_transfer: BenchmarkTokenTransferOutcome,
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
 }
 
 /// A native-feasible upper-bound plan. The caller must supply the exact
@@ -457,18 +446,12 @@ pub struct BenchmarkHlpExecution<T> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkHlpAwareSwapRequest {
     pub swap: BenchmarkSwapRequest,
-    /// Measured quote-interest-vault outcome for the base-target hLP.
-    pub base_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
-    /// Measured base-interest-vault outcome for the quote-target hLP.
-    pub quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
-    pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BenchmarkHlpAwareSwapExecution {
     pub swap: BenchmarkSwapExecution,
-    pub hlp_interest_cash: BenchmarkCashFlow,
     pub revenue_before: BenchmarkRevenueCheckpoint,
     pub revenue_after: BenchmarkRevenueCheckpoint,
     pub market_after: BenchmarkMarketCheckpoint,
@@ -596,9 +579,6 @@ pub struct BenchmarkRepayRequest {
     pub clock: BenchmarkClock,
     /// Maximum exact reserve credit available after the user's transfer fee.
     pub max_repay_credit: u64,
-    /// Exact credit measured in the interest vault after routing paid interest.
-    pub interest_vault_credit: u64,
-    pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
     pub referral_interest_amount: u64,
     pub debt_asset: MarketAsset,
@@ -694,8 +674,6 @@ pub struct BenchmarkLiquidationTokenBalances {
     pub owner_quote_balance: u64,
     pub base_reserve_vault_balance: u64,
     pub quote_reserve_vault_balance: u64,
-    pub base_interest_vault_balance: u64,
-    pub quote_interest_vault_balance: u64,
     pub base_collateral_vault_balance: u64,
     pub quote_collateral_vault_balance: u64,
 }
@@ -707,13 +685,11 @@ pub struct BenchmarkLiquidationExecuteRequest {
     /// debt-share rounding makes the exact native repayment smaller.
     pub max_repay_source_debit: u64,
     pub debt_transfer: BenchmarkTokenTransferOutcome,
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_swap_transfer: BenchmarkTokenTransferOutcome,
     pub owner_residual_transfer: BenchmarkTokenTransferOutcome,
     pub junior_fee_transfer: BenchmarkTokenTransferOutcome,
     pub min_collateral_recipient_credit: u64,
-    pub protocol_interest_fee_bps: u16,
     pub protocol_auction_split: ProtocolAuctionSplit,
     pub referral_interest_amount: u64,
 }
@@ -723,7 +699,6 @@ pub struct BenchmarkLiquidationExecutionReceipt {
     pub plan: BenchmarkLiquidationPlan,
     pub native: LiquidationReceipt,
     pub debt_transfer: BenchmarkTokenTransferOutcome,
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
     pub collateral_swap_transfer: BenchmarkTokenTransferOutcome,
     pub owner_residual_transfer: BenchmarkTokenTransferOutcome,
@@ -748,8 +723,6 @@ pub struct BenchmarkLeverageTokenBalances {
     pub owner_quote_balance: u64,
     pub base_reserve_vault_balance: u64,
     pub quote_reserve_vault_balance: u64,
-    pub base_interest_vault_balance: u64,
-    pub quote_interest_vault_balance: u64,
     pub base_leverage_collateral_vault_balance: u64,
     pub quote_leverage_collateral_vault_balance: u64,
 }
@@ -858,8 +831,6 @@ pub struct BenchmarkExecuteLeverageOpenRequest {
     /// Gross reserve debit and exact leverage-vault credit for the purchased
     /// collateral.
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
-    pub base_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
-    pub quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -881,8 +852,8 @@ pub struct BenchmarkLeverageSettlementRequirements {
     pub base_hlp_interest_debit: u64,
     /// Interest paid by the quote hLP vault, denominated in base atoms.
     pub quote_hlp_interest_debit: u64,
-    /// Position interest routed on close, denominated in debt-asset atoms.
-    /// This is always zero for an open quote.
+    /// Position interest paid on close, denominated in debt-asset atoms. It
+    /// stays in reserve cash. This is always zero for an open quote.
     pub position_interest_debit: u64,
 }
 
@@ -900,10 +871,6 @@ pub struct BenchmarkPrepareLeverageCloseRequest {
 pub struct BenchmarkExecuteLeverageCloseRequest {
     /// Gross debt-reserve debit and exact owner-account credit.
     pub residual_transfer: BenchmarkTokenTransferOutcome,
-    /// Gross debt-reserve debit and exact debt-interest-vault credit.
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
-    pub base_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
-    pub quote_hlp_interest_transfer: BenchmarkTokenTransferOutcome,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -930,7 +897,6 @@ pub struct BenchmarkLeverageCloseExecutionReceipt {
     pub native: LeverageCloseReceipt,
     pub collateral_transfer: BenchmarkTokenTransferOutcome,
     pub residual_transfer: BenchmarkTokenTransferOutcome,
-    pub interest_transfer: BenchmarkTokenTransferOutcome,
     pub referral_interest: ReferralInterestQuote,
     pub metrics_before: BenchmarkLeverageMetrics,
 }
@@ -1045,8 +1011,6 @@ pub struct BenchmarkHlpOwnedState {
     hlp_mint_supply: u64,
     holder_hlp_token_balance: u64,
     hlp_vault_srlp_balance: u64,
-    measured_base_interest_vault_credits: u64,
-    measured_quote_interest_vault_credits: u64,
     base_yield_account_key: Pubkey,
     quote_yield_account_key: Pubkey,
     base_yield_account: Box<YieldAccount>,
@@ -1166,8 +1130,6 @@ impl BenchmarkHlpOwnedState {
             hlp_mint_supply: vault.hlp_supply,
             holder_hlp_token_balance: 0,
             hlp_vault_srlp_balance: vault.srlp_shares,
-            measured_base_interest_vault_credits: 0,
-            measured_quote_interest_vault_credits: 0,
             base_yield_account_key,
             quote_yield_account_key,
             base_yield_account,
@@ -1197,8 +1159,6 @@ impl BenchmarkHlpOwnedState {
             hlp_mint_supply: self.hlp_mint_supply,
             holder_hlp_token_balance: self.holder_hlp_token_balance,
             hlp_vault_srlp_balance: self.hlp_vault_srlp_balance,
-            measured_base_interest_vault_credits: self.measured_base_interest_vault_credits,
-            measured_quote_interest_vault_credits: self.measured_quote_interest_vault_credits,
             base_yield_account: yield_account_checkpoint(self.base_yield_account_key, &self.base_yield_account),
             quote_yield_account: yield_account_checkpoint(self.quote_yield_account_key, &self.quote_yield_account),
         }
@@ -1212,8 +1172,6 @@ impl BenchmarkHlpOwnedState {
             hlp_mint_supply: self.hlp_mint_supply,
             holder_hlp_token_balance: self.holder_hlp_token_balance,
             hlp_vault_srlp_balance: self.hlp_vault_srlp_balance,
-            measured_base_interest_vault_credits: self.measured_base_interest_vault_credits,
-            measured_quote_interest_vault_credits: self.measured_quote_interest_vault_credits,
             base_yield_account_key: self.base_yield_account_key,
             quote_yield_account_key: self.quote_yield_account_key,
             base_yield_account: Box::new(clone_yield_account(&self.base_yield_account)?),
@@ -1641,8 +1599,8 @@ impl BenchmarkMarket {
 
     /// Executes a swap and both native hLP token settlements in one rollback
     /// boundary. Use this path whenever hLP state is active; it keeps the two
-    /// srLP custody accounts and measured funding-interest credits synchronized
-    /// with the market-side rebalance receipts.
+    /// srLP custody accounts synchronized with the market-side rebalance
+    /// receipts. Paid funding stays in reserve cash, so no interest moves.
     pub fn execute_swap_with_hlp(
         &mut self,
         base_external: &mut BenchmarkHlpOwnedState,
@@ -1667,27 +1625,8 @@ impl BenchmarkMarket {
         let mut next_base = base_external.try_fork()?;
         let mut next_quote = quote_external.try_fork()?;
         let swap = execute_swap(&mut next_market, self.clock, request.swap)?;
-        let mut hlp_interest_cash = BenchmarkCashFlow::default();
-        apply_hlp_rebalance_settlement(
-            &mut next_market,
-            &mut next_base,
-            swap.base_rebalance,
-            swap.interest_eligibility,
-            request.base_hlp_interest_transfer,
-            request.protocol_interest_fee_bps,
-            request.protocol_auction_split,
-            &mut hlp_interest_cash,
-        )?;
-        apply_hlp_rebalance_settlement(
-            &mut next_market,
-            &mut next_quote,
-            swap.quote_rebalance,
-            swap.interest_eligibility,
-            request.quote_hlp_interest_transfer,
-            request.protocol_interest_fee_bps,
-            request.protocol_auction_split,
-            &mut hlp_interest_cash,
-        )?;
+        apply_hlp_rebalance_settlement(&mut next_base, swap.base_rebalance)?;
+        apply_hlp_rebalance_settlement(&mut next_quote, swap.quote_rebalance)?;
         validate_hlp_owned_state(&next_base, &next_market, market_key)?;
         validate_hlp_owned_state(&next_quote, &next_market, market_key)?;
 
@@ -1700,7 +1639,6 @@ impl BenchmarkMarket {
         *quote_external = next_quote;
         Ok(BenchmarkHlpAwareSwapExecution {
             swap,
-            hlp_interest_cash,
             revenue_before,
             revenue_after,
             market_after,
@@ -2045,20 +1983,16 @@ impl BenchmarkMarket {
             .checked_add(borrowed_amount)
             .ok_or(ErrorCode::MarketMathOverflow)?;
         let mut prepared_market = clone_market(&self.market)?;
-        let prepared_swap = prepare_leverage_swap(
-            &mut prepared_market,
-            SwapRequest {
+        let prepared_swap = prepare_leverage_swap(&mut prepared_market, SwapRequest {
                 current_slot: request.clock.slot,
                 current_unix_timestamp: request.clock.unix_timestamp,
                 asset_in: request.debt_asset,
                 reserve_credit: notional,
                 protocol_fee_bps: request.policy.protocol_swap_fee_bps,
-            },
-            SwapCashPolicy::Borrow {
+            }, SwapCashPolicy::Borrow {
                 asset: request.debt_asset,
                 amount: borrowed_amount,
-            },
-        )?;
+            })?;
         // Derive settlement debits by running the same native transition on a
         // disposable fork. The prepared state itself remains untouched and
         // execution will independently reproduce these receipts.
@@ -2189,7 +2123,6 @@ impl BenchmarkMarket {
                 .checked_add(collateral.destination_credit)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         let fee_credit = full_leverage_swap_fee_credit(prepared.quote.swap)?;
-        let interest_eligibility = prepared.common.prepared_swap.interest_eligibility;
         let (_, position_bump) = leverage_position_pda(
             self.require_market_key()?,
             next_leverage.position_owner,
@@ -2234,26 +2167,9 @@ impl BenchmarkMarket {
         let collateral_cash = cash.side_mut(prepared.request.debt_asset.opposite());
         collateral_cash.reserve_vault_debit = execution.collateral_transfer.source_debit;
         collateral_cash.collateral_vault_credit = execution.collateral_transfer.destination_credit;
-        apply_leverage_hlp_settlement(
-            &mut next_market,
-            &mut next_base_hlp,
-            native.base_hlp_rebalance,
-            interest_eligibility,
-            execution.base_hlp_interest_transfer,
-            prepared.request.policy,
-            &mut next_leverage.token_balances,
-            &mut cash,
-        )?;
-        apply_leverage_hlp_settlement(
-            &mut next_market,
-            &mut next_quote_hlp,
-            native.quote_hlp_rebalance,
-            interest_eligibility,
-            execution.quote_hlp_interest_transfer,
-            prepared.request.policy,
-            &mut next_leverage.token_balances,
-            &mut cash,
-        )?;
+        apply_hlp_rebalance_settlement(&mut next_base_hlp, native.base_hlp_rebalance)?;
+        apply_hlp_rebalance_settlement(&mut next_quote_hlp, native.quote_hlp_rebalance)?;
+        next_market.book_protocol_interest(prepared.request.policy.protocol_auction_split)?;
         let metrics = leverage_metrics(&next_market, &next_leverage.position, prepared.request.clock)?;
         validate_leverage_post_state(
             &next_market,
@@ -2371,22 +2287,18 @@ impl BenchmarkMarket {
             .isolated_repayment_for_max(debt_asset, slice.debt_shares, u64::MAX)?
             .cash_repaid;
         let metrics_before = leverage_metrics(&prepared_market, &leverage.position, request.clock)?;
-        let prepared_swap = prepare_leverage_swap(
-            &mut prepared_market,
-            SwapRequest {
+        let prepared_swap = prepare_leverage_swap(&mut prepared_market, SwapRequest {
                 current_slot: request.clock.slot,
                 current_unix_timestamp: request.clock.unix_timestamp,
                 asset_in: collateral_asset,
                 reserve_credit: request.collateral_transfer.destination_credit,
                 protocol_fee_bps: request.policy.protocol_swap_fee_bps,
-            },
-            SwapCashPolicy::Close {
+            }, SwapCashPolicy::Close {
                 debt_asset,
                 debt_shares: leverage.position.debt_shares,
                 debt_principal: leverage.position.debt_principal,
                 shares_to_burn: slice.debt_shares,
-            },
-        )?;
+            })?;
         require_gte!(
             prepared_swap.leverage_quote().amount_out,
             debt_amount,
@@ -2480,7 +2392,6 @@ impl BenchmarkMarket {
             leverage_reserve_vault_balance(&next_leverage.token_balances, close_collateral_asset)
                 .checked_add(close_collateral_transfer.destination_credit)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
-        let interest_eligibility = prepared.common.prepared_swap.interest_eligibility;
         let native = *next_market.close_leverage(
             &mut next_leverage.position,
             prepared.request.min_residual_out,
@@ -2521,60 +2432,21 @@ impl BenchmarkMarket {
             prepared.request.min_residual_out,
             ErrorCode::SlippageExceeded
         );
-        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
-            &mut next_market,
-            next_leverage.position.debt_asset()?,
-            native.interest_paid,
-            execution.interest_transfer.destination_credit,
-        )?;
-        require_eq!(
-            execution.interest_transfer.source_debit,
-            interest_transfer,
-            ErrorCode::BrokenInvariant
-        );
-        require_gte!(
-            execution.interest_transfer.source_debit,
-            execution.interest_transfer.destination_credit,
-            ErrorCode::BrokenInvariant
-        );
         let mut cash = BenchmarkCashFlow::default();
         let collateral_asset = next_leverage.position.collateral_asset()?;
         let collateral_cash = cash.side_mut(collateral_asset);
         collateral_cash.collateral_vault_debit = prepared.request.collateral_transfer.source_debit;
         collateral_cash.reserve_vault_credit = prepared.request.collateral_transfer.destination_credit;
-        apply_leverage_hlp_settlement(
-            &mut next_market,
-            &mut next_base_hlp,
-            native.base_hlp_rebalance,
-            interest_eligibility,
-            execution.base_hlp_interest_transfer,
-            prepared.request.policy,
-            &mut next_leverage.token_balances,
-            &mut cash,
-        )?;
-        apply_leverage_hlp_settlement(
-            &mut next_market,
-            &mut next_quote_hlp,
-            native.quote_hlp_rebalance,
-            interest_eligibility,
-            execution.quote_hlp_interest_transfer,
-            prepared.request.policy,
-            &mut next_leverage.token_balances,
-            &mut cash,
-        )?;
+        apply_hlp_rebalance_settlement(&mut next_base_hlp, native.base_hlp_rebalance)?;
+        apply_hlp_rebalance_settlement(&mut next_quote_hlp, native.quote_hlp_rebalance)?;
         let debt_asset = MarketAsset::try_from_code(prepared.quote.swap.asset_in)?.opposite();
         *leverage_reserve_vault_balance_mut(&mut next_leverage.token_balances, debt_asset) =
             leverage_reserve_vault_balance(&next_leverage.token_balances, debt_asset)
                 .checked_sub(execution.residual_transfer.source_debit)
-                .and_then(|value| value.checked_sub(execution.interest_transfer.source_debit))
                 .ok_or(ErrorCode::InsufficientLiquidity)?;
         *leverage_token_balance_mut(&mut next_leverage.token_balances, debt_asset) =
             leverage_token_balance(&next_leverage.token_balances, debt_asset)
                 .checked_add(execution.residual_transfer.destination_credit)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-        *leverage_interest_vault_balance_mut(&mut next_leverage.token_balances, debt_asset) =
-            leverage_interest_vault_balance(&next_leverage.token_balances, debt_asset)
-                .checked_add(execution.interest_transfer.destination_credit)
                 .ok_or(ErrorCode::MarketMathOverflow)?;
         let expected_referral_partner = next_leverage.position.referral_partner;
         let frozen_share_bps = next_leverage.position.referral_interest_share_bps;
@@ -2594,45 +2466,27 @@ impl BenchmarkMarket {
             );
             Some(frozen_share_bps)
         };
-        let referral_interest = ReferralInterestQuote::with_protocol_revenue(
-            execution.interest_transfer.source_debit,
-            execution.interest_transfer.destination_credit,
-            protocol_credit,
-            referral_share,
-        )?;
+        // Paid interest stays in reserve cash. The referral share comes from
+        // the protocol share the settlement moved to `protocol_pending`.
+        let referral_interest =
+            ReferralInterestQuote::with_protocol_revenue(native.interest_paid, native.protocol_paid, referral_share)?;
         if referral_interest.referral_amount > 0 {
             referral
                 .ok_or(ErrorCode::InvalidReferralAccrual)?
                 .accrual
                 .accrue(referral_interest.referral_amount)?;
         }
-        if execution.interest_transfer.source_debit > 0 {
-            next_market.record_receivable_income_credit(
-                debt_asset,
-                false,
-                execution.interest_transfer.destination_credit,
-                protocol_credit,
-                prepared.request.policy.protocol_auction_split,
-                referral_interest.referral_amount,
-            )?;
-            next_market
-                .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, interest_eligibility.base_hlp_srlp_shares)?;
-            next_market.checkpoint_hlp_yield_from_srlp_shares(
-                MarketAsset::Quote,
-                interest_eligibility.quote_hlp_srlp_shares,
-            )?;
-        }
+        next_market.side_mut(debt_asset).fees.book_protocol_interest(
+            prepared.request.policy.protocol_auction_split,
+            referral_interest.referral_amount,
+        )?;
+        next_market.book_protocol_interest(prepared.request.policy.protocol_auction_split)?;
         let debt_cash = cash.side_mut(debt_asset);
         debt_cash.reserve_vault_debit = debt_cash
             .reserve_vault_debit
             .checked_add(execution.residual_transfer.source_debit)
-            .and_then(|value| value.checked_add(execution.interest_transfer.source_debit))
             .ok_or(ErrorCode::MarketMathOverflow)?;
         debt_cash.recipient_credit = execution.residual_transfer.destination_credit;
-        debt_cash.interest_vault_credit = debt_cash
-            .interest_vault_credit
-            .checked_add(execution.interest_transfer.destination_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
         next_leverage.position_exists = false;
         next_leverage.position = Box::new(empty_leverage_position());
         validate_leverage_post_state(
@@ -2646,7 +2500,6 @@ impl BenchmarkMarket {
             native,
             collateral_transfer: prepared.request.collateral_transfer,
             residual_transfer: execution.residual_transfer,
-            interest_transfer: execution.interest_transfer,
             referral_interest,
             metrics_before: prepared.quote.metrics_before,
         };
@@ -2743,7 +2596,7 @@ impl BenchmarkMarket {
         let mut next_counterpart =
             BenchmarkHlpOwnedState::initialize(self, external.target_asset.opposite(), external.owner, external.owner)?;
         let (native, _) =
-            apply_hlp_entry_after_prepare(&mut prepared, &mut next_external, &mut next_counterpart, request, true)?;
+            apply_hlp_entry_after_prepare(&mut prepared, &mut next_external, &mut next_counterpart, request)?;
         validate_hlp_owned_state(&next_external, &prepared, self.require_market_key()?)?;
         Ok(Some(BenchmarkMaximumHlpEntry {
             clock,
@@ -2831,7 +2684,6 @@ impl BenchmarkMarket {
             &mut next_external,
             &mut next_counterpart,
             request,
-            false,
         )?;
         validate_hlp_owned_state(&next_external, &next_market, market_key)?;
         validate_hlp_owned_state(&next_counterpart, &next_market, market_key)?;
@@ -2936,35 +2788,9 @@ impl BenchmarkMarket {
             .ok_or(ErrorCode::InvalidHlpMintSupply)?;
         let native = next_market.withdraw_single_sided(next_external.target_asset, request.hlp_amount)?;
 
-        require_eq!(
-            request.interest_transfer.source_debit,
-            native.interest_paid,
-            ErrorCode::BrokenInvariant
-        );
-        let borrowed_asset = next_external.target_asset.opposite();
-        if native.interest_paid == 0 {
-            require_eq!(
-                request.interest_transfer.destination_credit,
-                0,
-                ErrorCode::BrokenInvariant
-            );
-        } else {
-            record_hlp_interest_credit(
-                &mut next_market,
-                borrowed_asset,
-                request.interest_transfer.destination_credit,
-                request.protocol_interest_fee_bps,
-                request.protocol_auction_split,
-                eligibility,
-            )?;
-            let measured_credits = match borrowed_asset {
-                MarketAsset::Base => &mut next_external.measured_base_interest_vault_credits,
-                MarketAsset::Quote => &mut next_external.measured_quote_interest_vault_credits,
-            };
-            *measured_credits = measured_credits
-                .checked_add(request.interest_transfer.destination_credit)
-                .ok_or(ErrorCode::MarketMathOverflow)?;
-        }
+        // Funding the vault paid stays in reserve cash; the instruction books
+        // its protocol share.
+        next_market.book_protocol_interest(request.protocol_auction_split)?;
         if native.hlp_supply == 0 {
             next_market.drain_hlp_unallocated_yield(
                 next_external.target_asset,
@@ -2994,14 +2820,10 @@ impl BenchmarkMarket {
         let target_cash = cash.side_mut(next_external.target_asset);
         target_cash.reserve_vault_debit = native.target_amount_out;
         target_cash.recipient_credit = request.target_transfer.destination_credit;
-        let borrowed_cash = cash.side_mut(borrowed_asset);
-        borrowed_cash.reserve_vault_debit = native.interest_paid;
-        borrowed_cash.interest_vault_credit = request.interest_transfer.destination_credit;
         validate_hlp_owned_state(&next_external, &next_market, market_key)?;
         let receipt = BenchmarkHlpWithdrawReceipt {
             native,
             target_transfer: request.target_transfer,
-            interest_transfer: request.interest_transfer,
         };
         let external_after = next_external.checkpoint();
         let market = self.commit_market_execution(next_market, request.clock, revenue_before, cash, receipt)?;
@@ -3295,51 +3117,30 @@ impl BenchmarkMarket {
             None,
         )?;
         require_eq!(receipt.cash_repaid, repayment.cash_repaid, ErrorCode::BrokenInvariant);
-        require_gte!(
-            receipt.interest_paid,
-            request.interest_vault_credit,
-            ErrorCode::FeeMathOverflow
-        );
-        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
-            &mut next_market,
-            request.debt_asset,
-            receipt.interest_paid,
-            request.interest_vault_credit,
-        )?;
+        // Paid interest stays in reserve cash. The referral share comes from
+        // the protocol share the settlement moved to `protocol_pending`.
         let expected_referral = accrue_benchmark_referral_interest(
             referral_binding,
             next_referral.as_mut(),
             self.require_market_key()?,
             next_market.side(request.debt_asset).asset_mint,
             receipt.interest_paid,
-            request.interest_vault_credit,
-            protocol_credit,
+            receipt.protocol_paid,
         )?;
         require_eq!(
             expected_referral,
             request.referral_interest_amount,
             ErrorCode::BrokenInvariant
         );
-        if receipt.interest_paid == 0 {
-            require_eq!(request.interest_vault_credit, 0, ErrorCode::BrokenInvariant);
-        } else {
-            next_market.record_receivable_income_credit(
-                request.debt_asset,
-                false,
-                request.interest_vault_credit,
-                protocol_credit,
-                request.protocol_auction_split,
-                request.referral_interest_amount,
-            )?;
-        }
+        next_market
+            .side_mut(request.debt_asset)
+            .fees
+            .book_protocol_interest(request.protocol_auction_split, expected_referral)?;
         next_market.finalize_amm_transition(request.clock.slot)?;
         next_market.refresh_risk_at_slot(request.clock.slot)?;
 
         let mut cash = BenchmarkCashFlow::default();
-        let side = cash.side_mut(request.debt_asset);
-        side.reserve_vault_credit = receipt.cash_repaid;
-        side.reserve_vault_debit = interest_transfer;
-        side.interest_vault_credit = request.interest_vault_credit;
+        cash.side_mut(request.debt_asset).reserve_vault_credit = receipt.cash_repaid;
         let result = self.commit_position_execution(
             position,
             next_market,
@@ -3455,8 +3256,6 @@ impl BenchmarkMarket {
             owner_quote_balance: 0,
             base_reserve_vault_balance: required_reserve_custody(&self.market.base_side)?,
             quote_reserve_vault_balance: required_reserve_custody(&self.market.quote_side)?,
-            base_interest_vault_balance: self.market.base_side.fees.interest_vault_balance,
-            quote_interest_vault_balance: self.market.quote_side.fees.interest_vault_balance,
             base_collateral_vault_balance,
             quote_collateral_vault_balance,
         })
@@ -3503,12 +3302,17 @@ impl BenchmarkMarket {
         let clock = request.preview.plan.clock;
         advance_market_to_slot(&mut next_market, clock.slot)?;
         next_market.assert_started_at(clock.unix_timestamp)?;
+        let debt_asset = request.preview.plan.debt_asset;
+        let protocol_pending_before = next_market.side(debt_asset).fees.ledger.protocol_pending;
         let preview = preview_liquidation_on_state(
             &mut next_market,
             &mut next_position,
             request.preview,
             self.transfer_fees,
         )?;
+        // Paid interest stays in reserve cash; its protocol share is what the
+        // settlement moved to `protocol_pending`.
+        let protocol_credit = next_market.side(debt_asset).fees.ledger.protocol_pending - protocol_pending_before;
         match preview.plan.phase {
             BenchmarkLiquidationPhase::Bid => {
                 require!(request.max_repay_source_debit > 0, ErrorCode::AmountZero);
@@ -3584,22 +3388,6 @@ impl BenchmarkMarket {
                 );
             }
         }
-        let (interest_transfer, protocol_credit) = benchmark_public_interest_payment(
-            &mut next_market,
-            preview.plan.debt_asset,
-            preview.native.interest_paid,
-            request.interest_transfer.destination_credit,
-        )?;
-        require_eq!(
-            request.interest_transfer.source_debit,
-            interest_transfer,
-            ErrorCode::BrokenInvariant
-        );
-        require_gte!(
-            request.interest_transfer.source_debit,
-            request.interest_transfer.destination_credit,
-            ErrorCode::BrokenInvariant
-        );
         require_eq!(
             request.collateral_transfer.source_debit,
             preview.native.collateral_to_liquidator,
@@ -3645,7 +3433,6 @@ impl BenchmarkMarket {
             self.require_market_key()?,
             next_market.side(preview.plan.debt_asset).asset_mint,
             preview.native.interest_paid,
-            request.interest_transfer.destination_credit,
             protocol_credit,
         )?;
         require_eq!(
@@ -3653,32 +3440,11 @@ impl BenchmarkMarket {
             request.referral_interest_amount,
             ErrorCode::BrokenInvariant
         );
-        if preview.native.interest_paid > 0 {
-            next_market.record_receivable_income_credit(
-                preview.plan.debt_asset,
-                false,
-                request.interest_transfer.destination_credit,
-                protocol_credit,
-                request.protocol_auction_split,
-                request.referral_interest_amount,
-            )?;
-        } else {
-            require_eq!(
-                request.interest_transfer.destination_credit,
-                0,
-                ErrorCode::BrokenInvariant
-            );
-        }
+        next_market
+            .side_mut(preview.plan.debt_asset)
+            .fees
+            .book_protocol_interest(request.protocol_auction_split, expected_referral)?;
         let collateral_asset = preview.plan.debt_asset.opposite();
-        debit_balance(
-            liquidation_reserve_balance_mut(&mut next_balances, preview.plan.debt_asset),
-            request.interest_transfer.source_debit,
-        )?;
-        let interest_balance = match preview.plan.debt_asset {
-            MarketAsset::Base => &mut next_balances.base_interest_vault_balance,
-            MarketAsset::Quote => &mut next_balances.quote_interest_vault_balance,
-        };
-        credit_balance(interest_balance, request.interest_transfer.destination_credit)?;
         debit_balance(
             liquidation_collateral_balance_mut(&mut next_balances, collateral_asset),
             request.collateral_transfer.source_debit,
@@ -3699,11 +3465,9 @@ impl BenchmarkMarket {
             liquidation_collateral_balance_mut(&mut next_balances, collateral_asset),
             request.junior_fee_transfer.source_debit,
         )?;
+        // Junior liquidation coverage lands in the reserve vault.
         credit_balance(
-            match collateral_asset {
-                MarketAsset::Base => &mut next_balances.base_interest_vault_balance,
-                MarketAsset::Quote => &mut next_balances.quote_interest_vault_balance,
-            },
+            liquidation_reserve_balance_mut(&mut next_balances, collateral_asset),
             request.junior_fee_transfer.destination_credit,
         )?;
         require_eq!(
@@ -3737,18 +3501,9 @@ impl BenchmarkMarket {
                 MarketAsset::Base => next_balances.base_reserve_vault_balance,
                 MarketAsset::Quote => next_balances.quote_reserve_vault_balance,
             };
-            let interest_balance = match asset {
-                MarketAsset::Base => next_balances.base_interest_vault_balance,
-                MarketAsset::Quote => next_balances.quote_interest_vault_balance,
-            };
             require_gte!(
                 reserve_balance,
                 required_reserve_custody(next_market.side(asset))?,
-                ErrorCode::UnbackedFeeLiability
-            );
-            require_gte!(
-                interest_balance,
-                next_market.side(asset).fees.interest_vault_balance,
                 ErrorCode::UnbackedFeeLiability
             );
         }
@@ -3756,17 +3511,15 @@ impl BenchmarkMarket {
         let mut cash = BenchmarkCashFlow::default();
         let debt_cash = cash.side_mut(preview.plan.debt_asset);
         debt_cash.reserve_vault_credit = request.debt_transfer.destination_credit;
-        debt_cash.reserve_vault_debit = request
-            .interest_transfer
-            .source_debit
-            .checked_add(request.owner_residual_transfer.source_debit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        debt_cash.interest_vault_credit = request.interest_transfer.destination_credit;
+        debt_cash.reserve_vault_debit = request.owner_residual_transfer.source_debit;
         debt_cash.recipient_credit = request.owner_residual_transfer.destination_credit;
         let collateral_cash = cash.side_mut(preview.plan.debt_asset.opposite());
-        collateral_cash.reserve_vault_credit = request.collateral_swap_transfer.destination_credit;
+        collateral_cash.reserve_vault_credit = request
+            .collateral_swap_transfer
+            .destination_credit
+            .checked_add(request.junior_fee_transfer.destination_credit)
+            .ok_or(ErrorCode::MarketMathOverflow)?;
         collateral_cash.collateral_vault_debit = preview.native.collateral_seized;
-        collateral_cash.interest_vault_credit = request.junior_fee_transfer.destination_credit;
         collateral_cash.recipient_credit = request.collateral_transfer.destination_credit;
 
         let position_after = borrow_position_checkpoint(&next_position, &next_market.debt)?;
@@ -3774,7 +3527,6 @@ impl BenchmarkMarket {
             plan: preview.plan,
             native: preview.native,
             debt_transfer: request.debt_transfer,
-            interest_transfer: request.interest_transfer,
             collateral_transfer: request.collateral_transfer,
             collateral_swap_transfer: request.collateral_swap_transfer,
             owner_residual_transfer: request.owner_residual_transfer,
@@ -3970,14 +3722,11 @@ fn prepare_floor_liquidation_plan(
                 reserve_credit: request.collateral_reserve_credit,
                 protocol_fee_bps: request.protocol_swap_fee_bps,
             }
-            .prepare_with_cash_policy(
-                market,
-                SwapCashPolicy::Liquidate {
+            .prepare_with_cash_policy(market, SwapCashPolicy::Liquidate {
                     debt_asset: request.debt_asset,
                     debt_shares: 0,
                     debt_principal: 0,
-                },
-            )?,
+                })?,
         )
     } else {
         None
@@ -4131,15 +3880,9 @@ fn apply_hlp_entry_after_prepare(
     external: &mut BenchmarkHlpOwnedState,
     counterpart: &mut BenchmarkHlpOwnedState,
     request: BenchmarkHlpEntryRequest,
-    preview_funding: bool,
 ) -> Result<(SingleSidedLiquidityReceipt, BenchmarkCashFlow)> {
     require!(request.target_transfer.source_debit > 0, ErrorCode::AmountZero);
     require!(request.target_transfer.destination_credit > 0, ErrorCode::AmountZero);
-    let eligibility = HlpYieldEligibility {
-        srlp_supply: market.base_side.shares.srlp_supply,
-        base_hlp_srlp_shares: market.base_hlp_vault.srlp_shares,
-        quote_hlp_srlp_shares: market.quote_hlp_vault.srlp_shares,
-    };
     let native = market.deposit_single_sided(
         external.target_asset,
         request.target_transfer.destination_credit,
@@ -4147,27 +3890,11 @@ fn apply_hlp_entry_after_prepare(
     )?;
     let mut cash = BenchmarkCashFlow::default();
     for owned in [&mut *external, counterpart] {
-        let t = owned.target_asset.code() as usize;
-        let receipt = native.rebalances[t];
-        let transfer = if preview_funding {
-            BenchmarkTokenTransferOutcome {
-                source_debit: receipt.interest_paid,
-                destination_credit: receipt.interest_paid,
-            }
-        } else {
-            request.funding.transfers[t]
-        };
-        apply_hlp_rebalance_settlement(
-            market,
-            owned,
-            receipt,
-            eligibility,
-            transfer,
-            request.funding.protocol_interest_fee_bps,
-            request.funding.protocol_auction_split,
-            &mut cash,
-        )?;
+        apply_hlp_rebalance_settlement(owned, native.rebalances[owned.target_asset.code() as usize])?;
     }
+    // Funding settled by the entry stays in reserve cash; the instruction
+    // books its protocol share.
+    market.book_protocol_interest(request.funding.protocol_auction_split)?;
     market.finalize_amm_transition_and_observe_risk(request.clock.slot)?;
 
     let (base_swap_growth, base_interest_growth) =
@@ -4526,20 +4253,6 @@ fn leverage_reserve_vault_balance_mut(balances: &mut BenchmarkLeverageTokenBalan
     }
 }
 
-fn leverage_interest_vault_balance(balances: &BenchmarkLeverageTokenBalances, asset: MarketAsset) -> u64 {
-    match asset {
-        MarketAsset::Base => balances.base_interest_vault_balance,
-        MarketAsset::Quote => balances.quote_interest_vault_balance,
-    }
-}
-
-fn leverage_interest_vault_balance_mut(balances: &mut BenchmarkLeverageTokenBalances, asset: MarketAsset) -> &mut u64 {
-    match asset {
-        MarketAsset::Base => &mut balances.base_interest_vault_balance,
-        MarketAsset::Quote => &mut balances.quote_interest_vault_balance,
-    }
-}
-
 fn leverage_collateral_vault_balance(balances: &BenchmarkLeverageTokenBalances, asset: MarketAsset) -> u64 {
     match asset {
         MarketAsset::Base => balances.base_leverage_collateral_vault_balance,
@@ -4557,6 +4270,9 @@ fn leverage_collateral_vault_balance_mut(
     }
 }
 
+/// The reserve vault holds cash (including paid, unclaimed interest), swap
+/// fee custody, hLP backing, the protected recenter bucket, and the protocol
+/// interest already paid but not yet sold or claimed.
 fn required_reserve_custody(side: &MarketSide) -> Result<u64> {
     let hlp_backing_inventory = side.reserves.total_hlp_backing_inventory()?;
     side.reserves
@@ -4564,6 +4280,10 @@ fn required_reserve_custody(side: &MarketSide) -> Result<u64> {
         .checked_add(side.fees.swap_fee_custody_balance)
         .and_then(|value| value.checked_add(hlp_backing_inventory))
         .and_then(|value| value.checked_add(side.reserves.protected_recenter_reserve))
+        .and_then(|value| value.checked_add(side.fees.referral_interest_liability))
+        .and_then(|value| value.checked_add(side.fees.interest_protocol_fee_liability))
+        .and_then(|value| value.checked_add(side.fees.interest_buyback_fee_liability))
+        .and_then(|value| value.checked_add(side.fees.ledger.protocol_pending))
         .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
 }
 
@@ -4574,45 +4294,8 @@ fn validate_leverage_token_custody(market: &Market, balances: &BenchmarkLeverage
             required_reserve_custody(market.side(asset))?,
             ErrorCode::UnbackedFeeLiability
         );
-        require_gte!(
-            leverage_interest_vault_balance(balances, asset),
-            market.side(asset).fees.interest_vault_balance,
-            ErrorCode::UnbackedFeeLiability
-        );
     }
     Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn apply_leverage_hlp_settlement(
-    market: &mut Market,
-    external: &mut BenchmarkHlpOwnedState,
-    receipt: HlpRebalanceReceipt,
-    interest_eligibility: HlpYieldEligibility,
-    interest_transfer: BenchmarkTokenTransferOutcome,
-    policy: BenchmarkLeveragePolicy,
-    balances: &mut BenchmarkLeverageTokenBalances,
-    cash: &mut BenchmarkCashFlow,
-) -> Result<()> {
-    let borrowed_asset = external.target_asset.opposite();
-    *leverage_reserve_vault_balance_mut(balances, borrowed_asset) =
-        leverage_reserve_vault_balance(balances, borrowed_asset)
-            .checked_sub(interest_transfer.source_debit)
-            .ok_or(ErrorCode::InsufficientLiquidity)?;
-    *leverage_interest_vault_balance_mut(balances, borrowed_asset) =
-        leverage_interest_vault_balance(balances, borrowed_asset)
-            .checked_add(interest_transfer.destination_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-    apply_hlp_rebalance_settlement(
-        market,
-        external,
-        receipt,
-        interest_eligibility,
-        interest_transfer,
-        policy.protocol_interest_fee_bps,
-        policy.protocol_auction_split,
-        cash,
-    )
 }
 
 fn leverage_metrics(
@@ -4739,8 +4422,6 @@ fn empty_yield_account() -> YieldAccount {
         interest_remainder_q64: 0,
         bump: 0,
         escrow_balance: 0,
-        income_initialized: false,
-        income: Default::default(),
     }
 }
 
@@ -4786,10 +4467,7 @@ fn clone_market(market: &Market) -> Result<Market> {
 
 fn carry_forward_all_srlp_revenue(market: &mut Market) -> Result<()> {
     market.base_side.carry_forward_swap_fees()?;
-    market.base_side.carry_forward_interest()?;
-    market.quote_side.carry_forward_swap_fees()?;
-    market.quote_side.carry_forward_interest()?;
-    Ok(())
+    market.quote_side.carry_forward_swap_fees()
 }
 
 fn referral_binding(position: &BorrowPosition, debt_asset: MarketAsset) -> (Pubkey, u16) {
@@ -4800,26 +4478,12 @@ fn referral_binding(position: &BorrowPosition, debt_asset: MarketAsset) -> (Pubk
 }
 
 /// Clear previously purchased coupons before counting a repayment as fresh LP income.
-fn benchmark_public_interest_payment(
-    market: &mut Market,
-    asset: MarketAsset,
-    paid: u64,
-    credit: u64,
-) -> Result<(u64, u64)> {
-    let (fresh, frozen) = market.side_mut(asset).fees.public_interest_advance.take_payment(paid)?;
-    let transfer = fresh.checked_add(frozen).ok_or(ErrorCode::FeeMathOverflow)?;
-    require_gte!(transfer, credit, ErrorCode::FeeMathOverflow);
-    let protocol = market.quote_interest_revenue_credit(asset, false, credit)?.protocol;
-    Ok((transfer, protocol))
-}
-
 fn accrue_benchmark_referral_interest(
     binding: (Pubkey, u16),
     referral: Option<&mut BenchmarkReferralOwnedState>,
     market_key: Pubkey,
     asset_mint: Pubkey,
     interest_paid: u64,
-    interest_vault_credit: u64,
     protocol_credit: u64,
 ) -> Result<u64> {
     let interest_share_bps = if binding.0 == Pubkey::default() {
@@ -4832,12 +4496,7 @@ fn accrue_benchmark_referral_interest(
         require_keys_eq!(referral.partner_key, binding.0, ErrorCode::InvalidReferralPartner);
         Some(binding.1)
     };
-    let quote = ReferralInterestQuote::with_protocol_revenue(
-        interest_paid,
-        interest_vault_credit,
-        protocol_credit,
-        interest_share_bps,
-    )?;
+    let quote = ReferralInterestQuote::with_protocol_revenue(interest_paid, protocol_credit, interest_share_bps)?;
     if quote.referral_amount > 0 {
         referral
             .ok_or(ErrorCode::InvalidReferralAccrual)?
@@ -4853,18 +4512,17 @@ fn revenue_side_checkpoint(side: &MarketSide) -> BenchmarkRevenueSideCheckpoint 
         interest_growth_index_q64: side.fees.interest_growth_index_q64,
         swap_fee_growth_remainder_scaled: side.fees.swap_fee_growth_remainder_scaled,
         interest_growth_remainder_scaled: side.fees.interest_growth_remainder_scaled,
-        hlp_funding_interest_growth_remainder_scaled: side.fees.hlp_funding_interest_growth_remainder_scaled,
         lp_swap_fee_liability: side.fees.swap_fee_liability,
-        lp_interest_liability: side.fees.interest_liability,
+        credited_interest: side.fees.ledger.credited,
+        protocol_unpaid_interest: side.fees.ledger.protocol_unpaid,
+        operator_claimable_interest: side.fees.ledger.operator_claimable,
         unallocated_lp_swap_fee_liability: side.fees.unallocated_swap_fee_liability,
-        unallocated_lp_interest_liability: side.fees.unallocated_interest_liability,
         protocol_swap_fee_liability: side.fees.swap_protocol_fee_liability,
         protocol_interest_fee_liability: side.fees.interest_protocol_fee_liability,
         buyback_swap_fee_liability: side.fees.swap_buyback_fee_liability,
         buyback_interest_fee_liability: side.fees.interest_buyback_fee_liability,
         referral_interest_liability: side.fees.referral_interest_liability,
         swap_fee_custody_balance: side.fees.swap_fee_custody_balance,
-        interest_vault_balance: side.fees.interest_vault_balance,
     }
 }
 
@@ -4885,11 +4543,6 @@ fn checked_public_interest_side_transition(
         outstanding_after_clock_before_transition,
         outstanding_before_operation,
         ErrorCode::BrokenInvariant
-    );
-    require_gte!(
-        payment.gross_cash_interest_paid,
-        payment.net_interest_vault_credit,
-        ErrorCode::FeeMathOverflow
     );
     let clock_accrued = outstanding_after_clock_before_transition
         .checked_sub(outstanding_before_operation)
@@ -4956,7 +4609,6 @@ fn checked_public_interest_side_transition(
         clock_accrued,
         transition_interest_created,
         gross_cash_interest_paid,
-        net_interest_vault_credit: u128::from(payment.net_interest_vault_credit),
         total_interest_removed,
         interest_written_off,
     })
@@ -5115,6 +4767,8 @@ fn execute_swap(
         request.protocol_fee_bps,
         request.protocol_auction_split,
     )?;
+    // The swap instruction books the funding protocol share it paid.
+    market.book_protocol_interest(request.protocol_auction_split)?;
     Ok(BenchmarkSwapExecution {
         quote,
         base_rebalance: finalized.base_rebalance,
@@ -5124,17 +4778,9 @@ fn execute_swap(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_hlp_rebalance_settlement(
-    market: &mut Market,
-    external: &mut BenchmarkHlpOwnedState,
-    receipt: HlpRebalanceReceipt,
-    interest_eligibility: HlpYieldEligibility,
-    interest_transfer: BenchmarkTokenTransferOutcome,
-    protocol_interest_fee_bps: u16,
-    protocol_auction_split: ProtocolAuctionSplit,
-    cash: &mut BenchmarkCashFlow,
-) -> Result<()> {
+/// Mirror a rebalance's srLP mint or burn in the vault's token account.
+/// Funding interest the vault paid stays in reserve cash; no token moves.
+fn apply_hlp_rebalance_settlement(external: &mut BenchmarkHlpOwnedState, receipt: HlpRebalanceReceipt) -> Result<()> {
     require!(receipt.target_asset == external.target_asset, ErrorCode::InvalidMint);
     require!(
         receipt.srlp_mint_amount == 0 || receipt.srlp_burn_amount == 0,
@@ -5145,40 +4791,6 @@ fn apply_hlp_rebalance_settlement(
         .checked_add(receipt.srlp_mint_amount)
         .and_then(|value| value.checked_sub(receipt.srlp_burn_amount))
         .ok_or(ErrorCode::InsufficientBalance)?;
-    require_eq!(
-        interest_transfer.source_debit,
-        receipt.interest_paid,
-        ErrorCode::BrokenInvariant
-    );
-    let borrowed_asset = external.target_asset.opposite();
-    if receipt.interest_paid == 0 {
-        require_eq!(interest_transfer.destination_credit, 0, ErrorCode::BrokenInvariant);
-    } else {
-        record_inline_hlp_interest_credit(
-            market,
-            borrowed_asset,
-            interest_transfer.destination_credit,
-            protocol_interest_fee_bps,
-            protocol_auction_split,
-            interest_eligibility,
-        )?;
-        let measured_credits = match borrowed_asset {
-            MarketAsset::Base => &mut external.measured_base_interest_vault_credits,
-            MarketAsset::Quote => &mut external.measured_quote_interest_vault_credits,
-        };
-        *measured_credits = measured_credits
-            .checked_add(interest_transfer.destination_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-    }
-    let borrowed_cash = cash.side_mut(borrowed_asset);
-    borrowed_cash.reserve_vault_debit = borrowed_cash
-        .reserve_vault_debit
-        .checked_add(receipt.interest_paid)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
-    borrowed_cash.interest_vault_credit = borrowed_cash
-        .interest_vault_credit
-        .checked_add(interest_transfer.destination_credit)
-        .ok_or(ErrorCode::MarketMathOverflow)?;
     Ok(())
 }
 

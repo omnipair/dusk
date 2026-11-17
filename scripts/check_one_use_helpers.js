@@ -426,9 +426,6 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/transitions/amm/compounding.rs", new Set(["prepare_post_settlement_compounding"])],
   // All derived hedge fields must move with a fee-adjusted endpoint; keep the
   // refresh beside the endpoint materialization and signed rounding rules.
-  // Explicit NAV-to-coupon conversion boundary, tested at rounding limits and
-  // with negative funded but positive total hLP equity.
-  ["programs/dusk/src/transitions/tranches/market_income.rs", new Set(["quote_hlp_capitalization_for_value"])],
   // Bounded fixed-point exp2/log2 kernels are kept separate so their precision,
   // iteration limits and overflow behavior can be reviewed independently of
   // the controller's economic branches. apply is the debt-index carry boundary.
@@ -436,18 +433,28 @@ const acceptedOneUseHelpers = new Map([
   ["programs/dusk/src/transitions/tranches/risk_rate_book.rs", new Set(["apply"])],
   // Pure event construction is tested without Anchor account fixtures; the
   // instruction helper emits the result through the shared self-CPI path.
-  // New hLP income allocation is a pure transition boundary: economic tests
-  // exercise conservation without custody CPIs; the instruction moves exactly
-  // its returned debits and credits atomically.
-  ["programs/dusk/src/transitions/liquidity/hlp/harvest.rs", new Set(["settle_new_hlp_public_interest"])],
+  // Each accrual chunk and the vault netting step run in their own SBF frames
+  // (u128 split, index and debt-share locals). Accrual is the only recognition
+  // that nets, through its own entry point, so a prepared hLP plan never sees
+  // its vault debt change between preparation and consumption. The paid-interest
+  // booking order (referral carved before anything else books) is a pure kernel
+  // exercised natively for every settlement path without Anchor referral accounts.
+  // The swap cash floor's protocol-share bound is a ledger rounding rule tested
+  // against every settlement order on its own.
+  [
+    "programs/dusk/src/transitions/interest_ledger.rs",
+    new Set([
+      "credit_interest_chunk",
+      "net_vault_funding",
+      "recognize_accrued_interest",
+      "book_paid_protocol_interest",
+      "protocol_share_bound",
+    ]),
+  ],
   // Flash session boundaries are pure accounting kernels, separately exercised
   // without token CPIs; instructions bind them to custody and atomic settlement.
   ["programs/dusk/src/transitions/liquidity/hlp/flash.rs", new Set(["begin_hlp_flash_recovery", "settle_hlp_flash_recovery"])],
   ["programs/dusk/src/transitions/liquidity/hlp/flash_terminal.rs", new Set(["settle_terminal_hlp_flash"])],
-  // The advance ledger's funding and one-shot payment consumption boundaries
-  // own the frozen fee and transient-credit invariants. Keep these independently
-  // testable from reserve mutation and Token-2022 CPIs.
-  ["programs/dusk/src/transitions/interest_advance.rs", new Set(["take_payment"])],
   // Emergency inventory preparation must remain separate from executable
   // swaps: a virtual pricing endpoint must never become an hLP/reserve plan.
   ["programs/dusk/src/transitions/amm/liquidation.rs", new Set(["prepare_ema_liquidation"])],
@@ -477,6 +484,9 @@ const acceptedOneUseHelpers = new Map([
   [
     "programs/dusk/src/transitions/amm/mod.rs",
     new Set([
+      // Reads both hLP vaults' indexed debt; kept out of the quote
+      // finalization frame, which sits near the SBF stack-frame limit.
+      "hlp_funding_accrued",
       // Complete swaps now have one caller for these AMM-owned ledger/observation kernels.
       // These freeze a complete book/curve quote and isolate temporary geometry
       // so neither routine's caller exceeds the SBF stack-frame limit.
@@ -558,8 +568,21 @@ const acceptedOneUseHelpers = new Map([
       // Quote finalization must derive its point from the private, atom-rounded
       // ownership/debt plan rather than duplicate that accounting in the AMM.
       "debt_deltas",
+      // The swap reads whether the plan pays funding before consuming it; the
+      // paid amounts stay private to the plan.
+      "pays_funding",
+      // The oracle solver prices a trade at the plan's private, unscaled
+      // spot-preserving point.
+      "trade_pricing_point_nad",
       "hlp_valuation_from_values",
       "signed_value_difference",
+      // A deficit market freezes vaults on the terminal close's own EMA marks,
+      // which stay private to the waterfall; the curve-free AMM observation
+      // calls it and keeps the deficit-only work off its stack frame.
+      "freeze_ema_insolvent_hlp_vaults",
+      // A solvent wind-down's in-kind remainder runs in its own SBF frame so
+      // the terminal waterfall's frame stays under the 4 KB limit.
+      "return_wind_down_remainder",
     ]),
   ],
   [

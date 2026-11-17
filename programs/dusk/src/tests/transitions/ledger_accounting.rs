@@ -104,6 +104,7 @@ fn distributed_surcharge_uses_the_current_swap_eligible_supply() {
 #[test]
 fn interest_protocol_fee_splits_between_auction_lanes_at_accrual() {
     let mut side = MarketSide::default();
+    side.shares.srlp_supply = 1_000;
     let receipt = side
         .record_interest_credit(
             10_000,
@@ -119,8 +120,9 @@ fn interest_protocol_fee_splits_between_auction_lanes_at_accrual() {
     assert_eq!(receipt.referral_interest_liability, 250);
     assert_eq!(receipt.protocol_fee_liability, 300);
     assert_eq!(receipt.buyback_fee_liability, 450);
-    assert_eq!(receipt.unallocated_interest_liability, 9_000);
-    assert_eq!(receipt.interest_vault_balance, 10_000);
+    // The LP share arrives in cash and is credited to holders at once.
+    assert_eq!(receipt.credited, 9_000);
+    assert_eq!(side.reserves.cash_reserve, 9_000);
     side.fees.assert_backed().unwrap();
 }
 

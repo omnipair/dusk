@@ -1,14 +1,6 @@
 use super::*;
 use crate::{constants::*, math::*, state::*};
 
-impl DebtClearance {
-    pub fn live_debit_for_cash_repay(&self) -> Result<u64> {
-        self.aggregate_debt_reduced
-            .checked_sub(self.principal_paid)
-            .ok_or_else(|| ErrorCode::MarketMathOverflow.into())
-    }
-}
-
 impl Debt {
     pub fn debt_to_shares(amount: u64, borrow_index_nad: u128) -> Result<u128> {
         require!(amount > 0, ErrorCode::AmountZero);
@@ -301,10 +293,6 @@ impl Debt {
         })
     }
 
-    /// Reduce tracked margin principal for a cash-backed fixed-debt repayment,
-    /// returning the realized *interest* portion (the non-compounding interest
-    /// the caller should route to the interest vault). Uses the side's blended
-    /// principal/debt ratio, which is aggregate-conservative across positions.
     pub fn fixed_base_debt(&self) -> Result<u128> {
         Self::shares_to_debt(self.fixed_base_shares, self.base_borrow_index_nad)
     }
@@ -350,6 +338,7 @@ impl DebtReceipt {
         Ok(Self {
             debt_delta,
             cash_repaid,
+            protocol_paid: 0,
             interest_paid,
             fixed_base_debt: market.debt.fixed_base_debt()?,
             fixed_quote_debt: market.debt.fixed_quote_debt()?,
@@ -399,6 +388,8 @@ pub struct DebtWriteoff {
 pub struct DebtReceipt {
     pub debt_delta: i128,
     pub cash_repaid: u64,
+    /// Protocol share of `interest_paid`, moved to `protocol_pending`.
+    pub protocol_paid: u64,
     pub interest_paid: u64,
     pub fixed_base_debt: u128,
     pub fixed_quote_debt: u128,

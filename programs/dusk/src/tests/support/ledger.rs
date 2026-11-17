@@ -57,6 +57,11 @@ impl MarketSide {
         )
     }
 
+    /// Test helper: interest already paid in cash and credited to holders.
+    /// The LP share arrives in reserve cash and is indexed over
+    /// `eligible_srlp_supply` (junior first, then senior); the protocol share
+    /// is booked as liabilities held in the vault outside cash. The curve
+    /// reserve does not move.
     pub fn record_interest_credit_with_supply(
         &mut self,
         interest_credit: u64,
@@ -68,61 +73,32 @@ impl MarketSide {
         if interest_credit == 0 {
             return FeesReceipt::from_side(self);
         }
-        let (protocol_fee, _) = split_revenue(interest_credit, protocol_fee_bps)?;
-        let lp_interest = self.record_interest_custody(
-            interest_credit,
-            protocol_fee,
-            protocol_auction_split,
-            referral_interest_amount,
-        )?;
-        self.fees.unallocated_interest_liability = self
+        let protocol_fee = (u128::from(interest_credit) * u128::from(protocol_fee_bps) / 10_000) as u64;
+        let lp_interest = interest_credit - protocol_fee;
+        self.fees
+            .credit_protocol_interest_revenue(protocol_fee, protocol_auction_split, referral_interest_amount)?;
+        self.credit_reserve(lp_interest, true)?;
+        self.fees.ledger.credited = self
             .fees
-            .unallocated_interest_liability
-            .checked_add(lp_interest)
+            .ledger
+            .credited
+            .checked_add(u128::from(lp_interest))
             .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.carry_forward_interest_with_supply(eligible_srlp_supply)?;
+        let senior = self.fees.junior.allocate(
+            lp_interest,
+            crate::transitions::tranches::TrancheRevenueSource::BorrowInterest,
+        )?;
+        if senior > 0 {
+            let supply = self.fees.junior.senior_supply(eligible_srlp_supply)?;
+            let (growth, carry) = distribute_growth_q64(senior, supply, self.fees.interest_growth_remainder_scaled)?;
+            self.fees.interest_growth_index_q64 = self
+                .fees
+                .interest_growth_index_q64
+                .checked_add(growth)
+                .ok_or(ErrorCode::MarketMathOverflow)?;
+            self.fees.interest_growth_remainder_scaled = carry;
+        }
         self.fees.assert_backed()?;
         FeesReceipt::from_side(self)
-    }
-}
-
-impl MarketSide {
-    pub(crate) fn record_interest_custody(
-        &mut self,
-        interest_credit: u64,
-        protocol_fee: u64,
-        protocol_auction_split: ProtocolAuctionSplit,
-        referral_interest_amount: u64,
-    ) -> Result<u64> {
-        let lp_interest = interest_credit
-            .checked_sub(protocol_fee)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
-        require_gte!(protocol_fee, referral_interest_amount, ErrorCode::FeeMathOverflow);
-        let remaining_protocol_fee = protocol_fee
-            .checked_sub(referral_interest_amount)
-            .ok_or(ErrorCode::FeeMathOverflow)?;
-        let (fee_auction_amount, buyback_auction_amount) =
-            split_protocol_auction_fee(remaining_protocol_fee, &protocol_auction_split)?;
-        self.fees.interest_vault_balance = self
-            .fees
-            .interest_vault_balance
-            .checked_add(interest_credit)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.referral_interest_liability = self
-            .fees
-            .referral_interest_liability
-            .checked_add(referral_interest_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_protocol_fee_liability = self
-            .fees
-            .interest_protocol_fee_liability
-            .checked_add(fee_auction_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        self.fees.interest_buyback_fee_liability = self
-            .fees
-            .interest_buyback_fee_liability
-            .checked_add(buyback_auction_amount)
-            .ok_or(ErrorCode::MarketMathOverflow)?;
-        Ok(lp_interest)
     }
 }

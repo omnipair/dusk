@@ -2,7 +2,7 @@ use anchor_lang::{prelude::*, solana_program::instruction::Instruction, Event};
 
 use crate::{
     events::{BorrowInterestAccrued, BorrowInterestPaid, DebtSource, HlpRebalanced},
-    state::{Market, MarketAsset, ReferralInterestQuote},
+    state::{FutarchyAuthority, Market, MarketAsset, ReferralInterestQuote},
     token::invoke_signed_reusing_instruction,
     transitions::{lending::accrue_side, HlpRebalanceReceipt},
 };
@@ -109,7 +109,6 @@ pub(crate) fn emit_interest_paid_with_instruction<'info>(
             source,
             position,
             interest_paid: quote.interest_paid,
-            interest_vault_credit: quote.interest_vault_credit,
             protocol_interest_revenue: quote.protocol_interest_revenue,
             referral_amount: quote.referral_amount,
             caller_bounty,
@@ -137,14 +136,17 @@ pub(crate) fn emit_hlp_rebalanced<'info>(
 
 /// Checkpoint a real market account, before changing any debt shares. Scratch
 /// quotes use the quiet domain transition, so they never publish accruals.
+/// Protocol interest paid by netting at accrual is booked here.
 pub(crate) fn accrue_market_interest<'info>(
     market: &mut Account<'info, Market>,
     current_slot: u64,
     event_authority: AccountInfo<'info>,
-    protocol_markup_bps: u16,
+    futarchy_authority: &FutarchyAuthority,
 ) -> Result<()> {
     let key = market.key();
     accrue_market_interest_data(market, key, current_slot, event_authority.clone())?;
+    market.book_protocol_interest(futarchy_authority.protocol_auction_split)?;
+    let protocol_markup_bps = futarchy_authority.revenue_share.interest_bps;
     // Elapsed debt and fee ownership close under the previous global setting.
     // The new authority value applies only to this market's future intervals.
     require!(
@@ -173,8 +175,6 @@ pub(crate) fn accrue_market_interest_data<'info>(
     current_slot: u64,
     event_authority: AccountInfo<'info>,
 ) -> Result<()> {
-    market.base_side.fees.public_interest_advance.require_settled()?;
-    market.quote_side.fees.public_interest_advance.require_settled()?;
     if market.debt.base_last_accrual_slot == current_slot && market.debt.quote_last_accrual_slot == current_slot {
         return market.accrue_interest_to_slot(current_slot);
     }
@@ -198,6 +198,10 @@ pub(crate) fn accrue_market_interest_data<'info>(
                     credit_interest: receipt.credit_interest,
                     margin_interest: receipt.margin_interest,
                     hlp_interest: receipt.hlp_interest,
+                    protocol_credit: receipt.credit.protocol,
+                    operator_credit: receipt.credit.operator,
+                    lp_credit: receipt.credit.lp,
+                    vault_netted: receipt.credit.netted,
                 },
                 event_authority.clone(),
                 &mut instruction,

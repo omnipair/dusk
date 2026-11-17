@@ -10,14 +10,13 @@ use crate::{
         accounting::emit_cpi_event_with_instruction,
         accounts::{require_reserve_custody, token_account_info_amount, token_program_for_mint, HlpSwapAccountLayout},
         flash_liquidation::*,
-        leverage::settlement::{record_leverage_interest, settle_inline_leverage_hlp},
+        leverage::settlement::{record_interest_paid, settle_inline_leverage_hlp},
         leverage_collateral_fee, leverage_collateral_liquidation_fee,
     },
     state::*,
     token::transfer_checked_with_remaining_accounts_and_instruction,
     transitions::{
-        amm_liquidation::EmergencyLiquidationQuote, flash_settlement::LiquidationPositionMut, HlpYieldEligibility,
-        LeverageSwapFeeCredit,
+        amm_liquidation::EmergencyLiquidationQuote, flash_settlement::LiquidationPositionMut, LeverageSwapFeeCredit,
     },
 };
 
@@ -79,7 +78,7 @@ impl<'info> EmergencyLiquidation<'info> {
             &mut a.market,
             clock.slot,
             ctx.accounts.event_authority.to_account_info(),
-            a.futarchy_authority.revenue_share.interest_bps,
+            &a.futarchy_authority,
         )?;
         a.market.update()?;
         a.validate(asset)?;
@@ -134,15 +133,6 @@ impl<'info> EmergencyLiquidation<'info> {
         let q = prepared.quote;
         require_gte!(q.reward_credit, args.min_reward_credit, ErrorCode::SlippageExceeded);
         require_gte!(q.swap_output, args.min_swap_output, ErrorCode::SlippageExceeded);
-        let eligibility = prepared
-            .swap
-            .as_ref()
-            .map(|s| s.interest_eligibility)
-            .unwrap_or(HlpYieldEligibility {
-                srlp_supply: a.market.base_side.shares.srlp_supply,
-                base_hlp_srlp_shares: a.market.base_hlp_vault.srlp_shares,
-                quote_hlp_srlp_shares: a.market.quote_hlp_vault.srlp_shares,
-            });
         let swap_quote = prepared.swap.as_ref().map(|s| s.leverage_quote());
         let (partner, share) = a.referral(asset)?;
         let layout = HlpSwapAccountLayout::try_from((&**a.market, ctx.remaining_accounts))?;
@@ -179,7 +169,7 @@ impl<'info> EmergencyLiquidation<'info> {
             q.collateral_credit,
             ErrorCode::BrokenInvariant
         );
-        let finalized = {
+        let (finalized, protocol_paid) = {
             let mut position = match (&mut a.borrow_position, &mut a.leverage_position) {
                 (Some(p), None) => LiquidationPositionMut::Borrow(p),
                 (None, Some(p)) => LiquidationPositionMut::Leverage(p),
@@ -197,19 +187,11 @@ impl<'info> EmergencyLiquidation<'info> {
         if let Some(finalized) = finalized {
             settle_inline_leverage_hlp(
                 &mut a.market,
-                &a.futarchy_authority,
-                asset,
-                &a.debt_mint,
-                &a.collateral_mint,
-                &a.reserve_vault,
-                &ctx.accounts.collateral_reserve_vault,
-                &a.token_program,
                 &a.token_2022_program,
                 ctx.remaining_accounts,
                 layout,
                 finalized.base_rebalance,
                 finalized.quote_rebalance,
-                eligibility,
                 ctx.accounts.event_authority.to_account_info(),
             )?;
         }
@@ -220,8 +202,6 @@ impl<'info> EmergencyLiquidation<'info> {
                 q.reward_credit,
             ),
             (a.owner_debt_account.to_account_info(), q.owner_debit, q.owner_credit),
-            (a.interest_vault.to_account_info(), q.junior_fee_debit, q.fee.junior),
-            (a.interest_vault.to_account_info(), q.revenue_fee_debit, q.fee.protocol),
         ] {
             if debit == 0 {
                 continue;
@@ -247,38 +227,25 @@ impl<'info> EmergencyLiquidation<'info> {
                 ErrorCode::BrokenInvariant
             );
         }
-        if q.fee.junior > 0 {
-            a.market
-                .side_mut(asset)
-                .record_junior_liquidation_credit(q.fee.junior)?;
-        }
+        // The sale output left cash whole; the junior fee returns to cash as
+        // credited junior interest and the protocol fee is booked as
+        // liabilities held in the reserve vault outside cash.
+        a.market.record_junior_liquidation_credit(asset, q.fee.junior)?;
         a.market
             .side_mut(asset)
             .record_liquidation_protocol_credit(q.fee.protocol, a.futarchy_authority.protocol_auction_split)?;
-        a.interest_vault.reload()?;
-        let referral_receipt = record_leverage_interest(
+        let referral_receipt = record_interest_paid(
             &mut a.market,
             asset,
             &a.debt_mint,
-            &mut a.reserve_vault,
-            &mut a.interest_vault,
-            &a.token_program,
-            &a.token_2022_program,
             &a.futarchy_authority,
             partner,
             share,
             a.referral_partner.as_deref(),
             a.referral_accrual.as_deref_mut(),
             q.loss.interest_paid,
-            eligibility,
-            ctx.remaining_accounts,
-            ctx.accounts.event_authority.to_account_info(),
-            Some(&mut cpi_instruction),
+            protocol_paid,
         )?;
-        a.market
-            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Base, eligibility.base_hlp_srlp_shares)?;
-        a.market
-            .checkpoint_hlp_yield_from_srlp_shares(MarketAsset::Quote, eligibility.quote_hlp_srlp_shares)?;
         super::flash_liquidation::emit_liquidation_interest(
             a,
             asset,
@@ -293,11 +260,6 @@ impl<'info> EmergencyLiquidation<'info> {
             ctx.accounts.collateral_reserve_vault.amount,
             a.market.side(asset.opposite()),
         )?;
-        require_gte!(
-            a.interest_vault.amount,
-            a.market.side(asset).fees.interest_vault_balance,
-            ErrorCode::UnbackedFeeLiability
-        );
         let position_key = a.position_key()?;
         let owner = a.owner()?;
         if let Some(swap) = swap_quote {
