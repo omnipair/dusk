@@ -7,6 +7,7 @@ on:
       - "programs/**"
       - "packages/dusk-sdk/**"
       - "scripts/release/**"
+      - "scripts/retirement/**"
       - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -17,6 +18,7 @@ on:
       - "programs/**"
       - "packages/dusk-sdk/**"
       - "scripts/release/**"
+      - "scripts/retirement/**"
       - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -27,6 +29,11 @@ on:
         description: "Full reviewed commit SHA to build (no branch or tag)"
         required: true
         type: string
+      profile:
+        description: "Unsigned candidate profile; retirement never publishes an SDK"
+        type: choice
+        default: production
+        options: [production, legacy-retirement]
 
 permissions:
   contents: read
@@ -105,14 +112,20 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
       - name: Check release tooling
-        run: node --test scripts/release/release.test.mjs
+        run: yarn check:release
       - name: Build smoke fixtures
+        if: inputs.profile != 'legacy-retirement'
         run: yarn build:litesvm:fixtures
       - name: Build both production programs reproducibly
+        if: inputs.profile != 'legacy-retirement'
         run: node scripts/release/build.mjs
+      - name: Build the isolated retirement candidate reproducibly
+        if: inputs.profile == 'legacy-retirement'
+        run: node scripts/retirement/build.mjs
       - name: Check build left the reviewed source unchanged
         run: git diff --exit-code
       - name: Upload immutable release bundle
+        if: inputs.profile != 'legacy-retirement'
         uses: actions/upload-artifact@v4
         with:
           name: dusk-mainnet-release-${{ env.SOURCE_COMMIT }}
@@ -120,6 +133,7 @@ jobs:
           if-no-files-found: error
           retention-days: 90
       - name: Upload exact release binaries and smoke fixtures
+        if: inputs.profile != 'legacy-retirement'
         uses: actions/upload-artifact@v4
         with:
           name: mainnet-release-litesvm-${{ env.SOURCE_COMMIT }}
@@ -128,8 +142,17 @@ jobs:
             target/idl/*.json
           if-no-files-found: error
           retention-days: 7
+      - name: Upload unsigned retirement candidate
+        if: inputs.profile == 'legacy-retirement'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dusk-retirement-release-${{ env.SOURCE_COMMIT }}
+          path: target/retirement-release/*
+          if-no-files-found: error
+          retention-days: 90
 
   test-release-binaries:
+    if: inputs.profile != 'legacy-retirement'
     needs: build
     runs-on: macos-15
     timeout-minutes: 30

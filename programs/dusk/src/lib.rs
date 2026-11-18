@@ -1,11 +1,21 @@
+#[cfg(all(feature = "legacy-retirement", not(feature = "production")))]
+compile_error!("Legacy retirement requires the explicit production profile.");
+#[cfg(all(
+    feature = "legacy-retirement",
+    any(feature = "benchmark", feature = "devnet-short-notice")
+))]
+compile_error!("Legacy retirement cannot enable benchmark or devnet notice behavior.");
+
 #[cfg(all(feature = "production", feature = "devnet-short-notice"))]
 compile_error!("The devnet notice test cannot be enabled in a production build.");
 
+#[cfg(not(feature = "legacy-retirement"))]
 use crate::errors::ErrorCode;
 use anchor_lang::prelude::*;
 
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod account;
-#[cfg(feature = "benchmark")]
+#[cfg(all(feature = "benchmark", not(feature = "legacy-retirement")))]
 /// Off-chain-only access to Dusk's native market transitions.
 ///
 /// This module is available only with the non-default `benchmark` feature. It
@@ -14,21 +24,33 @@ pub mod account;
 pub mod benchmark_api {
     include!("../benchmark/benchmark_api.rs");
 }
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod constants;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod errors;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod events;
 // The program's own allocator; consumers that embed Dusk keep theirs.
 #[cfg(all(feature = "custom-heap", not(feature = "no-entrypoint")))]
 mod heap;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod instructions;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod math;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod oracle;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod state;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod token;
+#[cfg(not(feature = "legacy-retirement"))]
 pub mod transitions;
 
+#[cfg(not(feature = "legacy-retirement"))]
 pub use instructions::*;
+#[cfg(not(feature = "legacy-retirement"))]
 pub use state::*;
+#[cfg(not(feature = "legacy-retirement"))]
 use transitions::amm_liquidation::EmergencyLiquidationQuote;
 
 #[cfg(not(feature = "no-entrypoint"))]
@@ -52,6 +74,7 @@ declare_id!("DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj");
 /// against the debt it measures (`Market::assert_interest_ledgers`), so a
 /// missed settlement fails in the instruction that left it instead of being
 /// written off as a loss by a later recognition.
+#[cfg(not(feature = "legacy-retirement"))]
 macro_rules! ledger_checked {
     ($ctx:ident, $($market:ident).+, $handler:expr) => {{
         let Context {
@@ -68,6 +91,7 @@ macro_rules! ledger_checked {
     }};
 }
 
+#[cfg(not(feature = "legacy-retirement"))]
 #[program]
 pub mod dusk {
     use super::*;
@@ -720,5 +744,40 @@ pub mod dusk {
 
     pub fn fallback<'info>(program_id: &Pubkey, accounts: &'info [AccountInfo<'info>], data: &[u8]) -> Result<()> {
         crate::instructions::transfer_hook::handle_transfer_hook(program_id, accounts, data)
+    }
+}
+
+#[cfg(feature = "legacy-retirement")]
+pub mod retirement;
+#[cfg(feature = "legacy-retirement")]
+pub use retirement::*;
+
+#[cfg(feature = "legacy-retirement")]
+#[program]
+pub mod dusk {
+    use super::*;
+    pub fn freeze_legacy_market<'info>(ctx: Context<'_, '_, '_, 'info, FreezeLegacyMarket<'info>>) -> Result<()> {
+        retirement::handle_freeze(ctx)
+    }
+    pub fn abort_stale_legacy_freeze(ctx: Context<AbortStaleLegacyFreeze>) -> Result<()> {
+        retirement::handle_abort_stale_freeze(ctx)
+    }
+    pub fn begin_legacy_retirement<'info>(
+        ctx: Context<'_, '_, '_, 'info, BeginLegacyRetirement<'info>>,
+        args: BeginLegacyRetirementArgs,
+    ) -> Result<()> {
+        retirement::handle_begin(ctx, args)
+    }
+    pub fn clear_legacy_owner<'info>(
+        ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'info>>,
+        owner_index: u8,
+    ) -> Result<()> {
+        retirement::handle_clear(ctx, owner_index)
+    }
+    pub fn pay_legacy_owner(ctx: Context<PayLegacyRetirement>, owner_index: u8) -> Result<()> {
+        retirement::handle_pay(ctx, owner_index)
+    }
+    pub fn finish_legacy_retirement(ctx: Context<PayLegacyRetirement>) -> Result<()> {
+        retirement::handle_finish(ctx)
     }
 }

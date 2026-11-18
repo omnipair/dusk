@@ -17,7 +17,7 @@ export function assertEncryptedMount(images, mount, imageInfo) {
 function plist(command, args) {
   return JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', '-'], { input: execFileSync(command, args) }));
 }
-function localSigners(mount) {
+export function localSigners(mount) {
   assert.ok(!process.env.CI, 'Signing is local only');
   assert.equal(process.platform, 'darwin', 'Local signer requires the encrypted macOS disk image');
   mount = realpathSync(mount);

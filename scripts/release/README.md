@@ -12,7 +12,11 @@ never deploys a program, uploads an IDL, changes an authority, or publishes npm.
 | Initial upgrade authority, IDL authority, fee payer | `EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq` |
 | Later program upgrade authority | `4JpPs9Mi11qoj6GthQPiTjUc4gXq8BAoSs3AD6NVjQUZ` |
 
-The SDK candidate is `@omnipair/dusk-sdk@2.27.0`, a stable mainnet version.
+The successor SDK candidate is the stable version in
+`packages/dusk-sdk/package.json`. Deployed consumers keep their existing exact
+published version until both successor programs and IDLs verify. Temporary
+retirement builds use the isolated ABI in `scripts/retirement`, publish no SDK,
+and must complete before the scoped successor upgrade runner can execute.
 Devnet deployments use the existing devnet configuration and a matching devnet
 source/SDK release; do not point these mainnet-bound binaries at devnet using the
 older deploy commands. Clients can explicitly select another program identity.
