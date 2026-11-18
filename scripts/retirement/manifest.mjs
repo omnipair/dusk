@@ -7,6 +7,7 @@ import anchor from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { readRetirementBundle } from './bundle.mjs';
+import { ownerEvidenceTree } from './merkle.mjs';
 import { scope, key, bytes, sha, digest, seal, readEvidence, saveEvidence, validateFrozenCapture, freezeAddress, retirementAddress } from './evidence.mjs';
 
 export function ownerEvidence(rows, index) {
@@ -26,7 +27,7 @@ export const minimum = value => ((BigInt(value) * 9900n + 9999n) / 10000n).toStr
 export function beginArgs(manifest) {
   return { source_slot: new anchor.BN(manifest.sourceSlot), bank_sha256: [...Buffer.from(manifest.frozenBankSha256, 'hex')],
     quote_sha256: [...Buffer.from(manifest.quoteReportSha256, 'hex')],
-    owner_evidence_sha256: manifest.users.map(row => [...Buffer.from(row.personalSha256, 'hex')]),
+    owner_evidence_root: ownerEvidenceTree(manifest.users.map(row => Buffer.from(row.personalSha256, 'hex'))).root,
     payouts: manifest.users.map(row => Object.fromEntries([['quoted_base', row.baseRaw], ['quoted_quote', row.quoteRaw], ['base', row.baseRaw], ['quote', row.quoteRaw]]
       .map(([key, value]) => [key, new anchor.BN(value)]))) };
 }

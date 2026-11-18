@@ -4,18 +4,37 @@ use anchor_lang::solana_program::program_option::COption;
 #[test]
 fn fixed_scope_has_no_duplicate_owner_claim_or_vault() {
     use std::collections::HashSet;
-    assert_eq!(OWNERS.into_iter().collect::<HashSet<_>>().len(), 5);
+    assert_eq!(OWNERS.into_iter().collect::<HashSet<_>>().len(), 6);
     let accounts = PERSONAL
         .iter()
         .flat_map(|list| list.iter())
         .map(|item| item.address)
         .collect::<Vec<_>>();
-    assert_eq!(accounts.len(), 26);
-    assert_eq!(accounts.iter().collect::<HashSet<_>>().len(), 26);
+    assert_eq!(accounts.len(), 28);
+    assert_eq!(accounts.iter().collect::<HashSet<_>>().len(), 28);
     assert_eq!(VAULTS.into_iter().collect::<HashSet<_>>().len(), 8);
     let bump = [MARKET_BUMP];
     let seeds: &[&[u8]] = &[b"market_v2", MINTS[0].as_ref(), MINTS[1].as_ref(), &PARAMS_HASH, &bump];
     assert_eq!(Pubkey::create_program_address(seeds, &crate::ID).unwrap(), MARKET);
+}
+
+#[test]
+fn ordered_owner_proof_matches_the_cross_language_six_owner_vector_and_rejects_mutations() {
+    let decode = |text: &str| std::array::from_fn(|index| u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap());
+    let root = decode("1eaa9959f116e999567c2fcc4370729ead48527f58f3731397522126b0a9e0c1");
+    let proof = [
+        [5; 32],
+        decode("9f205e4ff748265b591e033a2c4f054a0c8fcaaa4c0ae1408bfaad8b10cb27e8"),
+        decode("5d58bc22f7465f06ac66fab2e377c8b0dfb617359f1bc90516c95d5bbda3ac6b"),
+    ];
+    assert!(verify_owner_evidence([6; 32], 5, &proof, root));
+    assert!(!verify_owner_evidence([6; 32], 4, &proof, root));
+    assert!(!verify_owner_evidence([5; 32], 5, &proof, root));
+    assert!(!verify_owner_evidence([6; 32], 5, &proof[..2], root));
+    assert!(!verify_owner_evidence([6; 32], 6, &proof, root));
+    let mut changed = proof;
+    changed[0][0] ^= 1;
+    assert!(!verify_owner_evidence([6; 32], 5, &changed, root));
 }
 
 #[test]
@@ -28,7 +47,7 @@ fn net_limit_is_exact_and_rounds_up_even_for_one_atom() {
     assert!(minimum * 10000 >= maximum as u128 * 9900);
     assert!((minimum - 1) * 10000 < maximum as u128 * 9900);
     assert!(sum_amounts(&[maximum, 1]).is_err());
-    assert!(checked_owner(5).is_err());
+    assert!(checked_owner(6).is_err());
     assert!(checked_owner(255).is_err());
 }
 

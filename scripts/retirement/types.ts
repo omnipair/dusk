@@ -505,6 +505,17 @@ export type Dusk = {
         {
           "name": "ownerIndex",
           "type": "u8"
+        },
+        {
+          "name": "proof",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
         }
       ]
     },
@@ -1110,16 +1121,11 @@ export type Dusk = {
             }
           },
           {
-            "name": "ownerEvidenceSha256",
+            "name": "ownerEvidenceRoot",
             "type": {
               "array": [
-                {
-                  "array": [
-                    "u8",
-                    32
-                  ]
-                },
-                5
+                "u8",
+                32
               ]
             }
           },
@@ -1132,7 +1138,7 @@ export type Dusk = {
                     "name": "legacyPayout"
                   }
                 },
-                5
+                6
               ]
             }
           }
@@ -1309,16 +1315,11 @@ export type Dusk = {
             }
           },
           {
-            "name": "ownerEvidenceSha256",
+            "name": "ownerEvidenceRoot",
             "type": {
               "array": [
-                {
-                  "array": [
-                    "u8",
-                    32
-                  ]
-                },
-                5
+                "u8",
+                32
               ]
             }
           },
@@ -1331,7 +1332,7 @@ export type Dusk = {
                     "name": "legacyPayout"
                   }
                 },
-                5
+                6
               ]
             }
           },

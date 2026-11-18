@@ -18,7 +18,7 @@ use scope::*;
 use tokens::*;
 
 pub const RETIREMENT_SEED: &[u8] = b"legacy_retirement";
-pub const ALL_OWNERS: u8 = 31;
+pub const ALL_OWNERS: u8 = ((1u16 << OWNERS.len()) - 1) as u8;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace, Default)]
 pub struct LegacyPayout {
@@ -33,8 +33,8 @@ pub struct BeginLegacyRetirementArgs {
     pub source_slot: u64,
     pub bank_sha256: [u8; 32],
     pub quote_sha256: [u8; 32],
-    pub owner_evidence_sha256: [[u8; 32]; 5],
-    pub payouts: [LegacyPayout; 5],
+    pub owner_evidence_root: [u8; 32],
+    pub payouts: [LegacyPayout; OWNERS.len()],
 }
 
 #[account]
@@ -49,8 +49,8 @@ pub struct LegacyRetirement {
     pub manifest_sha256: [u8; 32],
     pub bank_sha256: [u8; 32],
     pub quote_sha256: [u8; 32],
-    pub owner_evidence_sha256: [[u8; 32]; 5],
-    pub payouts: [LegacyPayout; 5],
+    pub owner_evidence_root: [u8; 32],
+    pub payouts: [LegacyPayout; OWNERS.len()],
     pub custody: [u64; 2],
     pub remaining: [u64; 2],
 }
@@ -131,8 +131,9 @@ pub fn handle_begin<'info>(
         RetirementError::Evidence
     );
     require!(
-        [args.bank_sha256, args.quote_sha256].iter().all(|v| *v != [0; 32])
-            && args.owner_evidence_sha256.iter().all(|v| *v != [0; 32]),
+        [args.bank_sha256, args.quote_sha256, args.owner_evidence_root]
+            .iter()
+            .all(|v| *v != [0; 32]),
         RetirementError::Evidence
     );
     let market = ctx.accounts.market.to_account_info();
@@ -202,7 +203,7 @@ pub fn handle_begin<'info>(
         manifest_sha256: hash(&args.try_to_vec()?).to_bytes(),
         bank_sha256: args.bank_sha256,
         quote_sha256: args.quote_sha256,
-        owner_evidence_sha256: args.owner_evidence_sha256,
+        owner_evidence_root: args.owner_evidence_root,
         payouts: args.payouts,
         custody,
         remaining: custody,
@@ -222,7 +223,11 @@ pub fn handle_begin<'info>(
     Ok(())
 }
 
-pub fn handle_clear<'info>(ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'info>>, owner_index: u8) -> Result<()> {
+pub fn handle_clear<'info>(
+    ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'info>>,
+    owner_index: u8,
+    proof: Vec<[u8; 32]>,
+) -> Result<()> {
     let index = checked_owner(owner_index)?;
     let state = &mut ctx.accounts.retirement;
     require!(
@@ -253,7 +258,7 @@ pub fn handle_clear<'info>(ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'inf
         digest.hash(&data);
     }
     require!(
-        digest.result().to_bytes() == state.owner_evidence_sha256[index],
+        verify_owner_evidence(digest.result().to_bytes(), index, &proof, state.owner_evidence_root),
         RetirementError::Evidence
     );
     let owner = ctx.accounts.owner.to_account_info();
@@ -330,6 +335,25 @@ pub fn handle_finish(ctx: Context<PayLegacyRetirement>) -> Result<()> {
 fn checked_owner(index: u8) -> Result<usize> {
     require!((index as usize) < OWNERS.len(), RetirementError::Scope);
     Ok(index as usize)
+}
+
+pub fn verify_owner_evidence(mut leaf: [u8; 32], index: usize, proof: &[[u8; 32]], root: [u8; 32]) -> bool {
+    if index >= OWNERS.len() || proof.len() != OWNERS.len().next_power_of_two().ilog2() as usize {
+        return false;
+    }
+    for (depth, sibling) in proof.iter().enumerate() {
+        let mut node = Hasher::default();
+        node.hash(b"DUSK_RETIREMENT_NODE_V1");
+        if index & (1 << depth) == 0 {
+            node.hash(&leaf);
+            node.hash(sibling);
+        } else {
+            node.hash(sibling);
+            node.hash(&leaf);
+        }
+        leaf = node.result().to_bytes();
+    }
+    leaf == root
 }
 
 pub fn minimum_net(quote: u64) -> u64 {

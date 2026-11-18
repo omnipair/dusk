@@ -47,6 +47,7 @@ export async function reconstructQuoteModel(capture, bundle, basis, blueprint, o
   const sourceModel = { schemaVersion: 'dusk-retirement-quote-model.v1', kind: 'reconstructed-quote-model', localOnly: capture.localOnly,
     actualFrozenCaptureSha256: capture.contentSha256, actualBankSha256: capture.bankSha256, temporaryBundleSha256: digest(bundle.manifest),
     executableBasis: scope.legacyIdentity, cutoffSlot, frozenAccountSha256: digest(rows.get(freezeAddress)), substitutions };
+  if (capture.walletObservation) sourceModel.walletObservationSha256 = digest(capture.walletObservation);
   const coder = new anchor.BorshCoder(oldIdl), decoded = [], ancillary = [];
   const programs = capture.programCatalogs.map(catalog => ({ program: catalog.program, context: { slot: cutoffSlot },
     value: catalog.value.filter(row => catalog.program !== scope.program || scope.legacyProgramAccounts.includes(row.pubkey))
@@ -101,6 +102,7 @@ export async function reconstructQuoteModel(capture, bundle, basis, blueprint, o
     return { address: row.address, account: modeled.get(row.address) };
   }) };
   const reference = seal({ schemaVersion: 'dusk-legacy-close-rehearsal.v1', sourceModel, localOnly: true,
+    ...(capture.walletObservation ? { walletObservation: capture.walletObservation } : {}),
     bankKind: 'reconstructed-quote-model', observedAt: new Date().toISOString(), inventorySha256: sealedInventory.contentSha256,
     bankSha256: digest(bank), bank, assumptions: ['Explicit frozen cutoff reconstruction; not an observed RPC bank'],
     settlementReady: false, proposal: { executionReady: false, status: 'not-evaluated-quote-model' }, runs: [] });

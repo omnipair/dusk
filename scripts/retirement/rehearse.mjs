@@ -8,7 +8,8 @@ import anchor from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, createInitializeAccount3Instruction, createApproveInstruction, createRevokeInstruction, createTransferCheckedInstruction, createBurnCheckedInstruction } from '@solana/spl-token';
 import { LiteSVM, FeatureSet, ComputeBudget, Clock, Rent, FailedTransactionMetadata } from 'litesvm';
-import { seal, digest } from './evidence.mjs';
+import { seal, digest, checkedWallets } from './evidence.mjs';
+import { ownerEvidenceTree } from './merkle.mjs';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const { BorshCoder, BN } = anchor;
@@ -31,7 +32,7 @@ const source = evidence(sourceFile), quote = evidence(quoteFile);
 assert.equal(source.schemaVersion, 'dusk-legacy-close-rehearsal.v1');
 assert.equal(quote.schemaVersion, 'dusk-legacy-close-rehearsal.v1');
 assert.equal(quote.proposal.status, 'proposed-not-authorized-for-execution');
-assert.equal(quote.proposal.users.length, 5);
+assert.equal(quote.proposal.users.length, scope.owners.length);
 assert.deepEqual(quote.proposal.users.map(row => row.owner).sort(), [...scope.owners].sort());
 assert.equal(quote.proposal.policy.maximumNetPayoutSlippageBps, 100);
 assert.equal(quote.proposal.policy.juniorExitFeeBps, 50);
@@ -77,10 +78,11 @@ const ownerDigests = scope.personal.map((accounts, index) => {
   }
   return [...digest.digest()];
 });
+const ownerTree = ownerEvidenceTree(ownerDigests);
 const args = {
   source_slot: new BN(source.bank.slot),
   bank_sha256: [...Buffer.from(source.bankSha256, 'hex')], quote_sha256: [...Buffer.from(quote.contentSha256, 'hex')],
-  owner_evidence_sha256: ownerDigests,
+  owner_evidence_root: ownerTree.root,
   payouts: scope.owners.map(owner => {
     const row = quote.proposal.users.find(user => user.owner === owner); assert.ok(row, 'Missing payout owner');
     return { quoted_base: new BN(row.baseRaw), quoted_quote: new BN(row.quoteRaw), base: new BN(row.baseRaw), quote: new BN(row.quoteRaw) };
@@ -114,6 +116,8 @@ function runtime() {
     assert.ok(Number.isSafeInteger(account.lamports));
     svm.setAccount(key(row.address), { ...account, owner: key(account.owner), data: Buffer.from(account.data, 'base64'), rentEpoch: 0 });
   }
+  for (const row of checkedWallets(source.walletObservation, source.bank)) if (row.account)
+    svm.setAccount(key(row.address), { ...row.account, owner: key(row.account.owner), data: Buffer.alloc(0), rentEpoch: 0 });
   const rawClock = Buffer.from(rows.get('SysvarC1ock11111111111111111111111111111111').data, 'base64');
   svm.warpToSlot(BigInt(source.bank.slot));
   svm.setClock(new Clock(rawClock.readBigUInt64LE(0), rawClock.readBigInt64LE(8), rawClock.readBigUInt64LE(16), rawClock.readBigUInt64LE(24), rawClock.readBigInt64LE(32)));
@@ -136,7 +140,7 @@ function installLocalCode(svm, bytes) {
 
 function instruction(name, values, accounts, extra = []) {
   const definition = idl.instructions.find(row => row.name === name); assert.ok(definition);
-  return new TransactionInstruction({ programId: program, data: coder.instruction.encode(name, values),
+  return new TransactionInstruction({ programId: program, data: coder.instruction.encode(name, name === 'clear_legacy_owner' ? { proof: ownerTree.proofs[values.owner_index], ...values } : values),
     keys: [...definition.accounts.map(row => ({ pubkey: key(accounts[row.name] ?? row.address ?? ({ event_authority: eventAuthority, program })[row.name]), isSigner: !!row.signer, isWritable: !!row.writable })), ...extra] });
 }
 const beginAccounts = { retirement: state, frozen, authority, market, program_data: key(scope.programData), system_program: SystemProgram.programId, token_program: TOKEN_PROGRAM_ID };
@@ -207,6 +211,7 @@ if (process.env.DUSK_RETIREMENT_LOCAL_FREEZE_WITNESS) {
     }) }));
   programCatalogs[0].value.push({ pubkey: frozen.toBase58(), account: { ...raw(frozen), data: [raw(frozen).data, 'base64'] } });
   const witness = seal({ schemaVersion: 'dusk-retirement-frozen-capture.v1', localOnly: true, readOnly: false, executionReady: false,
+    ...(source.walletObservation ? { walletObservation: { slot: bank.slot, accounts: source.walletObservation.accounts.map(row => ({ address: row.address, account: raw(row.address) })) } } : {}),
     genesisHash: scope.legacyIdentity.genesisHash, bundleSha256: digest(manifest), bankSha256: digest(bank), bank, programCatalogs,
     provenance: 'Native VM freeze over a captured bank; uncaptured ancillary metadata is an older local fixture. Not RPC-observed state.' });
   writeFileSync(process.env.DUSK_RETIREMENT_LOCAL_FREEZE_WITNESS, JSON.stringify(witness, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -248,8 +253,8 @@ assert.ok(rollback.meta().logs().some(row => row.includes('AccountDiscriminatorM
 checks.push({ label: 'old-binary rollback cannot redeem tombstoned market', rejected: true, logs: rollback.meta().logs() });
 installLocalCode(svm, binary);
 const destinations = [];
-for (let index = 0; index <= 5; index++) {
-  const owner = key(index === 5 ? scope.treasury : scope.owners[index]), pair = [];
+for (let index = 0; index <= scope.owners.length; index++) {
+  const owner = key(index === scope.owners.length ? scope.treasury : scope.owners[index]), pair = [];
   for (let side = 0; side < 2; side++) {
     const seed = `retirement-${index}-${side}`, destination = await PublicKey.createWithSeed(authority, seed, TOKEN_PROGRAM_ID);
     send(svm, [SystemProgram.createAccountWithSeed({ fromPubkey: authority, basePubkey: authority, seed, newAccountPubkey: destination,
@@ -260,20 +265,22 @@ for (let index = 0; index <= 5; index++) {
   destinations.push(pair);
 }
 function payout(index, recipient = destinations[index]) {
-  return instruction(index === 5 ? 'finish_legacy_retirement' : 'pay_legacy_owner', index === 5 ? {} : { owner_index: index }, {
+  return instruction(index === scope.owners.length ? 'finish_legacy_retirement' : 'pay_legacy_owner', index === scope.owners.length ? {} : { owner_index: index }, {
     retirement: state, market, base_vault: key(scope.vaults[0]), quote_vault: key(scope.vaults[4]),
     base_mint: key(scope.mints[0]), quote_mint: key(scope.mints[1]), base_recipient: recipient[0], quote_recipient: recipient[1], token_program: TOKEN_PROGRAM_ID,
   });
 }
 send(svm, [payout(0)], 'payout before all debt and claim accounts cleared', 'Unsettled');
-send(svm, [payout(5)], 'treasury before user settlement', 'Unsettled');
+send(svm, [payout(scope.owners.length)], 'treasury before user settlement', 'Unsettled');
 const rentReceipts = [];
-for (let index = 0; index < 5; index++) {
+for (let index = 0; index < scope.owners.length; index++) {
   const owner = key(scope.owners[index]), before = svm.getBalance(owner) ?? 0n;
   const accounts = scope.personal[index].map(row => ({ pubkey: key(row.address), isSigner: false, isWritable: true }));
   const context = { retirement: state, market, owner };
   if (index === 2) {
     send(svm, [instruction('clear_legacy_owner', { owner_index: index }, context, accounts.slice(1))], 'omitted personal claim', 'Scope');
+    send(svm, [instruction('clear_legacy_owner', { owner_index: index, proof: ownerTree.proofs[0] }, context, accounts)], 'another owner proof cannot clear this group', 'Evidence');
+    send(svm, [instruction('clear_legacy_owner', { owner_index: index, proof: ownerTree.proofs[index].slice(1) }, context, accounts)], 'truncated owner proof cannot clear this group', 'Evidence');
     assert.equal(readState(svm).cleaned_mask, 3);
   }
   send(svm, [instruction('clear_legacy_owner', { owner_index: index }, context, accounts)], `clear ${index} personal claims and return rent`);
@@ -296,14 +303,14 @@ for (let index = 0; index < 5; index++) {
     checks.push({ label: 'interrupted cleanup resumes from committed evidence with masks intact', passed: true });
   }
 }
-assert.equal(readState(svm).cleaned_mask, 31);
+assert.equal(readState(svm).cleaned_mask, (1 << scope.owners.length) - 1);
 send(svm, [payout(0, destinations[1])], 'payout redirected to another owner', 'Recipient');
 send(svm, [createApproveInstruction(destinations[0][0], authority, key(scope.owners[0]), 1n)], 'owner-approved unsafe recipient setup');
 send(svm, [payout(0)], 'recipient has spending delegate', 'Recipient');
 assert.equal(readState(svm).paid_mask, 0);
 send(svm, [createRevokeInstruction(destinations[0][0], key(scope.owners[0]))], 'remove recipient delegate and retry safely');
 const userReceipts = [];
-for (let index = 0; index < 5; index++) {
+for (let index = 0; index < scope.owners.length; index++) {
   if (index === 2) {
     const reserve = amount(svm, scope.vaults[0]);
     send(svm, [payout(index, [destinations[index][0], destinations[3][1]])], 'second transfer failure rolls back first asset and paid flag', 'Recipient');
@@ -315,12 +322,12 @@ for (let index = 0; index < 5; index++) {
   assert.deepEqual(actual, [args.payouts[index].base.toString(), args.payouts[index].quote.toString()]);
   userReceipts.push({ owner: scope.owners[index], baseRaw: actual[0], quoteRaw: actual[1] });
   send(svm, [payout(index)], `repeated payout ${index}`, 'Repeated');
-  if (index < 4) send(svm, [payout(5)], `early treasury after owner ${index}`, 'Unsettled');
+  if (index < scope.owners.length - 1) send(svm, [payout(scope.owners.length)], `early treasury after owner ${index}`, 'Unsettled');
 }
-send(svm, [payout(5)], 'pay approved treasury residual and finalize');
-send(svm, [payout(5)], 'repeated treasury finalization', 'Repeated');
+send(svm, [payout(scope.owners.length)], 'pay approved treasury residual and finalize');
+send(svm, [payout(scope.owners.length)], 'repeated treasury finalization', 'Repeated');
 assert.ok(readState(svm).completed); assert.deepEqual(readState(svm).remaining.map(String), ['0', '0']);
-const treasuryReceipts = destinations[5].map(address => String(amount(svm, address)));
+const treasuryReceipts = destinations[scope.owners.length].map(address => String(amount(svm, address)));
 assert.deepEqual(treasuryReceipts, [quote.proposal.treasury.baseRaw, quote.proposal.treasury.quoteRaw]);
 assert.ok(scope.vaults.every(address => amount(svm, address) === 0n));
 assert.ok(scope.personal.flat().every(row => !svm.getAccount(key(row.address)) || svm.getAccount(key(row.address)).data.length === 0));
@@ -341,7 +348,7 @@ for (const tx of primaryTransactions) {
   }
 }
 assert.equal(amount(donated, scope.vaults[3]), 1n);
-assert.deepEqual(destinations[5].map(address => String(amount(donated, address))), treasuryReceipts);
+assert.deepEqual(destinations[scope.owners.length].map(address => String(amount(donated, address))), treasuryReceipts);
 assert.ok(readState(donated).completed);
 checks.push({label:'post-cutoff donation cannot change user payouts or approved treasury residue',passed:true});
 let successorCompatibility;

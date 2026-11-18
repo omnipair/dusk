@@ -29,6 +29,21 @@ export const LOADER = 'BPFLoaderUpgradeab1e11111111111111111111111';
 export const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 export const TOKEN22 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
 export const bytes = account => Buffer.from(account.data, 'base64');
+export function checkedWallets(observation, bank) {
+  if (!observation) return [];
+  const wallets = [scope.authority, ...scope.owners].sort();
+  assert.ok(Number.isSafeInteger(observation.slot) && observation.slot >= bank.slot);
+  assert.deepEqual(observation.accounts.map(row => row.address).sort(), wallets);
+  const economic = new Set(bank.accounts.map(row => row.address));
+  for (const row of observation.accounts) {
+    assert.ok(!economic.has(row.address), 'Wallet SOL observation overlaps economic bank');
+    const account = row.account; if (!account) continue;
+    assert.equal(account.owner, '11111111111111111111111111111111'); assert.ok(!account.executable);
+    assert.equal(bytes(account).length, 0); assert.ok(Number.isSafeInteger(account.lamports) && account.lamports >= 0);
+    assert.match(account.rentEpoch, /^(0|[1-9][0-9]*)$/); assert.ok(BigInt(account.rentEpoch) < 1n << 64n);
+  }
+  return observation.accounts;
+}
 export function isIdlMetadata(data) {
   return data.length >= 44 && data.subarray(0, 8).equals(Buffer.from(sha('internal:IdlAccount'), 'hex').subarray(0, 8))
     && data.readUInt32LE(40) <= data.length - 44;
@@ -111,6 +126,7 @@ export async function validateFrozenCapture(capture, bundle) {
   assert.equal(capture.bundleSha256, digest(bundle.manifest));
   assert.equal(capture.bankSha256, digest(capture.bank));
   const rows = bankRows(capture.bank), idl = JSON.parse(readFileSync(new URL('./idl.json', import.meta.url)));
+  checkedWallets(capture.walletObservation, capture.bank);
   assert.equal(idlHash(idl), idlHash(JSON.parse(readFileSync(`${bundle.directory}/dusk.json`))));
   const actual = executable(rows, scope.legacyIdentity.dusk, capture.bank.slot, readFileSync(`${bundle.directory}/dusk.so`));
   executable(rows, scope.legacyIdentity.delegate, capture.bank.slot);

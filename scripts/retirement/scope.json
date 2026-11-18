@@ -9,6 +9,7 @@
     "2K9ZpC3LVqRfR8Vveo92LhiofbDcF6PuDRJbaPp9V34m",
     "3XAr6KPC1x75XcBLVRc5TxD39gDXMGu4P1kFgDn5PFu2",
     "41shojZU4PwxKBV1MmX3yYyAHiGrF3DyDLAdvsuSCUm7",
+    "526W6vNe3WtRsfw8ELNKtAcpa2eFzXBtvre6RSsn3xUi",
     "5YE9xb49trAeZHzEcuusySswFb5pWdsZLCTYqiymoiFa",
     "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt"
   ],
@@ -100,7 +101,7 @@
     ],
     [
       {
-        "address": "6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X",
+        "address": "6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb",
         "kind": "YieldAccount",
         "discriminator": [
           233,
@@ -114,7 +115,7 @@
         ]
       },
       {
-        "address": "6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb",
+        "address": "6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X",
         "kind": "YieldAccount",
         "discriminator": [
           233,
@@ -170,7 +171,7 @@
         ]
       },
       {
-        "address": "BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU",
+        "address": "Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA",
         "kind": "YieldAccount",
         "discriminator": [
           233,
@@ -184,7 +185,7 @@
         ]
       },
       {
-        "address": "Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA",
+        "address": "BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU",
         "kind": "YieldAccount",
         "discriminator": [
           233,
@@ -223,6 +224,36 @@
           129,
           34,
           251
+        ]
+      }
+    ],
+    [
+      {
+        "address": "C6jhbcz2qKXNF73A8mBuXsnAD9nXbcphhCYDt6W792mR",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "EYn3cunjL8iigMYEqhSvPuRXjxSectiu2veVAMEFDMVK",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
         ]
       }
     ],
@@ -477,10 +508,11 @@
   "receiptMints": [
     "2xEJcAJSfJecvJtiB3sW4cXiQaUthU5BKkA9hJHzsrLP",
     "5hREvMCJ1Wa7ZHnnQhPoSQmqW3WFBFHrfF8MiFNBEjAa",
-    "GhBwWP4FdyZ5Zor7sWMfzpuZZkeM9xvCCpmPpQ2eJhLP",
-    "GMC7NrW6HsJpo7R8MMp3oVjRb8pP1ZJST2yoXr6nBhLP"
+    "GMC7NrW6HsJpo7R8MMp3oVjRb8pP1ZJST2yoXr6nBhLP",
+    "GhBwWP4FdyZ5Zor7sWMfzpuZZkeM9xvCCpmPpQ2eJhLP"
   ],
   "receiptAccounts": [
+    "12xW5FHMGo3cMgovNv7Dp7ztvfH1nZDov9grT6GA18od",
     "23q5BArzv2wdVowrB7TR4izcKD3Jp6bDbeymass4B5Gf",
     "3XJuGxkf23VEtyRfC5H1hf7WRDGnUjhHLuLuoEdVt5oJ",
     "3ySUgNrJ3jkbcEXKr1n1ALx37iLfUHq8zxPSstmH4yEp",
@@ -497,12 +529,14 @@
   "legacyProgramAccounts": [
     "2swFE4XnWTRfBGfXbP7DRGntzYYVq29npsbZGphE68Sp",
     "3zf44QGLYHR86GPEErY56X2BPeCj4dmqGyDqhm1uZ4S2",
+    "4eyoenU9UxvYDwJb44rXYcQd425FBWbhKwQMUP45nXLN",
     "5GFk5KrtaEt3gZC8g3uLp4fJm566dy529JCWzqaFMsnZ",
     "5X287p3iS4XDx659zGv6DPrw7fFbnrnpCF6nKmVKqUR4",
     "5dYVFzgcjcjfz24yVWnqfTb8zPjyGvC3hxJqfjhcPHrU",
     "5ozxdWQpW7Q18gwnWA2KYceEyzjziAfq4iTuEm2Su3iy",
     "67MoPEE3Z7V3TuKvuHX1qEiGyVyivGRVaHziByey7Hkw",
     "6AT92dBHWWnSyqkBxUvq3s3Bj8XRikvCMFBdca8yieVR",
+    "6C89JjC8HrAuqCq6AFstnzwUsfVTJcU1ikoF7uAsu1sf",
     "6WeYYZVNgnrNGZyWQXS2tULBEokMvgYc56nMCThpD29z",
     "6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X",
     "6nKrdiJvmjEyqQurHkvTZr79yohEMkuVDtAcKDGhgs8P",
@@ -527,6 +561,7 @@
     "BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU",
     "BGvsaog6aT9HPYhzijn5bgarUVqbWPHwa59mvxcAt2kc",
     "Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA",
+    "C6jhbcz2qKXNF73A8mBuXsnAD9nXbcphhCYDt6W792mR",
     "CQkXpnnVsVN6oN7WHfJVhQZrkVn3WDPovW5V2RP8ztBB",
     "CgHZm7KnyPHqJZymf8VTWaZxg8NjK1SPWTbxpCVhwTTu",
     "Cvv1qRWiTaTUPcae77BCKZKksf4RmFhwi9SLdn5gMwVF",
@@ -534,6 +569,7 @@
     "DZEKZbSQUihJgM8vGRtvgFRqJwNAd6CS1zgHKpKmzGg3",
     "Ds55QyoE6nLPac5RkBf1zjChhmhGBLnKPqSXGXAovDog",
     "Dz4LK6u3W5JQfCjqd87tuYp66r4dQMRcEN4fAL9XS8Em",
+    "EYn3cunjL8iigMYEqhSvPuRXjxSectiu2veVAMEFDMVK",
     "EfxEk52ZBdT6hFgZA77jCcppVWAcXvJpbT3L1FrizfRL",
     "ExNdZtsgnchBezETjzz7PFjBGEWNSTMa9aJHFbgvCf3M",
     "FPDNk2gffXtpSjoULhvPG4PpcKwyg1NZotLHnH7ww8FL",
@@ -547,7 +583,9 @@
     "Gr2pmCUtWqHFkcd4qaf1cxxcQLKRKsHTRPFAx9rSSVUr",
     "H5d1hySUBKe8avcWkbk9z2kbbggU5otayixB13jhhh9y",
     "HHrjZL5zDEyAnfmndtahrUDYPtTWJdLKwcNgXqnMejgU",
+    "HN78ezfR9weK4T53r7j1SX3Bpq7zT8B7x9HSEfuV9B3g",
     "Hy32KyUjnYtrBuvtSQYuNLpzCCkf3P9kd9Ez8NjFSKNX",
     "YqV18MNFWRAHGEDuC4BMNufNE3zEHWgQcmHc5zJJWrq"
-  ]
+  ],
+  "scopeInventorySha256": "9353e0f22399c486a07d3b5dbd942cbcf308c2d0cc994c1391d8d8be0e780a41"
 }

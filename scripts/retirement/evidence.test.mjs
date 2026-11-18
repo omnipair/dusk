@@ -7,6 +7,7 @@ import { scope, key, sha, digest, seal, bankRows, decodeFreeze, freezeAddress, C
 import { parseRpc, readOnlyRpc } from './capture.mjs';
 import { minimum, beginArgs, ownerEvidence, retirementInstruction } from './manifest.mjs';
 import { assertManifestState } from './local.mjs';
+import { ownerEvidenceTree } from './merkle.mjs';
 
 const idl = JSON.parse(readFileSync(new URL('./idl.json', import.meta.url))), coder = new anchor.BorshCoder(idl);
 const encode = async (name, value) => { const entry = coder.accounts.accountLayouts.get(name), buffer = Buffer.alloc(9000);
@@ -88,4 +89,11 @@ test('runtime rejects changed frozen evidence and an unreviewed committed plan',
 test('evidence root is over its body and contains no self-reference', () => {
   const { contentSha256, ...body } = seal({ kind: 'local-model', source: '01'.repeat(32) });
   assert.equal(contentSha256, digest(body)); assert.notEqual(contentSha256, digest({ ...body, source: '02'.repeat(32) }));
+});
+test('six-owner ordered root agrees with the Rust vector, including padded siblings', () => {
+  const tree = ownerEvidenceTree(Array.from({ length: 6 }, (_, index) => Buffer.alloc(32, index + 1)));
+  assert.equal(Buffer.from(tree.root).toString('hex'), '1eaa9959f116e999567c2fcc4370729ead48527f58f3731397522126b0a9e0c1');
+  assert.equal(tree.proofs.length, 6); assert.ok(tree.proofs.every(row => row.length === 3));
+  assert.throws(() => ownerEvidenceTree([])); assert.throws(() => ownerEvidenceTree(Array(9).fill(Buffer.alloc(32))));
+  assert.throws(() => ownerEvidenceTree([Buffer.alloc(31)]));
 });

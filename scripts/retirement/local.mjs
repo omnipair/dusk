@@ -11,6 +11,7 @@ import { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } f
 import { CONFIG, ROOT, git, assertProgramBytes, decodeIdl, idlHash } from '../release/artifacts.mjs';
 import { localSigners } from '../release/local.mjs';
 import { readRetirementBundle } from './bundle.mjs';
+import { ownerEvidenceTree } from './merkle.mjs';
 import { scope, key, bytes, sha, digest, readEvidence, freezeAddress, retirementAddress, idlAddress, LOADER, TOKEN22, executable, isIdlMetadata } from './evidence.mjs';
 import { compileManifest, beginArgs, retirementInstruction, payoutInstruction } from './manifest.mjs';
 
@@ -80,8 +81,8 @@ export function assertManifestState(check, manifest, capture) {
   assert.equal(Buffer.from(state.manifest_sha256).toString('hex'), manifest.onChainManifestSha256, 'Another settlement manifest is already committed');
   assert.equal(Buffer.from(state.bank_sha256).toString('hex'), manifest.frozenBankSha256);
   assert.equal(Buffer.from(state.quote_sha256).toString('hex'), manifest.quoteReportSha256);
-  assert.ok(state.cleaned_mask <= 31 && state.paid_mask <= 31);
-  assert.ok(state.cleaned_mask === 31 || state.paid_mask === 0, 'Inconsistent settlement masks');
+  assert.ok(state.cleaned_mask <= (1 << scope.owners.length) - 1 && state.paid_mask <= (1 << scope.owners.length) - 1);
+  assert.ok(state.cleaned_mask === (1 << scope.owners.length) - 1 || state.paid_mask === 0, 'Inconsistent settlement masks');
   const tombstone = new anchor.BorshCoder(check.idl).accounts.decode('RetiredLegacyMarket', check.market.data);
   assert.equal(tombstone.version, 1); assert.equal(tombstone.retirement.toBase58(), retirementAddress);
   for (const [side, name] of ['base', 'quote'].entries()) {
@@ -89,7 +90,7 @@ export function assertManifestState(check, manifest, capture) {
     assert.equal(state.custody[side].toString(), manifest.custodyRaw[side]);
     assert.equal(state.remaining[side].toString(), state.completed ? '0' : String(BigInt(manifest.custodyRaw[side]) - paid));
   }
-  assert.ok(!state.completed || state.cleaned_mask === 31 && state.paid_mask === 31);
+  assert.ok(!state.completed || state.cleaned_mask === (1 << scope.owners.length) - 1 && state.paid_mask === (1 << scope.owners.length) - 1);
 }
 async function main() {
   const args = process.argv.slice(2), command = args.shift(), bundlePath = args.shift();
@@ -193,7 +194,7 @@ async function main() {
     [...scope.vaults.map(address => ({ pubkey: key(address), isSigner: false, isWritable: true })), ...scope.mints.map(address => ({ pubkey: key(address), isSigner: false, isWritable: false }))])]);
   for (let index = 0; index < scope.owners.length; index++) {
     check = await inspectTemporary(connection, bundle); assertManifestState(check, manifest, capture);
-    if (!(check.state.cleaned_mask & 1 << index)) await send(`clear owner ${index}`, [retirementInstruction(check.idl, 'clear_legacy_owner', { owner_index: index },
+    if (!(check.state.cleaned_mask & 1 << index)) await send(`clear owner ${index}`, [retirementInstruction(check.idl, 'clear_legacy_owner', { owner_index: index, proof: ownerEvidenceTree(manifest.users.map(row => Buffer.from(row.personalSha256, 'hex'))).proofs[index] },
       { owner: scope.owners[index] }, scope.personal[index].map(row => ({ pubkey: key(row.address), isSigner: false, isWritable: true })))]);
   }
   for (let index = 0; index <= scope.owners.length; index++) {

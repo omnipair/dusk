@@ -499,6 +499,17 @@
         {
           "name": "owner_index",
           "type": "u8"
+        },
+        {
+          "name": "proof",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
         }
       ]
     },
@@ -1104,16 +1115,11 @@
             }
           },
           {
-            "name": "owner_evidence_sha256",
+            "name": "owner_evidence_root",
             "type": {
               "array": [
-                {
-                  "array": [
-                    "u8",
-                    32
-                  ]
-                },
-                5
+                "u8",
+                32
               ]
             }
           },
@@ -1126,7 +1132,7 @@
                     "name": "LegacyPayout"
                   }
                 },
-                5
+                6
               ]
             }
           }
@@ -1303,16 +1309,11 @@
             }
           },
           {
-            "name": "owner_evidence_sha256",
+            "name": "owner_evidence_root",
             "type": {
               "array": [
-                {
-                  "array": [
-                    "u8",
-                    32
-                  ]
-                },
-                5
+                "u8",
+                32
               ]
             }
           },
@@ -1325,7 +1326,7 @@
                     "name": "LegacyPayout"
                   }
                 },
-                5
+                6
               ]
             }
           },

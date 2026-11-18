@@ -771,8 +771,9 @@ pub mod dusk {
     pub fn clear_legacy_owner<'info>(
         ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'info>>,
         owner_index: u8,
+        proof: Vec<[u8; 32]>,
     ) -> Result<()> {
-        retirement::handle_clear(ctx, owner_index)
+        retirement::handle_clear(ctx, owner_index, proof)
     }
     pub fn pay_legacy_owner(ctx: Context<PayLegacyRetirement>, owner_index: u8) -> Result<()> {
         retirement::handle_pay(ctx, owner_index)

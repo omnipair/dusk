@@ -1,14 +1,14 @@
-// One-off public account scope from the reconciled layout-17 inventory.
-// Amounts and evidence are committed by the reviewed begin instruction.
+// Public fixed account scope from reviewed legacy inventory. No amounts or signing keys.
 use anchor_lang::prelude::*;
 pub const MARKET: Pubkey = pubkey!("7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7");
 pub const AUTHORITY: Pubkey = pubkey!("EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq");
 pub const PROGRAM_DATA: Pubkey = pubkey!("58HpCNM5jydkig5bhy8BR77DJn2E3KcuD9hruj13mUqz");
 pub const TREASURY: Pubkey = pubkey!("8s6Jdoh7tgUqmU3D2EmpNJHSvuN5U4NybpLAdsiMitwB");
-pub const OWNERS: [Pubkey; 5] = [
+pub const OWNERS: [Pubkey; 6] = [
     pubkey!("2K9ZpC3LVqRfR8Vveo92LhiofbDcF6PuDRJbaPp9V34m"),
     pubkey!("3XAr6KPC1x75XcBLVRc5TxD39gDXMGu4P1kFgDn5PFu2"),
     pubkey!("41shojZU4PwxKBV1MmX3yYyAHiGrF3DyDLAdvsuSCUm7"),
+    pubkey!("526W6vNe3WtRsfw8ELNKtAcpa2eFzXBtvre6RSsn3xUi"),
     pubkey!("5YE9xb49trAeZHzEcuusySswFb5pWdsZLCTYqiymoiFa"),
     pubkey!("8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt"),
 ];
@@ -36,7 +36,7 @@ pub struct PersonalAccount {
     pub address: Pubkey,
     pub discriminator: [u8; 8],
 }
-pub const PERSONAL: [&[PersonalAccount]; 5] = [
+pub const PERSONAL: [&[PersonalAccount]; 6] = [
     &[
         PersonalAccount {
             address: pubkey!("5GFk5KrtaEt3gZC8g3uLp4fJm566dy529JCWzqaFMsnZ"),
@@ -55,11 +55,11 @@ pub const PERSONAL: [&[PersonalAccount]; 5] = [
     ],
     &[
         PersonalAccount {
-            address: pubkey!("6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X"),
+            address: pubkey!("6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb"),
             discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
         }, // YieldAccount
         PersonalAccount {
-            address: pubkey!("6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb"),
+            address: pubkey!("6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X"),
             discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
         }, // YieldAccount
         PersonalAccount {
@@ -75,11 +75,11 @@ pub const PERSONAL: [&[PersonalAccount]; 5] = [
             discriminator: [186, 158, 208, 250, 7, 219, 13, 26],
         }, // JuniorExitAccount
         PersonalAccount {
-            address: pubkey!("BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU"),
+            address: pubkey!("Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA"),
             discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
         }, // YieldAccount
         PersonalAccount {
-            address: pubkey!("Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA"),
+            address: pubkey!("BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU"),
             discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
         }, // YieldAccount
         PersonalAccount {
@@ -90,6 +90,16 @@ pub const PERSONAL: [&[PersonalAccount]; 5] = [
             address: pubkey!("FgC339W8s8edjvQQS5yYSk5mvAqSsGidHzTgMBxRKcze"),
             discriminator: [88, 78, 124, 68, 228, 129, 34, 251],
         }, // LeveragePosition
+    ],
+    &[
+        PersonalAccount {
+            address: pubkey!("C6jhbcz2qKXNF73A8mBuXsnAD9nXbcphhCYDt6W792mR"),
+            discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
+        }, // YieldAccount
+        PersonalAccount {
+            address: pubkey!("EYn3cunjL8iigMYEqhSvPuRXjxSectiu2veVAMEFDMVK"),
+            discriminator: [233, 241, 119, 6, 2, 14, 106, 156],
+        }, // YieldAccount
     ],
     &[
         PersonalAccount {
@@ -152,14 +162,14 @@ pub const PERSONAL: [&[PersonalAccount]; 5] = [
         }, // YieldAccount
     ],
 ];
-
 pub const RECEIPT_MINTS: [Pubkey; 4] = [
     pubkey!("2xEJcAJSfJecvJtiB3sW4cXiQaUthU5BKkA9hJHzsrLP"),
     pubkey!("5hREvMCJ1Wa7ZHnnQhPoSQmqW3WFBFHrfF8MiFNBEjAa"),
-    pubkey!("GhBwWP4FdyZ5Zor7sWMfzpuZZkeM9xvCCpmPpQ2eJhLP"),
     pubkey!("GMC7NrW6HsJpo7R8MMp3oVjRb8pP1ZJST2yoXr6nBhLP"),
+    pubkey!("GhBwWP4FdyZ5Zor7sWMfzpuZZkeM9xvCCpmPpQ2eJhLP"),
 ];
-pub const RECEIPT_ACCOUNTS: [Pubkey; 9] = [
+pub const RECEIPT_ACCOUNTS: [Pubkey; 10] = [
+    pubkey!("12xW5FHMGo3cMgovNv7Dp7ztvfH1nZDov9grT6GA18od"),
     pubkey!("23q5BArzv2wdVowrB7TR4izcKD3Jp6bDbeymass4B5Gf"),
     pubkey!("3XJuGxkf23VEtyRfC5H1hf7WRDGnUjhHLuLuoEdVt5oJ"),
     pubkey!("3ySUgNrJ3jkbcEXKr1n1ALx37iLfUHq8zxPSstmH4yEp"),

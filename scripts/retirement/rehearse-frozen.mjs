@@ -8,7 +8,8 @@ import { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } f
 import { LiteSVM, FeatureSet, ComputeBudget, Clock, Rent, FailedTransactionMetadata } from 'litesvm';
 import anchor from '@coral-xyz/anchor';
 import { readRetirementBundle } from './bundle.mjs';
-import { scope, key, bytes, digest, readEvidence, saveEvidence, validateFrozenCapture, LOADER, CLOCK, retirementAddress, freezeAddress } from './evidence.mjs';
+import { ownerEvidenceTree } from './merkle.mjs';
+import { scope, key, bytes, digest, readEvidence, saveEvidence, validateFrozenCapture, LOADER, CLOCK, retirementAddress, freezeAddress, checkedWallets } from './evidence.mjs';
 import { compileManifest, beginArgs, retirementInstruction, payoutInstruction } from './manifest.mjs';
 import { assertManifestState } from './local.mjs';
 
@@ -34,6 +35,8 @@ export async function rehearseFrozen(capture, bundle, model, quote, proof, manif
   }
   for (const [address, account] of rows) if (account && !account.executable && address !== CLOCK)
     svm.setAccount(key(address), { ...account, owner: key(account.owner), data: bytes(account), rentEpoch: 0 });
+  for (const row of checkedWallets(capture.walletObservation, capture.bank)) if (row.account)
+    svm.setAccount(key(row.address), { ...row.account, owner: key(row.account.owner), data: Buffer.alloc(0), rentEpoch: 0 });
   const clock = bytes(rows.get(CLOCK)); svm.warpToSlot(BigInt(capture.bank.slot));
   svm.setClock(new Clock(clock.readBigUInt64LE(0), clock.readBigInt64LE(8), clock.readBigUInt64LE(16), clock.readBigUInt64LE(24), clock.readBigInt64LE(32)));
   const rent = bytes(rows.get('SysvarRent111111111111111111111111111111111'));
@@ -62,7 +65,7 @@ export async function rehearseFrozen(capture, bundle, model, quote, proof, manif
   send('begin exact frozen manifest', [retirementInstruction(idl, 'begin_legacy_retirement', { args: beginArgs(manifest) }, {},
     [...scope.vaults.map(address => ({ pubkey: key(address), isWritable: true, isSigner: false })),
       ...scope.mints.map(address => ({ pubkey: key(address), isWritable: false, isSigner: false }))])]);
-  for (let index = 0; index < scope.owners.length; index++) send(`clear exact owner ${index}`, [retirementInstruction(idl, 'clear_legacy_owner', { owner_index: index },
+  for (let index = 0; index < scope.owners.length; index++) send(`clear exact owner ${index}`, [retirementInstruction(idl, 'clear_legacy_owner', { owner_index: index, proof: ownerEvidenceTree(manifest.users.map(row => Buffer.from(row.personalSha256, 'hex'))).proofs[index] },
     { owner: scope.owners[index] }, scope.personal[index].map(row => ({ pubkey: key(row.address), isWritable: true, isSigner: false })))]);
   for (let index = 0; index <= scope.owners.length; index++) {
     const row = index === scope.owners.length ? manifest.treasury : manifest.users[index];

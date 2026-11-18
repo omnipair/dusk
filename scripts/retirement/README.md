@@ -33,8 +33,9 @@ catalog and program together.
    supply, including protocol custody. Ownership and interest cutoff therefore
    survive later receipt burns, account housekeeping and review delays.
 2. **Begin funded settlement.** After reviewing the frozen old-binary quote,
-   `begin_legacy_retirement` commits all five payout plans and personal-account
-   evidence hashes. The complete frozen custody budget funds those claims.
+   `begin_legacy_retirement` commits all six payout plans and personal-account
+   evidence Merkle root. Each complete owner group supplies its ordered proof;
+   malformed or another owner's proof is rejected. The complete frozen custody budget funds those claims.
    The program consolidates only that budget and replaces the old market
    discriminator with a permanent `RetiredLegacyMarket` tombstone. This is the
    irreversible boundary. A restored old binary cannot redeem old positions or
@@ -49,7 +50,7 @@ catalog and program together.
    delegate, and no foreign close authority. Both asset legs and the paid bit
    commit atomically. A rejected recipient remains unpaid and can retry with a
    safe account owned by the same beneficiary. There is no claim deadline.
-5. **Finish.** Treasury receives the fixed remainder only after all five user
+5. **Finish.** Treasury receives the fixed remainder only after all six user
    payments and rent groups are complete. Unsolicited post-cutoff token
    transfers remain outside that approved budget. The completed state and
    tombstone remain permanently available for verification.
@@ -90,9 +91,9 @@ transaction. Its unsigned test transactions include failure scenarios and
 must never be used as an execution manifest. Raw bank/recipient evidence stays
 in local release storage.
 
-The current local rehearsal uses the fresh 95-account finalized source at slot
-470926403. It clears both loans and all five leverage positions in the reviewed
-order, distributes both assets to five owners, returns personal rent and proves
+The current local rehearsal uses the fresh 97-account finalized economic source at slot
+471003239. It clears both loans and all six leverage positions in the reviewed
+order, distributes both assets to six owners, returns personal rent and proves
 custody conservation. It also checks immutable cutoffs, incomplete batches,
 unsafe recipients, second-leg rollback, restart/resumption, duplicate actions,
 post-cutoff donations, stale-freeze rejection and old-binary rollback. This is
@@ -208,3 +209,12 @@ archived-history frontend validator and final exact signed-bundle checks.
 Mainnet upgrades, IDL writes, payouts and publishing remain separate execution
 steps requiring the reviewed concrete release. Nothing in these docs grants
 execution authority.
+
+The expanded six-wallet scope keeps its protocol/token/executable state in one
+97-account economic bank. The seven plain System Program wallet SOL balances
+are separately finalized observations used only for local fees/rent; they never
+contain token or protocol state. The frozen capture adds the freeze and both
+IDLs to that economic bank (100 accounts). Both observations retain their
+provenance and hashes; no combined atomic RPC snapshot is claimed. Scope refresh
+is an explicit local operation using `refresh-scope.mjs` and reviewed inventory;
+a new claimant stops preflight instead of being omitted.

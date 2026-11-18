@@ -156,9 +156,9 @@ async function retiredFixture(t) {
   const program = new PublicKey(scope.program), market = new PublicKey(scope.market);
   const [state, bump] = PublicKey.findProgramAddressSync([Buffer.from('legacy_retirement'), market.toBuffer()], program);
   const zero = () => Array(32).fill(0), bn = n => new anchor.BN(n);
-  const paid = { version: 1, bump, completed: true, cleaned_mask: 31, paid_mask: 31, source_slot: bn(100),
-    manifest_sha256: Array(32).fill(1), bank_sha256: zero(), quote_sha256: zero(), owner_evidence_sha256: Array.from({length:5},zero),
-    payouts: Array.from({length:5},()=>({quoted_base:bn(0),quoted_quote:bn(0),base:bn(0),quote:bn(0)})), custody:[bn(0),bn(0)], remaining:[bn(0),bn(0)] };
+  const paid = { version: 1, bump, completed: true, cleaned_mask: (1 << scope.owners.length) - 1, paid_mask: (1 << scope.owners.length) - 1, source_slot: bn(100),
+    manifest_sha256: Array(32).fill(1), bank_sha256: zero(), quote_sha256: zero(), owner_evidence_root: zero(),
+    payouts: Array.from({length:scope.owners.length},()=>({quoted_base:bn(0),quoted_quote:bn(0),base:bn(0),quote:bn(0)})), custody:[bn(0),bn(0)], remaining:[bn(0),bn(0)] };
   const tombstone = { owner: program, executable: false, data: await coder.accounts.encode('RetiredLegacyMarket', {retirement:state,version:1}) };
   const stateAccount = { owner: program, executable: false, data: await coder.accounts.encode('LegacyRetirement', paid) };
   f.accounts.set(market.toBase58(), tombstone); f.accounts.set(state.toBase58(), stateAccount);

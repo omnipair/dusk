@@ -26,8 +26,8 @@ export function assertRetirementComplete(market, retirement) {
   assert.ok(retired.retirement.equals(state)); assert.equal(retired.version, 1);
   const paid = coder.accounts.decode('LegacyRetirement', retirement.data);
   assert.equal(paid.version, 1); assert.equal(paid.completed, true, 'Retirement is not complete');
-  assert.equal(paid.cleaned_mask, 31, 'Personal claims/rent remain');
-  assert.equal(paid.paid_mask, 31, 'User payout claims remain');
+  assert.equal(paid.cleaned_mask, (1 << scope.owners.length) - 1, 'Personal claims/rent remain');
+  assert.equal(paid.paid_mask, (1 << scope.owners.length) - 1, 'User payout claims remain');
   assert.deepEqual(paid.remaining.map(String), ['0', '0'], 'Retirement budget remains unpaid');
   return paid;
 }
