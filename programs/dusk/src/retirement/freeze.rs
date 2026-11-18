@@ -20,6 +20,7 @@ pub struct FrozenLegacyMarket {
     pub receipt_snapshot: Vec<u8>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct FreezeLegacyMarket<'info> {
     #[account(mut, address = AUTHORITY)]
@@ -112,7 +113,7 @@ pub fn handle_freeze<'info>(ctx: Context<'_, '_, '_, 'info, FreezeLegacyMarket<'
         vault_amounts,
         receipt_snapshot: bytes,
     });
-    emit!(LegacyMarketFrozen {
+    emit_cpi!(LegacyMarketFrozen {
         slot: clock.slot,
         market_sha256: market_hash,
         receipts_sha256: hash(&ctx.accounts.frozen.receipt_snapshot).to_bytes()

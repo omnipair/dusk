@@ -132,8 +132,79 @@ encrypted-volume signer, supports exact-code resumption, uploads each IDL after
 its program, and verifies both final programs and authorities. Stable SDK
 publication and remote source attestation remain separate protected steps.
 
-Before live execution: complete the frozen-capture/model/manifest tooling,
-review the final amounts and source bundle, preserve old history and implement
-retirement event/portfolio handling in the backend. Keep market creation and
-keeper activation outside this retirement operation. No live upgrade, freeze,
-IDL upload, payout or publishing is authorized by this document or its tests.
+## Frozen capture, manifest and local execution
+
+The operator tools default to preview. `plan` and write commands without
+`--execute` do not open a signer or RPC connection. `preflight` is read-only.
+The explicit write paths require the exact clean, merged source, checked
+macOS encrypted-volume signer, mainnet genesis, reviewed program bytes and
+IDLs, and the original delegate deployment. No script creates a new market,
+activates keepers or publishes an SDK.
+
+```sh
+node scripts/retirement/local.mjs preflight BUNDLE VERIFIED_OLD_BANK
+node scripts/retirement/local.mjs upgrade BUNDLE VERIFIED_OLD_BANK
+node scripts/retirement/local.mjs freeze BUNDLE
+```
+
+After an authorized temporary upgrade/freeze, prepare the immutable proposal:
+
+```sh
+node scripts/retirement/capture.mjs BUNDLE VERIFIED_OLD_BANK NEW_CAPTURE
+node scripts/retirement/model.mjs \
+  CAPTURE BUNDLE VERIFIED_OLD_BANK OLD_INVENTORY OLD_IDL \
+  NEW_MODEL_INVENTORY NEW_MODEL_REFERENCE
+```
+
+The model substitutes only the verified old executable/loader metadata, the
+on-chain freeze clock, preserved receipt bytes and frozen vault amounts. It
+retains the actual economic account bytes. All substitutions and both source
+identities are explicit. It rejects post-cutoff CPI code upgrades. The model
+is never registered as an active indexer identity or called an observed RPC
+bank. The existing isolated layout-17 indexer quote tool consumes the model:
+
+```sh
+node OLD_INDEXER/api/dist/scripts/duskRetirementRehearsal.js \
+  MODEL_INVENTORY NEW_QUOTE --bank MODEL_REFERENCE
+node scripts/retirement/rehearse.mjs \
+  MODEL_REFERENCE QUOTE BUNDLE/dusk.so BUNDLE/dusk.json NEW_MODEL_PROOF
+node scripts/retirement/manifest.mjs \
+  CAPTURE BUNDLE MODEL_REFERENCE QUOTE MODEL_PROOF NEW_MANIFEST
+node scripts/retirement/rehearse-frozen.mjs \
+  CAPTURE BUNDLE MODEL_REFERENCE QUOTE MODEL_PROOF MANIFEST NEW_FROZEN_PROOF
+```
+
+The second native replay starts from the actual temporary bank, uses the
+manifest's captured source slot and hashes, and exercises the same begin,
+clear, associated-token-account creation and payout instructions as the local
+operator. It verifies every token delta and the completed manifest root.
+Destination account state is re-simulated again immediately before any live
+submission. The optional `DUSK_RETIREMENT_LOCAL_FREEZE_WITNESS` path in the first
+rehearsal exists only for offline tool testing; every such artifact is marked
+`localOnly` and the mainnet operator rejects it.
+
+After reviewing all amounts and explicitly authorizing execution:
+
+```sh
+node scripts/retirement/local.mjs settle \
+  BUNDLE MANIFEST CAPTURE MODEL_REFERENCE QUOTE MODEL_PROOF FROZEN_PROOF
+node scripts/retirement/local.mjs verify \
+  BUNDLE MANIFEST CAPTURE MODEL_REFERENCE QUOTE MODEL_PROOF FROZEN_PROOF
+```
+
+`settle` still previews unless given `--execute`. Actual signing additionally
+requires `MAINNET_RPC_URL` and an absolute private `DUSK_RETIREMENT_JOURNAL`
+path. It journals the prepared transaction signature before network submission,
+re-simulates with signature verification, waits for finalization and resumes
+from on-chain masks. A different committed manifest or incomplete funding
+halts execution. An unsafe recipient fails atomically and remains unpaid;
+there is no automatic redirect or claim expiry. Ordinary owner ATAs are the
+reviewed default destinations; a poisoned ATA needs a separately reviewed safe
+recipient before retrying. Treasury is paid last.
+
+Remaining release work: preserve old history, implement retirement
+observations/final portfolio handling in the backend, complete the paired
+archived-history frontend validator and final exact signed-bundle checks.
+Mainnet upgrades, IDL writes, payouts and publishing remain separate execution
+steps requiring the reviewed concrete release. Nothing in these docs grants
+execution authority.

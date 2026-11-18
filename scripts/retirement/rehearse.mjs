@@ -8,6 +8,7 @@ import anchor from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, createInitializeAccount3Instruction, createApproveInstruction, createRevokeInstruction, createTransferCheckedInstruction, createBurnCheckedInstruction } from '@solana/spl-token';
 import { LiteSVM, FeatureSet, ComputeBudget, Clock, Rent, FailedTransactionMetadata } from 'litesvm';
+import { seal, digest } from './evidence.mjs';
 
 const directory = fileURLToPath(new URL('.', import.meta.url));
 const { BorshCoder, BN } = anchor;
@@ -56,6 +57,7 @@ assert.equal(idl.address, scope.program);
 assert.deepEqual(idl.instructions.map(row => row.name).sort(), ['abort_stale_legacy_freeze', 'begin_legacy_retirement', 'clear_legacy_owner', 'finish_legacy_retirement', 'freeze_legacy_market', 'pay_legacy_owner']);
 const program = key(scope.program), authority = key(scope.authority), market = key(scope.market);
 const loader = key('BPFLoaderUpgradeab1e11111111111111111111111');
+const eventAuthority = PublicKey.findProgramAddressSync([Buffer.from('__event_authority')], program)[0];
 const state = PublicKey.findProgramAddressSync([Buffer.from('legacy_retirement'), market.toBuffer()], program)[0];
 const frozen = PublicKey.findProgramAddressSync([Buffer.from('legacy_freeze'), market.toBuffer()], program)[0];
 const sourceMarket = rows.get(scope.market);
@@ -135,7 +137,7 @@ function installLocalCode(svm, bytes) {
 function instruction(name, values, accounts, extra = []) {
   const definition = idl.instructions.find(row => row.name === name); assert.ok(definition);
   return new TransactionInstruction({ programId: program, data: coder.instruction.encode(name, values),
-    keys: [...definition.accounts.map(row => ({ pubkey: key(accounts[row.name] ?? row.address), isSigner: !!row.signer, isWritable: !!row.writable })), ...extra] });
+    keys: [...definition.accounts.map(row => ({ pubkey: key(accounts[row.name] ?? row.address ?? ({ event_authority: eventAuthority, program })[row.name]), isSigner: !!row.signer, isWritable: !!row.writable })), ...extra] });
 }
 const beginAccounts = { retirement: state, frozen, authority, market, program_data: key(scope.programData), system_program: SystemProgram.programId, token_program: TOKEN_PROGRAM_ID };
 const extra = [...scope.vaults.map(address => ({ pubkey: key(address), isSigner: false, isWritable: true })),
@@ -185,6 +187,30 @@ for (const expected of freezeExtra.slice(0, scope.receiptMints.length + scope.re
 }
 assert.equal(cursor, snapshot.length);
 assert.deepEqual(frozenState.vault_amounts.map(String), scope.vaults.map(address => String(Buffer.from(rows.get(address).data, 'base64').readBigUInt64LE(64))));
+// Optional fixture for testing the offline compiler against an actual native
+// freeze. It is explicitly a local VM witness, never an observed RPC capture.
+if (process.env.DUSK_RETIREMENT_LOCAL_FREEZE_WITNESS) {
+  const blueprint = evidence(process.env.DUSK_RETIREMENT_LOCAL_BLUEPRINT);
+  const manifest = JSON.parse(readFileSync(process.env.DUSK_RETIREMENT_LOCAL_BUNDLE_MANIFEST));
+  assert.equal(manifest.files['dusk.so'].sha256, hash(binary).toString('hex'));
+  const addresses = [...source.bank.accounts.map(row => row.address), frozen.toBase58()];
+  const raw = address => {
+    const account = svm.getAccount(key(address));
+    return account ? { owner: account.owner.toBase58(), executable: account.executable,
+      lamports: Number(account.lamports), rentEpoch: '0', data: Buffer.from(account.data).toString('base64') } : null;
+  };
+  const bank = { slot: source.bank.slot, accounts: addresses.map(address => ({ address, account: raw(address) })) };
+  const programCatalogs = blueprint.programs.map(catalog => ({ program: catalog.program, context: { slot: source.bank.slot },
+    value: catalog.value.map(row => {
+      const account = rows.has(row.pubkey) ? raw(row.pubkey) : { ...row.account, rentEpoch: '0', data: row.account.data[0] };
+      return { pubkey: row.pubkey, account: { ...account, data: [account.data, 'base64'] } };
+    }) }));
+  programCatalogs[0].value.push({ pubkey: frozen.toBase58(), account: { ...raw(frozen), data: [raw(frozen).data, 'base64'] } });
+  const witness = seal({ schemaVersion: 'dusk-retirement-frozen-capture.v1', localOnly: true, readOnly: false, executionReady: false,
+    genesisHash: scope.legacyIdentity.genesisHash, bundleSha256: digest(manifest), bankSha256: digest(bank), bank, programCatalogs,
+    provenance: 'Native VM freeze over a captured bank; uncaptured ancillary metadata is an older local fixture. Not RPC-observed state.' });
+  writeFileSync(process.env.DUSK_RETIREMENT_LOCAL_FREEZE_WITNESS, JSON.stringify(witness, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+}
 const burnable = scope.receiptAccounts.find(address => {
   const data = Buffer.from(rows.get(address).data, 'base64');
   return scope.owners.includes(key(data.subarray(32, 64)).toBase58()) && data.readBigUInt64LE(64) > 0n;

@@ -63,6 +63,7 @@ pub struct RetiredLegacyMarket {
     pub version: u8,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct BeginLegacyRetirement<'info> {
     #[account(mut, address = AUTHORITY)]
@@ -80,6 +81,7 @@ pub struct BeginLegacyRetirement<'info> {
     pub token_program: Program<'info, anchor_spl::token::Token>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct ClearLegacyOwner<'info> {
     #[account(mut, seeds = [RETIREMENT_SEED, MARKET.as_ref()], bump = retirement.bump)]
@@ -91,6 +93,7 @@ pub struct ClearLegacyOwner<'info> {
     pub owner: UncheckedAccount<'info>,
 }
 
+#[event_cpi]
 #[derive(Accounts)]
 pub struct PayLegacyRetirement<'info> {
     #[account(mut, seeds = [RETIREMENT_SEED, MARKET.as_ref()], bump = retirement.bump)]
@@ -211,7 +214,7 @@ pub fn handle_begin<'info>(
         version: 1,
     }
     .try_serialize(&mut &mut market.try_borrow_mut_data()?[..])?;
-    emit!(LegacyRetirementBegun {
+    emit_cpi!(LegacyRetirementBegun {
         manifest_sha256: state.manifest_sha256,
         source_slot: args.source_slot,
         custody
@@ -268,7 +271,7 @@ pub fn handle_clear<'info>(ctx: Context<'_, '_, '_, 'info, ClearLegacyOwner<'inf
         rent = rent.checked_add(amount).ok_or(RetirementError::Math)?;
     }
     state.cleaned_mask |= 1 << index;
-    emit!(LegacyOwnerCleared {
+    emit_cpi!(LegacyOwnerCleared {
         owner: OWNERS[index],
         rent_lamports: rent
     });
@@ -295,7 +298,7 @@ pub fn handle_pay(ctx: Context<PayLegacyRetirement>, owner_index: u8) -> Result<
         .checked_sub(payout.quote)
         .ok_or(RetirementError::Funding)?;
     state.paid_mask |= 1 << index;
-    emit!(LegacyRetirementPaid {
+    emit_cpi!(LegacyRetirementPaid {
         owner: OWNERS[index],
         base: payout.base,
         quote: payout.quote,
@@ -315,7 +318,7 @@ pub fn handle_finish(ctx: Context<PayLegacyRetirement>) -> Result<()> {
     pay_tokens(&ctx, TREASURY, remaining)?;
     ctx.accounts.retirement.remaining = [0; 2];
     ctx.accounts.retirement.completed = true;
-    emit!(LegacyRetirementPaid {
+    emit_cpi!(LegacyRetirementPaid {
         owner: TREASURY,
         base: remaining[0],
         quote: remaining[1],
