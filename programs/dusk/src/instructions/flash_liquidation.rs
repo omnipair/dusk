@@ -16,11 +16,13 @@ use crate::{
     errors::ErrorCode,
     generate_market_seeds,
     instructions::{
-        accounts::{require_reserve_custody, require_supported_asset_mint, token_program_for_mint},
+        accounts::{
+            require_reserve_custody, require_supported_asset_mint, token_account_info_amount, token_program_for_mint,
+        },
         leverage_collateral_fee, leverage_collateral_liquidation_fee,
     },
     state::*,
-    token::transfer_checked_with_remaining_accounts,
+    token::{create_token_account, transfer_checked_with_remaining_accounts},
     transitions::{flash_liquidation::LiquidationPositionRef, flash_settlement::LiquidationPositionMut},
 };
 
@@ -248,11 +250,10 @@ pub struct BeginFlashLiquidation<'info> {
     #[account(init, payer = accounts.buyer, space = 8 + LiquidationSession::INIT_SPACE,
         seeds = [LIQUIDATION_SESSION_SEED, args.position.as_ref()], bump)]
     pub session: Box<Account<'info, LiquidationSession>>,
-    #[account(init_if_needed, payer = accounts.buyer,
-        seeds = [LIQUIDATION_PAYMENT_SEED, args.position.as_ref(), accounts.debt_mint.key().as_ref()], bump,
-        token::mint = accounts.debt_mint, token::authority = session,
-        token::token_program = accounts.debt_token_program)]
-    pub repayment_vault: Box<InterfaceAccount<'info, TokenAccount>>,
+    /// CHECK: PDA checked here; the handler initializes or validates its mint,
+    /// session authority and token-program owner with the extension-aware helper.
+    #[account(mut, seeds = [LIQUIDATION_PAYMENT_SEED, args.position.as_ref(), accounts.debt_mint.key().as_ref()], bump)]
+    pub repayment_vault: UncheckedAccount<'info>,
     /// CHECK: Canonical instructions sysvar, used with checked deserialization.
     #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions: UncheckedAccount<'info>,
@@ -396,6 +397,25 @@ impl<'info> BeginFlashLiquidation<'info> {
             ErrorCode::SlippageExceeded
         );
         let session_key = ctx.accounts.session.key();
+        // Anchor 0.31's token-account initializer parses mint extensions with
+        // Token-2022 v6, which cannot size Pausable mints. Use the same v7
+        // extension-aware allocation as market custody, without changing seeds.
+        let debt_mint_key = a.debt_mint.key();
+        let repayment_bump = [ctx.bumps.repayment_vault];
+        create_token_account(
+            &ctx.accounts.session.to_account_info(),
+            &a.buyer.to_account_info(),
+            &ctx.accounts.repayment_vault.to_account_info(),
+            &a.debt_mint.to_account_info(),
+            &ctx.accounts.system_program.to_account_info(),
+            &a.debt_token_program.to_account_info(),
+            &[
+                LIQUIDATION_PAYMENT_SEED,
+                args.position.as_ref(),
+                debt_mint_key.as_ref(),
+                &repayment_bump,
+            ],
+        )?;
         let principal = match a.position()? {
             LiquidationPositionRef::Borrow(_) => 0,
             LiquidationPositionRef::Leverage(p) => p.debt_principal,
@@ -416,7 +436,7 @@ impl<'info> BeginFlashLiquidation<'info> {
             original_debt_shares: a.position()?.shares(asset),
             original_principal: principal,
             borrow_index: a.market.debt.borrow_index(asset),
-            payment_balance_before: ctx.accounts.repayment_vault.amount,
+            payment_balance_before: token_account_info_amount(&ctx.accounts.repayment_vault.to_account_info())?,
             min_buyer_credit: args.min_buyer_credit,
             quote,
             debt_asset: asset.code(),

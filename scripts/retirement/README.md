@@ -41,7 +41,7 @@ catalog and program together.
    irreversible boundary. A restored old binary cannot redeem old positions or
    receipts, and the account is never closed or reinitialized.
 3. **Clear personal state.** Anyone may submit the exact, hash-bound account
-   group for an owner. All 26 known position, delegation, junior-exit and yield
+   group for an owner. All 28 known position, delegation, junior-exit and yield
    accounts are terminally settled into the funded claims and closed; their
    actual SOL rent returns to that owner. Every owner group must be complete
    before any token payout, including junior principal.
@@ -130,7 +130,11 @@ personal accounts. An additional legacy claim blocks the first upgrade.
 Preflight reports peak buffer funding, extension rent, IDL funding and payer
 shortfall. The later `upgrade ... --execute` path uses only the checked local
 encrypted-volume signer, supports exact-code resumption, uploads each IDL after
-its program, and verifies both final programs and authorities. Stable SDK
+its program, and verifies both final programs and authorities. It upgrades the
+delegate first while the temporary Dusk binary rejects normal instructions,
+then activates normal Dusk last. The common replay boundary therefore includes
+the first possible normal Dusk write. Resuming with new Dusk but old delegate
+is rejected until the activation gap is reconciled. Stable SDK
 publication and remote source attestation remain separate protected steps.
 
 ## Frozen capture, manifest and local execution

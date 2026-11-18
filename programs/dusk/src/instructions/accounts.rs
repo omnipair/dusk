@@ -16,7 +16,7 @@ use crate::{
     constants::HLP_SRLP_VAULT_SEED_PREFIX,
     errors::ErrorCode,
     state::{Market, MarketAsset, MarketSide},
-    token::SUPPORTED_ASSET_EXTENSIONS,
+    token::asset_mint_extensions_supported,
 };
 
 pub fn derive_hlp_srlp_vault_address(market: Pubkey, target_hlp_mint: Pubkey, srlp_mint: Pubkey) -> (Pubkey, u8) {
@@ -172,18 +172,15 @@ pub fn token_program_for_mint<'info>(
 #[inline(always)]
 pub fn require_supported_asset_mint(mint: &InterfaceAccount<Mint>) -> Result<()> {
     // Match v1 asset admission: issuer freeze authority is accepted counterparty
-    // risk. A frozen vault can block exits or liquidation; SPL still enforces
-    // freezes on transfers. LP receipts retain their separate no-freeze rule.
+    // risk. Pause, delegate and default-state controls likewise retain issuer
+    // power over asset custody/availability. LP receipt policy stays separate.
     let mint_info = mint.to_account_info();
     let supported = if *mint_info.owner == Token::id() {
         true
     } else {
         let mint_data = mint_info.try_borrow_data()?;
         let mint_state = StateWithExtensions::<SplToken2022Mint>::unpack(&mint_data)?;
-        mint_state
-            .get_extension_types()?
-            .into_iter()
-            .all(|extension| SUPPORTED_ASSET_EXTENSIONS.contains(&extension))
+        asset_mint_extensions_supported(&mint_state)?
     };
     require!(supported, ErrorCode::InvalidTokenProgram);
     Ok(())

@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { PublicKey } from '@solana/web3.js';
 import { CONFIG, LOADER, ROOT, cargoArgs, readBundle, sha256, verifyOnChain, decodeIdl } from './artifacts.mjs';
 import { assertEncryptedMount, preflight } from './local.mjs';
-import { assertRetirementComplete, upgradePreflight } from './upgrade.mjs';
+import { assertRetirementComplete, upgradePreflight, SUCCESSOR_UPGRADE_ORDER, assertSuccessorActivationOrder } from './upgrade.mjs';
 import anchor from '@coral-xyz/anchor';
 
 function fixture(t) {
@@ -173,6 +173,14 @@ test('upgrade preflight accepts complete retirement and exact-code resumption wi
   const f=await retiredFixture(t),report=await upgradePreflight(f.connection,f.bundle(),f.previous);
   assert.ok(report.programs.every(row=>row.alreadyUpgraded));assert.equal(report.peakBufferRent,0);
   assert.equal(report.retirementManifestSha256,'01'.repeat(32));
+});
+test('normal activation orders delegate before Dusk so their common replay start cannot omit early Dusk writes',()=>{
+  assert.deepEqual(SUCCESSOR_UPGRADE_ORDER,['leverage_delegate','dusk']);
+  const state=(dusk,delegate)=>[{name:'dusk',alreadyUpgraded:dusk},{name:'leverage_delegate',alreadyUpgraded:delegate}];
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(false,false)));
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(false,true)));
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(true,true)));
+  assert.throws(()=>assertSuccessorActivationOrder(state(true,false)),/activation gap/);
 });
 test('upgrade cannot bypass unfinished payouts, personal rent, residual budget or the tombstone',async t=>{
   for(const failure of ['incomplete','unpaid','unclean','residual','tombstone','rent']) {

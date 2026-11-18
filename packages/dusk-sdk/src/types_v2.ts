@@ -713,6 +713,9 @@ export type Dusk = {
         },
         {
           "name": "repaymentVault",
+          "docs": [
+            "session authority and token-program owner with the extension-aware helper."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -877,6 +880,9 @@ export type Dusk = {
         },
         {
           "name": "repaymentVault",
+          "docs": [
+            "session authority and token-program owner with the extension-aware helper."
+          ],
           "writable": true,
           "pda": {
             "seeds": [

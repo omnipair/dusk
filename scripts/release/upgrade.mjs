@@ -14,6 +14,13 @@ import { readRetirementBundle } from '../retirement/bundle.mjs';
 const key = value => new PublicKey(value);
 const scope = JSON.parse(readFileSync(new URL('../retirement/scope.json', import.meta.url)));
 const retirementIdl = JSON.parse(readFileSync(new URL('../retirement/idl.json', import.meta.url)));
+// Temporary Dusk rejects normal calls while delegate is upgraded. Activating
+// Dusk last makes the common replay boundary include its first possible writes.
+export const SUCCESSOR_UPGRADE_ORDER = ['leverage_delegate', 'dusk'];
+export function assertSuccessorActivationOrder(programs) {
+  assert.ok(!programs.find(row => row.name === 'dusk').alreadyUpgraded || programs.find(row => row.name === 'leverage_delegate').alreadyUpgraded,
+    'Dusk activated before delegate; reconcile the activation gap before resuming');
+}
 const coder = new anchor.BorshCoder(retirementIdl);
 const state = PublicKey.findProgramAddressSync([Buffer.from('legacy_retirement'), key(scope.market).toBuffer()], key(scope.program))[0];
 function matches(data, bytes) { try { assertProgramBytes(data, bytes); return true; } catch { return false; } }
@@ -67,6 +74,7 @@ export async function upgradePreflight(connection, successor, previous) {
     idlRent += await connection.getMinimumBalanceForRentExemption(44 + 2 * deflateSync(Buffer.from(JSON.stringify(newIdl))).length);
     programs.push({ name, program: row.id, alreadyUpgraded, checkedSlot: read.context.slot, allocationBytes: data.data.length - 45, binaryBytes: candidate.length });
   }
+  assertSuccessorActivationOrder(programs);
   const claims = await connection.getMultipleAccountsInfoAndContext([key(scope.market), state, ...scope.personal.flat().map(row => key(row.address))], { commitment: 'finalized' });
   const paid = assertRetirementComplete(claims.value[0], claims.value[1]);
   for (const account of claims.value.slice(2))
@@ -103,7 +111,7 @@ async function main() {
   const execute = options.includes('--execute');
   if (command === 'plan' || command === 'upgrade' && !execute) {
     console.log(JSON.stringify({ mode: 'preview; no signing or network writes', successor: successor.manifest.sourceCommit,
-      retirement: previous.manifest.sourceCommit, programs: CONFIG.programs,
+      retirement: previous.manifest.sourceCommit, programs: CONFIG.programs, upgradeOrder: SUCCESSOR_UPGRADE_ORDER,
       requires: ['permanent legacy tombstone', 'all user claims paid and personal rent returned', 'exact approved prior code/IDLs', 'funded encrypted local signer'],
       sdkPublication: false }, null, 2)); return;
   }
@@ -117,7 +125,8 @@ async function main() {
   assert.equal(git('rev-parse', 'HEAD'), successor.manifest.sourceCommit);
   assert.equal(git('status', '--porcelain', '--untracked-files=no'), '', 'Upgrade checkout has tracked changes');
   git('merge-base', '--is-ancestor', successor.manifest.sourceCommit, 'origin/main');
-  for (const [name, row] of Object.entries(successor.manifest.programs)) {
+  for (const name of SUCCESSOR_UPGRADE_ORDER) {
+    const row = successor.manifest.programs[name];
     if (!report.programs.find(program => program.name === name).alreadyUpgraded)
       run('solana', ['program', 'deploy', resolve(successor.directory, row.binary.file), '--program-id', row.id,
         '--keypair', files.deployer, '--fee-payer', files.deployer, '--upgrade-authority', files.deployer,
