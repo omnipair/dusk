@@ -163,6 +163,9 @@ pub fn transfer_checked_with_remaining_accounts_and_instruction<'a>(
             transfer_hook::get_program_id(&mint_state)
         };
         if let Some(transfer_hook_program_id) = transfer_hook_program_id {
+            // Asset hooks are not admitted. Only Dusk's own LP receipt hook
+            // may execute, even if a caller omitted asset-policy validation.
+            require_keys_eq!(transfer_hook_program_id, crate::ID, ErrorCode::InvalidTokenProgram);
             let mut account_infos = vec![from.clone(), mint.clone(), to.clone(), authority.clone()];
             add_transfer_hook_accounts(
                 instruction,
@@ -327,9 +330,23 @@ pub fn is_fee_free_mint(mint_account: &InterfaceAccount<Mint>) -> Result<bool> {
 
     let mint_data = mint_info.try_borrow_data()?;
     let mint = StateWithExtensions::<spl_token_2022::state::Mint>::unpack(&mint_data)?;
-    Ok(mint.get_extension_types()?.into_iter().all(|extension| {
-        SUPPORTED_ASSET_EXTENSIONS.contains(&extension) && extension != ExtensionType::TransferFeeConfig
-    }))
+    Ok(asset_mint_extensions_supported(&mint)?
+        && !mint.get_extension_types()?.contains(&ExtensionType::TransferFeeConfig))
+}
+
+pub(crate) fn asset_mint_extensions_supported(mint: &StateWithExtensions<spl_token_2022::state::Mint>) -> Result<bool> {
+    let extensions = mint.get_extension_types()?;
+    if !extensions
+        .iter()
+        .all(|extension| SUPPORTED_ASSET_EXTENSIONS.contains(extension))
+    {
+        return Ok(false);
+    }
+    if extensions.contains(&ExtensionType::TransferHook) {
+        let hook = mint.get_extension::<transfer_hook::TransferHook>()?;
+        return Ok(Option::<Pubkey>::from(hook.program_id).is_none());
+    }
+    Ok(true)
 }
 
 pub(crate) const SUPPORTED_ASSET_EXTENSIONS: &[ExtensionType] = &[
@@ -342,6 +359,14 @@ pub(crate) const SUPPORTED_ASSET_EXTENSIONS: &[ExtensionType] = &[
     ExtensionType::TokenGroupMember,
     ExtensionType::InterestBearingConfig,
     ExtensionType::ScaledUiAmount,
+    // Plain Token-2022 balances remain public; issuer controls are retained.
+    ExtensionType::MintCloseAuthority,
+    ExtensionType::ConfidentialTransferMint,
+    ExtensionType::PermanentDelegate,
+    ExtensionType::Pausable,
+    ExtensionType::DefaultAccountState,
+    // Only an unset hook program is admitted by the mint validator.
+    ExtensionType::TransferHook,
 ];
 
 pub fn create_token_account<'a>(
