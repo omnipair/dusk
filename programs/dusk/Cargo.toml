@@ -23,6 +23,9 @@ anchor-debug = []
 custom-heap = []
 custom-panic = []
 production = []
+# One-market terminal distributor. Its ABI replaces normal entrypoints only in
+# this explicit production build; it is never a normal release default.
+legacy-retirement = []
 devnet-short-notice = []
 # Logs the hLP reserve-identity drift instead of only rejecting on it.
 #

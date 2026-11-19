@@ -1,0 +1,591 @@
+{
+  "schemaVersion": "dusk-legacy-retirement-scope.v1",
+  "market": "7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7",
+  "program": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+  "authority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+  "programData": "58HpCNM5jydkig5bhy8BR77DJn2E3KcuD9hruj13mUqz",
+  "treasury": "8s6Jdoh7tgUqmU3D2EmpNJHSvuN5U4NybpLAdsiMitwB",
+  "owners": [
+    "2K9ZpC3LVqRfR8Vveo92LhiofbDcF6PuDRJbaPp9V34m",
+    "3XAr6KPC1x75XcBLVRc5TxD39gDXMGu4P1kFgDn5PFu2",
+    "41shojZU4PwxKBV1MmX3yYyAHiGrF3DyDLAdvsuSCUm7",
+    "526W6vNe3WtRsfw8ELNKtAcpa2eFzXBtvre6RSsn3xUi",
+    "5YE9xb49trAeZHzEcuusySswFb5pWdsZLCTYqiymoiFa",
+    "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt"
+  ],
+  "mints": [
+    "omfgRBnxHsNJh6YeGbGAmWenNkenzsXyBXm3WDhmeta",
+    "METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta"
+  ],
+  "paramsHash": [
+    212,
+    49,
+    62,
+    24,
+    153,
+    22,
+    6,
+    68,
+    244,
+    178,
+    147,
+    74,
+    248,
+    9,
+    89,
+    146,
+    248,
+    162,
+    93,
+    205,
+    196,
+    35,
+    69,
+    83,
+    5,
+    243,
+    133,
+    40,
+    0,
+    99,
+    8,
+    27
+  ],
+  "marketBump": 252,
+  "personal": [
+    [
+      {
+        "address": "5GFk5KrtaEt3gZC8g3uLp4fJm566dy529JCWzqaFMsnZ",
+        "kind": "LeveragePosition",
+        "discriminator": [
+          88,
+          78,
+          124,
+          68,
+          228,
+          129,
+          34,
+          251
+        ]
+      }
+    ],
+    [
+      {
+        "address": "9uZYaDZrd8GFyTLTqetqXB5sesp7sgmJxhUtm8se6EwK",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "AFGyBHZhJ7Kof8a1zoK7xnETn8FTPHZkdwTAPW5W5zKm",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      }
+    ],
+    [
+      {
+        "address": "6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "8GxXF5BuejaKJJ7eFoQbPJN1UVXtHVtFpEnKMibxtiex",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "8rzUxjrSfgfCNTbjJrSCKqUuxovZchZgszRUstH79vXo",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "9GooFiPBB4BRByGLRJURhKs835NmkMyu7UQ4gUMowmRW",
+        "kind": "JuniorExitAccount",
+        "discriminator": [
+          186,
+          158,
+          208,
+          250,
+          7,
+          219,
+          13,
+          26
+        ]
+      },
+      {
+        "address": "Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "Dz4LK6u3W5JQfCjqd87tuYp66r4dQMRcEN4fAL9XS8Em",
+        "kind": "BorrowPosition",
+        "discriminator": [
+          243,
+          140,
+          20,
+          139,
+          32,
+          243,
+          114,
+          55
+        ]
+      },
+      {
+        "address": "FgC339W8s8edjvQQS5yYSk5mvAqSsGidHzTgMBxRKcze",
+        "kind": "LeveragePosition",
+        "discriminator": [
+          88,
+          78,
+          124,
+          68,
+          228,
+          129,
+          34,
+          251
+        ]
+      }
+    ],
+    [
+      {
+        "address": "C6jhbcz2qKXNF73A8mBuXsnAD9nXbcphhCYDt6W792mR",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "EYn3cunjL8iigMYEqhSvPuRXjxSectiu2veVAMEFDMVK",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      }
+    ],
+    [
+      {
+        "address": "BGvsaog6aT9HPYhzijn5bgarUVqbWPHwa59mvxcAt2kc",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "Ds55QyoE6nLPac5RkBf1zjChhmhGBLnKPqSXGXAovDog",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "FPDNk2gffXtpSjoULhvPG4PpcKwyg1NZotLHnH7ww8FL",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "H5d1hySUBKe8avcWkbk9z2kbbggU5otayixB13jhhh9y",
+        "kind": "JuniorExitAccount",
+        "discriminator": [
+          186,
+          158,
+          208,
+          250,
+          7,
+          219,
+          13,
+          26
+        ]
+      },
+      {
+        "address": "YqV18MNFWRAHGEDuC4BMNufNE3zEHWgQcmHc5zJJWrq",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      }
+    ],
+    [
+      {
+        "address": "5X287p3iS4XDx659zGv6DPrw7fFbnrnpCF6nKmVKqUR4",
+        "kind": "LeverageDelegation",
+        "discriminator": [
+          49,
+          60,
+          29,
+          23,
+          243,
+          219,
+          16,
+          214
+        ]
+      },
+      {
+        "address": "6AT92dBHWWnSyqkBxUvq3s3Bj8XRikvCMFBdca8yieVR",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "8Au4wUtdSnrfyjZsPzrdbPjKvapMEwdiJ6GdZDGmder6",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "9mSdg17r3GTfpwGRLaUzmmhE63g5AMRm5Sdo46yA7YwP",
+        "kind": "LeveragePosition",
+        "discriminator": [
+          88,
+          78,
+          124,
+          68,
+          228,
+          129,
+          34,
+          251
+        ]
+      },
+      {
+        "address": "CwyUNfpYxEeKSqDFd2oRni9KE8poCQsBB8mpjFKVUr3N",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      },
+      {
+        "address": "EfxEk52ZBdT6hFgZA77jCcppVWAcXvJpbT3L1FrizfRL",
+        "kind": "BorrowPosition",
+        "discriminator": [
+          243,
+          140,
+          20,
+          139,
+          32,
+          243,
+          114,
+          55
+        ]
+      },
+      {
+        "address": "FqyeRBfcxywzDA6LsvM1s11KEQ2szAZPuwmG78X98xVh",
+        "kind": "LeveragePosition",
+        "discriminator": [
+          88,
+          78,
+          124,
+          68,
+          228,
+          129,
+          34,
+          251
+        ]
+      },
+      {
+        "address": "G2WsgUNHkcchyzL8vVZx2zTtDsgz7feSoDA1Kf7pmgAM",
+        "kind": "LeveragePosition",
+        "discriminator": [
+          88,
+          78,
+          124,
+          68,
+          228,
+          129,
+          34,
+          251
+        ]
+      },
+      {
+        "address": "Gr2pmCUtWqHFkcd4qaf1cxxcQLKRKsHTRPFAx9rSSVUr",
+        "kind": "YieldAccount",
+        "discriminator": [
+          233,
+          241,
+          119,
+          6,
+          2,
+          14,
+          106,
+          156
+        ]
+      }
+    ]
+  ],
+  "vaults": [
+    "GkWaRKsBgb4e7TrXv7Di1oyU8gkFzf5PNeBgW6oFQcsC",
+    "BbdRzkSmjmsS3XTedqgM8RqFEmR4V1NvxGuECrwb8quw",
+    "DwmcRX1J5oaFc9ftcbU3p1ftqEJTdRWc3RP7NjtTSR3",
+    "8seUCsEbJiY2znwrBvSPRDCxtNjVr1Mo3BavmCRxVcHz",
+    "Gk3sqyHHmZqF4dHg3HZDv8NVAmRWEnqVenE7cCe4Mbc2",
+    "EA9HJBb32ZoukJE1yWdHo9SLTDFkYJGSW183T96S7FpR",
+    "CZCennGC9gic3CnofzR6ME5k3mNmtutgaVaFSHkmPYPL",
+    "8UukS7MkytKtqZ6sLh4F87KU2Z2wzbKYj2NmLW43Ttm3"
+  ],
+  "preservedOwnerOrderRentClaim": {
+    "address": "44ZstbJV4iCfKjpg4yZifiMb6L3LQrfEHnYeBGnMoyUR",
+    "owner": "8tF4uYMBXqGhCUGRZL3AmPqRzbX8JJ1TpYnY3uJKN4kt",
+    "program": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
+    "reason": "Zero token escrow; ordinary owner cancellation remains available across the upgrade."
+  },
+  "legacyIdentity": {
+    "cluster": "mainnet-beta",
+    "genesisHash": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d",
+    "revision": "mainnet-2026-11-14",
+    "dusk": {
+      "name": "dusk",
+      "programId": "DuskWhswJYrzABDn8GqQD191X9RobRi5jhgGntXEdnKj",
+      "binarySha256": "047a30c6396791c962c62a958c1b099b12e5994bc07dfffc69d5bd2a91031b0a",
+      "idlRawSha256": "b78cbeef3301d2ba650e66065424356d410cbee94f43f2aea6912991ab79736a",
+      "idlCanonicalSha256": "dfd05743bca263f84193acbe882d281cb532806928fa357fc4ce0f07a4ec383c",
+      "deployment": {
+        "programData": "58HpCNM5jydkig5bhy8BR77DJn2E3KcuD9hruj13mUqz",
+        "deploySlot": 469349657,
+        "upgradeAuthority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+        "allocatedBinaryBytes": 4058688
+      }
+    },
+    "delegate": {
+      "name": "leverage_delegate",
+      "programId": "DeLegABhDLREbDpwwcsbkHvDS5MwqKPAw1CJKoooUXFQ",
+      "binarySha256": "0b62f3ea48dbddadf5935ec57f0de907bcf26b99793d6ce7c2155225097c5e6e",
+      "idlRawSha256": "a5047b952378f89c34ee94823d033ad43727b99e27615b0645a347a463ec8524",
+      "idlCanonicalSha256": "58f03db70f59e04ed594848bda54dcf5a05b4fa9ef31868c4d98273443321d22",
+      "deployment": {
+        "programData": "4VHNxPfE4w6hUj2RT1jPhP6FzRjno7V1ZDn52hH1vvqT",
+        "deploySlot": 469350143,
+        "upgradeAuthority": "EdYBBhu2PU84eNt6r8zPWkaxrxbXVAzVvAz3tR3XveRq",
+        "allocatedBinaryBytes": 1289240
+      }
+    }
+  },
+  "receiptMints": [
+    "2xEJcAJSfJecvJtiB3sW4cXiQaUthU5BKkA9hJHzsrLP",
+    "5hREvMCJ1Wa7ZHnnQhPoSQmqW3WFBFHrfF8MiFNBEjAa",
+    "GMC7NrW6HsJpo7R8MMp3oVjRb8pP1ZJST2yoXr6nBhLP",
+    "GhBwWP4FdyZ5Zor7sWMfzpuZZkeM9xvCCpmPpQ2eJhLP"
+  ],
+  "receiptAccounts": [
+    "12xW5FHMGo3cMgovNv7Dp7ztvfH1nZDov9grT6GA18od",
+    "23q5BArzv2wdVowrB7TR4izcKD3Jp6bDbeymass4B5Gf",
+    "3XJuGxkf23VEtyRfC5H1hf7WRDGnUjhHLuLuoEdVt5oJ",
+    "3ySUgNrJ3jkbcEXKr1n1ALx37iLfUHq8zxPSstmH4yEp",
+    "7FUYXTRXjhn4im6njqRDcgiwDmppGcg1HFdTuf3sXynJ",
+    "7abpiNRH3B3immPFP1wHhUcZs3TNU1p2rPdVPoBDedDJ",
+    "8GGeRnjNu83GNAwe7Tpe4UEjZTmyefh8CYDJQkj4qmjq",
+    "BfHC37ZDHjp1kZjpYnh2FN68FbtdmHyJ9hR4bz8HDfR",
+    "C2fKfcmxWBHGL2T4X7dt2BtYGAhZRpxDGTiRwmw62quz",
+    "CpqPnWc3g8j93WFhQHoa5Bhv1TEMKzAcExSvAGdxnHT7"
+  ],
+  "receiptCustodyAuthorities": [
+    "7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7"
+  ],
+  "legacyProgramAccounts": [
+    "2swFE4XnWTRfBGfXbP7DRGntzYYVq29npsbZGphE68Sp",
+    "3zf44QGLYHR86GPEErY56X2BPeCj4dmqGyDqhm1uZ4S2",
+    "4eyoenU9UxvYDwJb44rXYcQd425FBWbhKwQMUP45nXLN",
+    "5GFk5KrtaEt3gZC8g3uLp4fJm566dy529JCWzqaFMsnZ",
+    "5X287p3iS4XDx659zGv6DPrw7fFbnrnpCF6nKmVKqUR4",
+    "5dYVFzgcjcjfz24yVWnqfTb8zPjyGvC3hxJqfjhcPHrU",
+    "5ozxdWQpW7Q18gwnWA2KYceEyzjziAfq4iTuEm2Su3iy",
+    "67MoPEE3Z7V3TuKvuHX1qEiGyVyivGRVaHziByey7Hkw",
+    "6AT92dBHWWnSyqkBxUvq3s3Bj8XRikvCMFBdca8yieVR",
+    "6C89JjC8HrAuqCq6AFstnzwUsfVTJcU1ikoF7uAsu1sf",
+    "6WeYYZVNgnrNGZyWQXS2tULBEokMvgYc56nMCThpD29z",
+    "6YoM5rhr1b44KF9ABZq1gmFJRRtcAM4RA1Ry217EBX1X",
+    "6nKrdiJvmjEyqQurHkvTZr79yohEMkuVDtAcKDGhgs8P",
+    "6xBRotmJ9bJdURGqxiGg6Rt73MnyxwGP6JLemtr8LNjb",
+    "7PKJ9Ds6Htzk5UCZr4uEpqvbuefCiWpA74bMK3ExLbn3",
+    "7ZJZLFR4EGh9eFLrff9UkESqNb8mrMAnZGBW4gej9eyz",
+    "7xf68VEvMtLJ2Up5zVZdA161uH1yNkTFYgDFhNUSwkM7",
+    "83QArN4qb9D38UUVXuhXYQjn5fLZCNqnSbpKAobw1NqC",
+    "8Au4wUtdSnrfyjZsPzrdbPjKvapMEwdiJ6GdZDGmder6",
+    "8GxXF5BuejaKJJ7eFoQbPJN1UVXtHVtFpEnKMibxtiex",
+    "8fYN6ddfqDBe9891gZHxWQqzQwuawH8FYTzLMve4GCzT",
+    "8rpJVSipFetmtfhnLMGMHZSmSmB3Nhh9rHVKp8bxK27H",
+    "8rzUxjrSfgfCNTbjJrSCKqUuxovZchZgszRUstH79vXo",
+    "9GooFiPBB4BRByGLRJURhKs835NmkMyu7UQ4gUMowmRW",
+    "9HoPUwWvUKEWedKAy7uV2zLR6YmmLjiDoha1mWGhgjiE",
+    "9YBLCg1FTS7aStjsAH9BZXiFJA6pXxp3YxKbbAKNGHpi",
+    "9mSdg17r3GTfpwGRLaUzmmhE63g5AMRm5Sdo46yA7YwP",
+    "9uZYaDZrd8GFyTLTqetqXB5sesp7sgmJxhUtm8se6EwK",
+    "9zLSxRrn5bb2EEU3PywV1GB2zCPfrhMPPhDwRkDkMV4x",
+    "AFGyBHZhJ7Kof8a1zoK7xnETn8FTPHZkdwTAPW5W5zKm",
+    "AULMopeTc6ApY6JuTDLeKWWe9GdwSvHV2UasNiepCXMj",
+    "BEdrurdPxgigkAHB7dcbk3zpTEiK9ZfrndNTXhfrMCxU",
+    "BGvsaog6aT9HPYhzijn5bgarUVqbWPHwa59mvxcAt2kc",
+    "Bb6DpGAZow1thn3PkAEFoUd1tFHupLYexcahfeTGi5pA",
+    "C6jhbcz2qKXNF73A8mBuXsnAD9nXbcphhCYDt6W792mR",
+    "CQkXpnnVsVN6oN7WHfJVhQZrkVn3WDPovW5V2RP8ztBB",
+    "CgHZm7KnyPHqJZymf8VTWaZxg8NjK1SPWTbxpCVhwTTu",
+    "Cvv1qRWiTaTUPcae77BCKZKksf4RmFhwi9SLdn5gMwVF",
+    "CwyUNfpYxEeKSqDFd2oRni9KE8poCQsBB8mpjFKVUr3N",
+    "DZEKZbSQUihJgM8vGRtvgFRqJwNAd6CS1zgHKpKmzGg3",
+    "Ds55QyoE6nLPac5RkBf1zjChhmhGBLnKPqSXGXAovDog",
+    "Dz4LK6u3W5JQfCjqd87tuYp66r4dQMRcEN4fAL9XS8Em",
+    "EYn3cunjL8iigMYEqhSvPuRXjxSectiu2veVAMEFDMVK",
+    "EfxEk52ZBdT6hFgZA77jCcppVWAcXvJpbT3L1FrizfRL",
+    "ExNdZtsgnchBezETjzz7PFjBGEWNSTMa9aJHFbgvCf3M",
+    "FPDNk2gffXtpSjoULhvPG4PpcKwyg1NZotLHnH7ww8FL",
+    "FgC339W8s8edjvQQS5yYSk5mvAqSsGidHzTgMBxRKcze",
+    "Fm2hYxTDha1whsCQhcQZhth9jUCN2m8uDHn3cbaXW6n2",
+    "FqyeRBfcxywzDA6LsvM1s11KEQ2szAZPuwmG78X98xVh",
+    "G2WsgUNHkcchyzL8vVZx2zTtDsgz7feSoDA1Kf7pmgAM",
+    "G3vHi95LwTcQtb8RYRCcmVxHxT6D1defEeK1kJGgTiBc",
+    "GJbhbHSsGZTyGezPja6nukwBVDJoMVJtViXamYAUpvmD",
+    "GSdtCNDaZYzxkSbPxQj8XmgZdRtS6AC6Jmiar1rNSoCU",
+    "Gr2pmCUtWqHFkcd4qaf1cxxcQLKRKsHTRPFAx9rSSVUr",
+    "H5d1hySUBKe8avcWkbk9z2kbbggU5otayixB13jhhh9y",
+    "HHrjZL5zDEyAnfmndtahrUDYPtTWJdLKwcNgXqnMejgU",
+    "HN78ezfR9weK4T53r7j1SX3Bpq7zT8B7x9HSEfuV9B3g",
+    "Hy32KyUjnYtrBuvtSQYuNLpzCCkf3P9kd9Ez8NjFSKNX",
+    "YqV18MNFWRAHGEDuC4BMNufNE3zEHWgQcmHc5zJJWrq"
+  ],
+  "scopeInventorySha256": "9353e0f22399c486a07d3b5dbd942cbcf308c2d0cc994c1391d8d8be0e780a41"
+}

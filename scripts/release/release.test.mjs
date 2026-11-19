@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -9,6 +9,8 @@ import { execFileSync } from 'node:child_process';
 import { PublicKey } from '@solana/web3.js';
 import { CONFIG, LOADER, ROOT, cargoArgs, readBundle, sha256, verifyOnChain, decodeIdl } from './artifacts.mjs';
 import { assertEncryptedMount, preflight } from './local.mjs';
+import { assertRetirementComplete, upgradePreflight, SUCCESSOR_UPGRADE_ORDER, assertSuccessorActivationOrder } from './upgrade.mjs';
+import anchor from '@coral-xyz/anchor';
 
 function fixture(t) {
   const directory = mkdtempSync(resolve(tmpdir(), 'dusk-mainnet-release-'));
@@ -146,4 +148,73 @@ test('deploy and attestation default to preview even without a signer or RPC', t
     const result = JSON.parse(execFileSync(process.execPath, [resolve(ROOT, 'scripts/release/local.mjs'), command, f.directory], { env, encoding: 'utf8' }));
     assert.equal(result.mode, 'preview; no signing or network writes');
   }
+});
+
+async function retiredFixture(t) {
+  const f = fixture(t), scope = JSON.parse(readFileSync(resolve(ROOT, 'scripts/retirement/scope.json')));
+  const idl = JSON.parse(readFileSync(resolve(ROOT, 'scripts/retirement/idl.json'))), coder = new anchor.BorshCoder(idl);
+  const program = new PublicKey(scope.program), market = new PublicKey(scope.market);
+  const [state, bump] = PublicKey.findProgramAddressSync([Buffer.from('legacy_retirement'), market.toBuffer()], program);
+  const zero = () => Array(32).fill(0), bn = n => new anchor.BN(n);
+  const paid = { version: 1, bump, completed: true, cleaned_mask: (1 << scope.owners.length) - 1, paid_mask: (1 << scope.owners.length) - 1, source_slot: bn(100),
+    manifest_sha256: Array(32).fill(1), bank_sha256: zero(), quote_sha256: zero(), owner_evidence_root: zero(),
+    payouts: Array.from({length:scope.owners.length},()=>({quoted_base:bn(0),quoted_quote:bn(0),base:bn(0),quote:bn(0)})), custody:[bn(0),bn(0)], remaining:[bn(0),bn(0)] };
+  const tombstone = { owner: program, executable: false, data: await coder.accounts.encode('RetiredLegacyMarket', {retirement:state,version:1}) };
+  const stateAccount = { owner: program, executable: false, data: await coder.accounts.encode('LegacyRetirement', paid) };
+  f.accounts.set(market.toBase58(), tombstone); f.accounts.set(state.toBase58(), stateAccount);
+  f.connection.getProgramAccounts = async () => [{pubkey:market,account:tombstone},{pubkey:state,account:stateAccount}];
+  const previousDirectory = resolve(f.directory,'previous'); mkdirSync(previousDirectory);
+  writeFileSync(resolve(previousDirectory,'dusk.json'),JSON.stringify(idl));
+  const previous = {directory:previousDirectory,manifest:{schema:'dusk-retirement-bundle.v1',sourceCommit:'b'.repeat(40)}};
+  return {...f,scope,previous,paid,coder,stateAccount,tombstone,state, savePaid:async()=>{stateAccount.data=await coder.accounts.encode('LegacyRetirement',paid);}};
+}
+
+test('upgrade preflight accepts complete retirement and exact-code resumption without signing',async t=>{
+  const f=await retiredFixture(t),report=await upgradePreflight(f.connection,f.bundle(),f.previous);
+  assert.ok(report.programs.every(row=>row.alreadyUpgraded));assert.equal(report.peakBufferRent,0);
+  assert.equal(report.retirementManifestSha256,'01'.repeat(32));
+});
+test('normal activation orders delegate before Dusk so their common replay start cannot omit early Dusk writes',()=>{
+  assert.deepEqual(SUCCESSOR_UPGRADE_ORDER,['leverage_delegate','dusk']);
+  const state=(dusk,delegate)=>[{name:'dusk',alreadyUpgraded:dusk},{name:'leverage_delegate',alreadyUpgraded:delegate}];
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(false,false)));
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(false,true)));
+  assert.doesNotThrow(()=>assertSuccessorActivationOrder(state(true,true)));
+  assert.throws(()=>assertSuccessorActivationOrder(state(true,false)),/activation gap/);
+});
+test('upgrade cannot bypass unfinished payouts, personal rent, residual budget or the tombstone',async t=>{
+  for(const failure of ['incomplete','unpaid','unclean','residual','tombstone','rent']) {
+    const f=await retiredFixture(t);
+    if(failure==='incomplete')f.paid.completed=false;
+    if(failure==='unpaid')f.paid.paid_mask=15;
+    if(failure==='unclean')f.paid.cleaned_mask=15;
+    if(failure==='residual')f.paid.remaining[0]=new anchor.BN(1);
+    if(failure==='tombstone')f.tombstone.data.fill(0,0,8);
+    if(failure==='rent')f.accounts.set(f.scope.personal[0][0].address,{owner:new PublicKey(f.scope.program),executable:false,data:Buffer.from([1])});
+    await f.savePaid();await assert.rejects(upgradePreflight(f.connection,f.bundle(),f.previous));
+  }
+});
+test('retirement guard rejects a foreign state owner even when the serialized flags look complete',async t=>{
+  const f=await retiredFixture(t);f.stateAccount.owner=LOADER;
+  assert.throws(()=>assertRetirementComplete(f.tombstone,f.stateAccount));
+});
+test('first successor upgrade requires the reviewed retirement code and rejects an extra legacy claim',async t=>{
+  const f=await retiredFixture(t),program=new PublicKey(CONFIG.programs.dusk);
+  const temporary=Buffer.concat([Buffer.from([127,69,76,70]),program.toBuffer(),Buffer.from('temporary-fixture')]);
+  writeFileSync(resolve(f.previous.directory,'dusk.so'),temporary);
+  const pd=PublicKey.findProgramAddressSync([program.toBuffer()],LOADER)[0],existing=f.accounts.get(pd.toBase58());
+  const bytes=Buffer.alloc(45+temporary.length+100);existing.data.copy(bytes,0,0,45);temporary.copy(bytes,45);existing.data=bytes;
+  const idl=readFileSync(resolve(f.previous.directory,'dusk.json')),compressed=deflateSync(idl),data=Buffer.alloc(44+compressed.length);
+  createHash('sha256').update('internal:IdlAccount').digest().subarray(0,8).copy(data);
+  new PublicKey(CONFIG.idlAuthority).toBuffer().copy(data,8);data.writeUInt32LE(compressed.length,40);compressed.copy(data,44);
+  f.idlRows.dusk={owner:program,executable:false,data};
+  const report=await upgradePreflight(f.connection,f.bundle(),f.previous);
+  assert.equal(report.programs[0].alreadyUpgraded,false);assert.ok(report.peakBufferRent>0);
+  f.connection.getProgramAccounts=async()=>[{pubkey:PublicKey.default,account:{owner:program,data:Buffer.from([1])}}];
+  await assert.rejects(upgradePreflight(f.connection,f.bundle(),f.previous),/outside the reviewed retirement catalog/);
+});
+test('upgrade refuses a wrong network before inspecting any account',async t=>{
+  const f=await retiredFixture(t);f.connection.getGenesisHash=async()=>'devnet';
+  f.connection.getMultipleAccountsInfoAndContext=async()=>{throw Error('must not read')};
+  await assert.rejects(upgradePreflight(f.connection,f.bundle(),f.previous),/not mainnet/);
 });
